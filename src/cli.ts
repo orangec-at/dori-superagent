@@ -11,6 +11,7 @@ import { send, type SendResult } from "./inbox.ts";
 import { inboxList, releaseHeld, sendToShell } from "./inbox-held.ts";
 import { Refusal } from "./refusal.ts";
 import { runMigrate } from "./migrate.ts";
+import { serveDashboard } from "./serve.ts";
 import { refText } from "./refs.ts";
 import { ConfigError as RuntimeConfigError, RuntimeChoiceError } from "./runtime/select.ts";
 import { parseRef } from "./runtime/types.ts";
@@ -32,6 +33,7 @@ const COMMANDS = new Set([
   "loop",
   "backlog",
   "migrate",
+  "serve",
 ]);
 
 /** Prints the line for a delivery that did not land now and returns the exit code: HELD 3, everything else 0. */
@@ -140,6 +142,13 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
     case "status":
       status(d);
       return 0;
+    case "serve": {
+      const port = Number(one(a, "port") ?? "8787");
+      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Refusal("--port must be 0-65535");
+      const server = serveDashboard(d.store, { host: one(a, "host") ?? "127.0.0.1", port, now: d.now });
+      console.log(`SERVING ${server.url.href} home=${d.store.root} (read-only)`);
+      return new Promise<number>(() => {});
+    }
     default:
       console.log(USAGE);
       return cmd === undefined || cmd === "help" ? 0 : 64;
