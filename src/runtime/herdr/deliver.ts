@@ -1,6 +1,6 @@
 import type { AgentIdentity, DeliverOutcome, Key, SubmitResult } from "../types.ts";
 import { type HerdrCli, reasonOf, ToolError } from "./exec.ts";
-import { foreground, paneAgent, probe } from "./probe.ts";
+import { foreground, paneAgent, probe, screenShowsIdle } from "./probe.ts";
 
 /** The terminal needs a moment to finish a bracketed paste before an Enter is read as a submit. */
 export const PASTE_SETTLE_MS = 400;
@@ -52,9 +52,11 @@ export async function deliver(cli: HerdrCli, paneId: string, text: string, sleep
     if (!(e instanceof ToolError) || !/agent_not_ready/.test(e.result.stderr || e.result.stdout))
       return ambiguous("agent prompt", e);
     // agent_not_ready also covers an agent that exited and left a shell in front: typing would run the text there.
-    // Re-read right before typing (#66): only a pane that still has an agent gets keystrokes.
+    // Re-read right before typing (#66): only a pane that still has an agent gets keystrokes. herdr may see no agent
+    // in an omo pane (#5): its screen must then positively show omo's idle input, and the foreground check below holds.
     const { status, agent } = await paneAgent(cli, paneId);
-    if (status === "shell" || status === "gone") return NO_AGENT;
+    if (status === "gone") return NO_AGENT;
+    if (status === "shell" && !(await screenShowsIdle(cli, paneId))) return NO_AGENT;
     const front = await foreground(cli, paneId, HOLDING);
     if (front.shell) return NO_AGENT;
     // A multi-line paste swallows the Enter that follows it, so type the message as one line.
