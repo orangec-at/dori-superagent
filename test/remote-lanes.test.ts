@@ -3,6 +3,8 @@ import { done, ready, startLane } from "../src/lanes.ts";
 import { inboxFile, inboxRefs } from "../src/inbox-files.ts";
 import { refFromText, refText, sameSession } from "../src/refs.ts";
 import { dutyTick, NUDGE_MINUTES } from "../src/duty.ts";
+import { adoptLane } from "../src/adopt.ts";
+import { migrate } from "../src/migrate.ts";
 import { formatRef, parseRef } from "../src/runtime/types.ts";
 import { href } from "./fake.ts";
 import { setup } from "./harness-setup.ts";
@@ -70,7 +72,7 @@ describe("dori start --machine", () => {
     expect(w.panes.get(lane.paneId)!.ran[0]).toContain("ssh fedora cat ");
     const rules = await Bun.file(lane.brief).text();
     expect(rules).toContain("| ssh fedora 'dori' report ios-fix");
-    expect(rules).toContain("| ssh fedora 'dori' ready ios-fix --evidence");
+    expect(rules).toContain(`| ssh fedora 'dori' ready ios-fix --evidence "'<link>'"`);
     expect(lead.received).toEqual([`[START ios-fix] lane opened in ${lane.paneId}@mini`]);
   });
 
@@ -93,5 +95,31 @@ describe("dori start --machine", () => {
     expect(lead.received.at(-1)).toStartWith("[READY ios-fix]");
     await done(d, "ios-fix");
     expect(w.calls.at(-1)?.argv).toEqual(["--machine", "mini", "pane", "close", lane.paneId]);
+  });
+
+  test("dori migrate refuses a remote or adopted lane, and --all skips them, closing and opening nothing", async () => {
+    const { w, d, brief } = setup();
+    await startLane(d, "ios-fix", brief, { machine: "mini", cwd: "/w" });
+    w.addPane("w6:p1", "idle");
+    await adoptLane(d, "vibeguard", "w6:p1");
+    const lines: string[] = [];
+    const opts = {
+      to: "hc" as const,
+      dryRun: false,
+      waitMinutes: 0,
+      resume: false,
+      sleep: async () => {},
+      log: (l: string) => void lines.push(l),
+    };
+    const before = w.calls.length;
+    await expect(migrate(d, { lane: "ios-fix" }, opts)).rejects.toThrow("runs on machine mini");
+    await expect(migrate(d, { lane: "vibeguard" }, opts)).rejects.toThrow("adopted lane");
+    await migrate(d, { all: true }, { ...opts, dryRun: true });
+    expect(lines.filter((l) => l.startsWith("SKIP "))).toEqual([
+      "SKIP ios-fix runs on machine mini: migrate moves only this machine's sessions",
+      "SKIP vibeguard adopted lane: its pane is the operator's",
+    ]);
+    expect(w.calls.slice(before).some((c) => c.argv.includes("close") || c.argv.includes("create"))).toBe(false);
+    expect(w.panes.has("w6:p1")).toBe(true);
   });
 });
