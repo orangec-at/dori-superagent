@@ -1,9 +1,10 @@
 import { DeliveryUncertain, failureDetail } from "./delivery.ts";
-import { type Deps, prompt } from "./harness.ts";
+import type { Deps } from "./harness.ts";
 import { runHook } from "./hooks.ts";
 import { flushInbox, sendOrThrow, tellLead } from "./inbox.ts";
 import { Refusal } from "./refusal.ts";
 import { refText } from "./refs.ts";
+import { nudgeText } from "./remote.ts";
 import type { Lane } from "./store-types.ts";
 
 export const NUDGE_MINUTES = [10, 20, 40] as const;
@@ -76,12 +77,7 @@ export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
       lane.log.push({ at: now, kind: "nudge", text: `idle ${Math.floor(idleMin)} min` });
       d.store.saveLane(lane);
       if (lane.nudges < NUDGE_MINUTES.length) {
-        await sendOrThrow(
-          d,
-          lane.key,
-          prompt("nudge.md", { key: lane.key, minutes: String(Math.floor(idleMin)), dori: d.doriCmd }),
-          "duty",
-        );
+        await sendOrThrow(d, lane.key, nudgeText(d, lane.key, Math.floor(idleMin), lane.sessionRef.machine), "duty");
         events.push({ lane: lane.key, action: `nudge-${lane.nudges}` });
       } else {
         await tellLead(

@@ -1,11 +1,12 @@
 import { appendFileSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { refFromText, sameSession } from "./refs.ts";
+import { refFromText, refText, sameSession } from "./refs.ts";
 import type { SessionRef } from "./runtime/types.ts";
 import type { QueuedMessage } from "./store-types.ts";
 
 // Inbox files: one JSONL queue per session. A herdr pane keeps the name it had before runtimes existed (`w1_p3.jsonl`),
-// so queues written by an older binary drain; every other runtime is prefixed (`hc--t7.jsonl`). A `.forward` file beside
+// so queues written by an older binary drain; a pane on another machine adds its machine (`w4_p3@ubuntu.jsonl`); every
+// other runtime is prefixed (`hc--t7.jsonl`). A `.forward` file beside
 // an inbox (`w1_p3.jsonl.forward`, holding a ref) says that session moved: new messages go to the ref's inbox, and
 // entries an older writer still appends to the old file are merged into it by the next flush.
 
@@ -13,7 +14,7 @@ const HC_PREFIX = "hc--";
 const SUFFIX = ".jsonl";
 
 export function inboxFile(root: string, ref: SessionRef): string {
-  const name = ref.runtime === "herdr" ? ref.id.replaceAll(":", "_") : `${HC_PREFIX}${ref.id}`;
+  const name = ref.runtime === "herdr" ? refText(ref).replaceAll(":", "_") : `${HC_PREFIX}${ref.id}`;
   return join(root, "inbox", `${name}${SUFFIX}`);
 }
 
@@ -21,7 +22,7 @@ function refOfFile(name: string): SessionRef {
   const stem = name.slice(0, -SUFFIX.length);
   return stem.startsWith(HC_PREFIX)
     ? { runtime: "hc", id: stem.slice(HC_PREFIX.length) }
-    : { runtime: "herdr", id: stem.replaceAll("_", ":") };
+    : refFromText(stem.replaceAll("_", ":"));
 }
 
 /** Every session that has an inbox file, empty or not. */

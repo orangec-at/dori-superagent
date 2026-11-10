@@ -60,7 +60,7 @@ function fakeHome(): Store {
   store.saveLane(lane("fix-login", { log }));
   store.saveLane(
     lane("ship-it", {
-      sessionRef: { runtime: "hc", id: "t9" },
+      sessionRef: { runtime: "herdr", id: "w4:p1", machine: "mini" },
       status: "ready",
       final: { text: "merged", evidence: ["https://github.com/o/r/pull/1", "javascript:alert(1)"], at: NOW - 5000 },
     }),
@@ -93,9 +93,9 @@ test("/api/state reports lanes, backlog, roles, inbox counts, receipts and kill 
   expect(res.status).toBe(200);
   const s = (await res.json()) as DashboardState;
   expect(s.generatedAt).toBe(NOW);
-  expect(s.lanes.map((l) => [l.key, l.status, l.pane])).toEqual([
-    ["fix-login", "working", "w1:p5"],
-    ["ship-it", "ready", "hc:t9"],
+  expect(s.lanes.map((l) => [l.key, l.status, l.machine, l.pane])).toEqual([
+    ["fix-login", "working", "local", "w1:p5"],
+    ["ship-it", "ready", "mini", "w4:p1@mini"],
   ]);
   expect(s.lanes[0]!.lastActivityAt).toBe(NOW - 60_000);
   expect(s.lanes[0]!.log.map((e) => e.text)).toEqual(["step 2", "step 3", "step 4", "step 5", "step 6"]);
@@ -132,6 +132,8 @@ test("the HTML page refreshes every 30s, loads nothing external, escapes text an
   expect(html).not.toContain('href="javascript:');
   expect(html).toContain("STOPPED");
   expect(html).toContain("which API?");
+  expect(html).toContain("<th>machine</th>");
+  expect(html).toContain("<td>mini</td><td>w4:p1@mini</td>");
 });
 
 test("it is read-only: no write method is served and serving writes no file into DORI_HOME", async () => {

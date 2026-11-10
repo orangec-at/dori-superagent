@@ -1,5 +1,6 @@
 // The herdr CLI behind one injectable `Exec`: every call carries `--session` when one is named, so tests swap herdr for
-// a recorder and the e2e test points it at an isolated session.
+// a recorder and the e2e test points it at an isolated session. A CLI for another machine carries `--machine <label>`
+// instead: herdr runs the API command on that saved SSH machine's own server.
 import { type Exec, spawnExec, ToolError } from "../exec.ts";
 
 /** A herdr call that exited non-zero (#89 code matches herdr's own output on it, never its message). */
@@ -11,10 +12,16 @@ export class HerdrCli {
   constructor(
     private readonly exec: Exec = spawnExec,
     private readonly session: string | undefined = process.env["DORI_HERDR_SESSION"],
+    private readonly machine?: string,
   ) {}
 
+  private prefix(): string[] {
+    if (this.machine) return ["--machine", this.machine];
+    return this.session ? ["--session", this.session] : [];
+  }
+
   async call(argv: readonly string[]): Promise<Record<string, unknown>> {
-    const full = this.session ? ["--session", this.session, ...argv] : [...argv];
+    const full = [...this.prefix(), ...argv];
     const res = await this.exec("herdr", full);
     if (res.code !== 0) throw new ToolError(full, res, "herdr");
     const text = res.stdout.trim();
@@ -25,9 +32,8 @@ export class HerdrCli {
 
   /** `pane read` returns the screen as plain text, not JSON. */
   async read(paneId: string, lines: number): Promise<string> {
-    const full = this.session ? ["--session", this.session] : [];
     const res = await this.exec("herdr", [
-      ...full,
+      ...this.prefix(),
       "pane",
       "read",
       paneId,
