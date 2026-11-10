@@ -41,10 +41,12 @@ Automatic runs are **on by default**, with no `selfUpdate` config at all:
 
 Both are detached (`$DORI_HOME/self-update.log`), because the update restarts the loop that triggered it. The
 trigger itself makes no network call; the detached run fetches with prompts disabled, a 30 s ssh connect timeout
-and a 60 s https stall limit, so nothing waits on a person or a dead network.
+(unless the repo sets its own `core.sshCommand`) and a 60 s https stall limit, so nothing waits on a person or a
+dead network.
 
 The same situation (head, target, state) is retried `MAX_SELF_UPDATE_FAILURES` (2) times; after that automatic
-runs stay quiet about it until a new commit lands or someone runs `--now`.
+runs stay quiet about it until a new commit lands or someone runs `--now`. A run that errors (origin unreachable,
+a broken `config.json`) counts the same way under its error message, so an outage is told twice, not every hour.
 
 Kill switch: `"selfUpdate": { "auto": false }` in `$DORI_HOME/config.json`, or `DORI_SELF_UPDATE=off`. A
 stopped hourly loop (`dori loop stop`) also starts no self-update until `dori loop resume`.
@@ -77,5 +79,6 @@ is added only when the overlay does not start with one), with `{{variables}}` su
 
 `dori self-update --migrate-prompts` moves existing local edits there: for each changed `prompts/*.md` whose
 diff only appends at the end of the file, the added lines become the overlay, the full diff is kept as
-`<name>.local.patch`, and the repo file is restored. A mid-file insertion or any removal is reported as `SKIP`
-and left for a person, because the overlay can only come back at the end.
+`<name>.local.patch`, and the repo file is restored. It moves a file only when the overlay renders the edited file
+byte for byte; a mid-file insertion, any removal, or an append that does not start with a blank line is reported as
+`SKIP` and left for a person. It takes the same lock as an update, since both touch the checkout.

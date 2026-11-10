@@ -5,7 +5,7 @@ import { status, up } from "./cli-up.ts";
 import { done, ready, report, startLane } from "./lanes.ts";
 import { mergeGate, parsePr, review } from "./gate.ts";
 import { runSelfUpdate } from "./cli-self-update.ts";
-import { autoSelfUpdate, originRepo, repoRunner } from "./self-update-run.ts";
+import { afterMerge } from "./self-update-run.ts";
 import { need, one, parse, textOf, USAGE } from "./cli-args.ts";
 import { defaultDeps, ROLES, type Deps } from "./harness.ts";
 import { ConfigError, hooksSettled } from "./hooks.ts";
@@ -141,17 +141,9 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
     case "merge": {
       const dryRun = one(a, "dry-run") === "true";
       console.log(await mergeGate(d, need(x, "PR"), { dryRun }));
-      // A merge into dori's own repo is new code for this checkout: start the self-update in the background. The
-      // merge already happened, so nothing in here may throw out of the command.
-      if (!dryRun) {
-        try {
-          const origin = await originRepo(repoRunner(d));
-          if (origin !== undefined && parsePr(x!).repo.toLowerCase() === origin.toLowerCase())
-            console.log(autoSelfUpdate(d));
-        } catch (e) {
-          console.error(`SELF_UPDATE_ERROR ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
+      // A merge into dori's own repo is new code for this checkout: start the self-update in the background.
+      const started = dryRun ? undefined : await afterMerge(d, parsePr(x!).repo);
+      if (started !== undefined) console.log(started);
       return 0;
     }
     case "self-update":

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { migratePrompts } from "../src/cli-self-update.ts";
 import { overlayPath, prompt, promptText } from "../src/harness.ts";
 import { autoSelfUpdate, loadSelfUpdateConfig, restartTargets } from "../src/self-update-run.ts";
+import { fetchEnv } from "../src/self-update.ts";
 import { World } from "./fake.ts";
 import { gitWorld, runnerIn, sh } from "./self-update-git.ts";
 
@@ -119,13 +120,34 @@ describe("dori self-update --migrate-prompts", () => {
   test("an added line starting with + keeps its character", async () => {
     const g = await gitWorld();
     const home = mkdtempSync(join(tmpdir(), "dori-home-"));
-    appendFileSync(join(g.checkout, "prompts", "lead.md"), "++ keep both pluses\n");
+    appendFileSync(join(g.checkout, "prompts", "lead.md"), "\n++ keep both pluses\n");
     await migratePrompts(runnerIn(g.checkout), home);
-    expect(readFileSync(overlayPath(home, "lead.md"), "utf8")).toBe("++ keep both pluses\n");
+    expect(readFileSync(overlayPath(home, "lead.md"), "utf8")).toBe("\n++ keep both pluses\n");
+  });
+
+  test("an append without a blank first line is left in place: as an overlay it would gain one", async () => {
+    const g = await gitWorld();
+    const home = mkdtempSync(join(tmpdir(), "dori-home-"));
+    const file = join(g.checkout, "prompts", "lead.md");
+    appendFileSync(file, "- glued rule\n");
+    const edited = readFileSync(file, "utf8");
+    const [line] = await migratePrompts(runnerIn(g.checkout), home);
+    expect(line).toStartWith("SKIP prompts/lead.md: as an overlay the local change would not render byte for byte");
+    expect(readFileSync(file, "utf8")).toBe(edited);
+    expect(existsSync(overlayPath(home, "lead.md"))).toBe(false);
   });
 });
 
 describe("selfUpdate config and the automatic trigger", () => {
+  test("the fetch never prompts, and leaves a repo's own core.sshCommand or GIT_SSH_COMMAND alone", () => {
+    expect(fetchEnv(false, { PATH: "/bin" })).toMatchObject({
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_SSH_COMMAND: "ssh -o BatchMode=yes -o ConnectTimeout=30",
+    });
+    expect(fetchEnv(true, { PATH: "/bin" })["GIT_SSH_COMMAND"]).toBeUndefined();
+    expect(fetchEnv(false, { GIT_SSH_COMMAND: "ssh -i deploy" })["GIT_SSH_COMMAND"]).toBe("ssh -i deploy");
+  });
+
   test("config: services come before the two loop roles; auto off by config or DORI_SELF_UPDATE=off", () => {
     const home = mkdtempSync(join(tmpdir(), "dori-home-"));
     expect(loadSelfUpdateConfig(home)).toMatchObject({ auto: true, services: [] });

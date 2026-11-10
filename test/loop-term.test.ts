@@ -1,9 +1,8 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { parse } from "../src/cli-args.ts";
-import { runLoop } from "../src/cli-loops.ts";
-import { main } from "../src/cli.ts";
+import { runDuty, runLoop } from "../src/cli-loops.ts";
 import type { Deps } from "../src/harness.ts";
-import { onTerm } from "../src/loop-term.ts";
+import { onTerm, type Term } from "../src/loop-term.ts";
 import { World } from "./fake.ts";
 
 const term = () => (process.emit as (e: string) => boolean)("SIGTERM");
@@ -45,23 +44,28 @@ describe("onTerm", () => {
   });
 });
 
-/** Runs `dori loop` with SIGTERM already on its way, so it ends after its first pass; returns what the trigger did. */
-async function oneLoopPass(d: Deps, argv: string[]): Promise<{ code: number; started: number; lines: string[] }> {
-  let started = 0;
+/** A Term whose stop request is already in: the loop finishes the pass it is in and leaves, never waiting. */
+const stopAfterPass = (): Term => ({ stopped: () => true, wait: async () => {}, off: () => {} });
+
+async function captured<T>(body: () => Promise<T>): Promise<{ value: T; lines: string[] }> {
   const lines: string[] = [];
   const log = spyOn(console, "log").mockImplementation((...a: unknown[]) => void lines.push(a.join(" ")));
   try {
-    // runLoop registers its handler before its first await, so the signal lands on the running loop.
-    const running = runLoop(d, parse(["loop", ...argv]), undefined, () => void started++);
-    term();
-    return { code: await running, started, lines };
+    return { value: await body(), lines };
   } finally {
     log.mockRestore();
   }
 }
 
+async function oneLoopPass(d: Deps, argv: string[]): Promise<{ code: number; started: number; lines: string[] }> {
+  let started = 0;
+  const start = () => void started++;
+  const r = await captured(() => runLoop(d, parse(["loop", ...argv]), undefined, start, stopAfterPass));
+  return { code: r.value, started, lines: r.lines };
+}
+
 describe("dori loop", () => {
-  test("a pass that ran starts the self-update trigger, then SIGTERM ends the loop without waiting", async () => {
+  test("a pass that ran starts the self-update trigger, then a stop request ends the loop without waiting", async () => {
     const r = await oneLoopPass(new World().deps(), ["--interval", "1000000"]);
     expect(r.code).toBe(0);
     expect(r.started).toBe(1);
@@ -84,18 +88,10 @@ describe("dori loop", () => {
 });
 
 describe("dori duty", () => {
-  test("SIGTERM ends the loop after the pass, without waiting out the interval", async () => {
+  test("a stop request ends the loop after the pass, without waiting out the interval", async () => {
     const d = new World().deps();
-    const lines: string[] = [];
-    const log = spyOn(console, "log").mockImplementation((...a: unknown[]) => void lines.push(a.join(" ")));
-    try {
-      // runDuty registers its handler before its first await, so the signal lands on the running loop.
-      const running = main(["duty", "--interval", "1000000"], d);
-      term();
-      expect(await running).toBe(0);
-    } finally {
-      log.mockRestore();
-    }
-    expect(lines.join("\n")).toContain("DUTY STOPPED by SIGTERM after this pass");
+    const r = await captured(() => runDuty(d, parse(["duty", "--interval", "1000000"]), undefined, stopAfterPass));
+    expect(r.value).toBe(0);
+    expect(r.lines.join("\n")).toContain("DUTY STOPPED by SIGTERM after this pass");
   });
 });

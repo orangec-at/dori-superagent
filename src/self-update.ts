@@ -85,13 +85,17 @@ async function git(run: Runner, argv: readonly string[], where?: Parameters<Runn
 /**
  * The fetch never waits for a person: no credential or host-key prompt (`GIT_TERMINAL_PROMPT=0`, ssh BatchMode), a
  * 30 s ssh connect timeout, and an https transfer that stalls for 60 s is aborted (`http.lowSpeed*`). A hung fetch
- * would otherwise hold the self-update lock forever.
+ * would otherwise hold the self-update lock forever. `ownSsh`: the repo sets `core.sshCommand` (a deploy key, say),
+ * which `GIT_SSH_COMMAND` would override, so it is left alone.
  */
-function fetchEnv(from: Readonly<Record<string, string | undefined>> = process.env): Record<string, string> {
+export function fetchEnv(
+  ownSsh: boolean,
+  from: Readonly<Record<string, string | undefined>> = process.env,
+): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(from)) if (v !== undefined) env[k] = v;
   env["GIT_TERMINAL_PROMPT"] = "0";
-  env["GIT_SSH_COMMAND"] ??= "ssh -o BatchMode=yes -o ConnectTimeout=30";
+  if (!ownSsh) env["GIT_SSH_COMMAND"] ??= "ssh -o BatchMode=yes -o ConnectTimeout=30";
   return env;
 }
 
@@ -103,8 +107,10 @@ async function upstreamRef(run: Runner): Promise<string> {
 
 /** Fetches origin and says whether HEAD is current, behind (fast-forwardable), diverged, or blocked by local edits. */
 export async function checkUpdate(run: Runner): Promise<UpdateStatus> {
+  const sshCommand = await run("git", ["config", "--get", "core.sshCommand"]);
+  const ownSsh = sshCommand.code === 0 && sshCommand.stdout.trim() !== "";
   await git(run, ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "fetch", "--quiet", "origin"], {
-    env: fetchEnv(),
+    env: fetchEnv(ownSsh),
   });
   const upstream = await upstreamRef(run);
   const head = await git(run, ["rev-parse", "HEAD"]);

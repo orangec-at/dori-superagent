@@ -70,10 +70,16 @@ export const overlayPath = (home: string, name: string): string => join(home, "p
 export function promptText(name: string, home: string | undefined): string {
   const base = readFileSync(join(promptsDir(), name), "utf8");
   const path = home === undefined ? undefined : overlayPath(home, name);
-  const extra = path !== undefined && existsSync(path) ? readFileSync(path, "utf8") : "";
+  return joinOverlay(base, path !== undefined && existsSync(path) ? readFileSync(path, "utf8") : "");
+}
+
+/**
+ * `extra` appended to `base` as written; an overlay that does not open with a blank line gets one, so it never runs
+ * into the repo prompt's last line. `dori self-update --migrate-prompts` checks that this reproduces the edited file
+ * byte for byte before it moves anything.
+ */
+export function joinOverlay(base: string, extra: string): string {
   if (!extra.trim()) return base;
-  // Appended as written, so a migrated local append comes back byte for byte; an overlay that does not open with a
-  // blank line of its own gets one, so it never runs into the repo prompt's last line.
   const head = base.endsWith("\n") ? base : `${base}\n`;
   const body = extra.endsWith("\n") ? extra : `${extra}\n`;
   return /^[ \t]*\n/.test(body) ? head + body : `${head}\n${body}`;

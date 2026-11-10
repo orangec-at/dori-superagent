@@ -9,9 +9,9 @@ import { acquire } from "../src/loop-lock.ts";
 import { checkUpdate } from "../src/self-update.ts";
 import {
   MAX_SELF_UPDATE_FAILURES,
+  afterMerge,
   originRepo,
   rememberFailure,
-  repoRunner,
   restartTargets,
   selfUpdateIo,
   situation,
@@ -102,6 +102,23 @@ describe("dori self-update", () => {
     expect(errors).toHaveLength(2);
     expect(errors[0]).toContain("selfUpdate.services must be an array of strings");
   });
+
+  test("the same error is told MAX_SELF_UPDATE_FAILURES times, then skipped; --now still tells it", async () => {
+    const d = new World().deps();
+    configure(d, { checks: [["true"]], install: ["true"] });
+    const run = runnerIn("/nonexistent-checkout");
+    const restore = capture();
+    try {
+      for (let i = 0; i < MAX_SELF_UPDATE_FAILURES + 1; i++)
+        expect(await runSelfUpdate(d, parse(["self-update"]), run)).toBe(1);
+      expect(lines.filter((l) => l.startsWith("[SELF-UPDATE] error:"))).toHaveLength(MAX_SELF_UPDATE_FAILURES);
+      expect(lines.filter((l) => l.startsWith("SELF_UPDATE_SKIPPED [SELF-UPDATE] error:"))).toHaveLength(1);
+      expect(await runSelfUpdate(d, parse(["self-update", "--now"]), run)).toBe(1);
+      expect(lines.filter((l) => l.startsWith("[SELF-UPDATE] error:"))).toHaveLength(MAX_SELF_UPDATE_FAILURES + 1);
+    } finally {
+      restore();
+    }
+  });
 });
 
 describe("selfUpdateIo", () => {
@@ -142,36 +159,21 @@ describe("dori merge and the checkout's origin", () => {
     expect(await originRepo(run)).toBe("Orange-At/Dori-Superagent");
   });
 
-  test("a merge in this checkout's own repository reaches the trigger; a failing trigger still exits 0", async () => {
-    const { w, d } = setup();
-    const origin = await originRepo(repoRunner(d));
-    // The checkout dori runs from has a GitHub origin in every real setup; without one there is nothing to match.
-    if (origin === undefined) return;
-    const pr = `${origin.toUpperCase()}#5`;
-    const head = "b".repeat(40);
-    w.gh = (argv) => {
-      if (argv[1] === "view") return { code: 0, stdout: JSON.stringify({ headRefOid: head }) };
-      if (argv[1] === "checks") return { code: 0, stdout: JSON.stringify([{ name: "test", bucket: "pass" }]) };
-      if (argv[1] === "merge") return { code: 0, stdout: "" };
-      return { code: 1, stdout: "" };
-    };
-    d.store.saveReceipt({ pr, sha: head, verdict: "CLEAR", model: "m", at: d.now(), summary: "" });
-    const errors: string[] = [];
-    const err = spyOn(console, "error").mockImplementation((...a: unknown[]) => void errors.push(a.join(" ")));
-    const restore = capture();
-    try {
-      process.env["DORI_SELF_UPDATE"] = "off";
-      expect(await main(["merge", pr], d)).toBe(0);
-      delete process.env["DORI_SELF_UPDATE"];
-      writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ selfUpdate: { auto: "yes" } }));
-      expect(await main(["merge", pr], d)).toBe(0);
-    } finally {
-      restore();
-      err.mockRestore();
-    }
-    expect(lines.filter((l) => l.startsWith("MERGED"))).toHaveLength(2);
-    expect(lines.join("\n")).toContain("SELF_UPDATE_OFF");
-    expect(errors.join("\n")).toContain("SELF_UPDATE_ERROR config.json: selfUpdate.auto must be true or false");
+  test("afterMerge: only a PR of the checkout's own origin (any case) starts the trigger, and it never throws", async () => {
+    const g = await gitWorld();
+    await sh(g.checkout, "git", "remote", "set-url", "origin", "git@github.com:orangec-at/dori-superagent.git");
+    const run = runnerIn(g.checkout);
+    const d = new World().deps();
+    let started = 0;
+    const start = () => void started++;
+    expect(await afterMerge(d, "other/repo", run, start)).toBeUndefined();
+    expect(await afterMerge(d, "Orangec-At/Dori-Superagent", run, start)).toStartWith("SELF_UPDATE_STARTED");
+    expect(started).toBe(1);
+    writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ selfUpdate: { auto: "yes" } }));
+    expect(await afterMerge(d, "orangec-at/dori-superagent", run, start)).toStartWith(
+      "SELF_UPDATE_ERROR config.json: selfUpdate.auto must be true or false",
+    );
+    expect(started).toBe(1);
   });
 
   test("a merge in another repository still merges and starts no self-update", async () => {

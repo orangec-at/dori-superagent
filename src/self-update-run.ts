@@ -181,10 +181,12 @@ const write = (d: Deps, m: Memo): void => writeFileSync(memoPath(d), `${JSON.str
 export const situation = (s: UpdateStatus): string => `${s.head}:${s.target}:${s.state}`;
 
 /** Whether automatic runs should leave this situation alone: it already failed MAX_SELF_UPDATE_FAILURES times. */
-export const isQuiet = (d: Deps, s: UpdateStatus): boolean => {
+/** Whether `key` (a situation, or `error:<message>` for a run that threw) already failed MAX_SELF_UPDATE_FAILURES times. */
+export const isQuietKey = (d: Deps, key: string): boolean => {
   const m = memo(d);
-  return m.situation === situation(s) && (m.failures ?? 0) >= MAX_SELF_UPDATE_FAILURES;
+  return m.situation === key && (m.failures ?? 0) >= MAX_SELF_UPDATE_FAILURES;
 };
+export const isQuiet = (d: Deps, s: UpdateStatus): boolean => isQuietKey(d, situation(s));
 export const rememberFailure = (d: Deps, s: string): void => {
   const m = memo(d);
   write(d, { situation: s, failures: m.situation === s ? (m.failures ?? 0) + 1 : 1 });
@@ -210,6 +212,25 @@ export function autoSelfUpdate(d: Deps, start: (d: Deps) => void = spawnSelfUpda
   if (stop) return `SELF_UPDATE_OFF the loop is stopped (${stop.reason}); dori loop resume turns it back on`;
   start(d);
   return `SELF_UPDATE_STARTED (log: ${join(d.store.root, "self-update.log")})`;
+}
+
+/**
+ * After `dori merge` succeeded: a PR of the checkout's own origin repository (compared without case) starts the
+ * trigger. The merge already happened, so this never throws: a failure comes back as a `SELF_UPDATE_ERROR` line.
+ */
+export async function afterMerge(
+  d: Deps,
+  prRepo: string,
+  run: Runner = repoRunner(d),
+  start: (d: Deps) => void = spawnSelfUpdate,
+): Promise<string | undefined> {
+  try {
+    const origin = await originRepo(run);
+    if (origin === undefined || prRepo.toLowerCase() !== origin.toLowerCase()) return undefined;
+    return autoSelfUpdate(d, start);
+  } catch (e) {
+    return `SELF_UPDATE_ERROR ${e instanceof Error ? e.message : String(e)}`;
+  }
 }
 
 /** owner/repo of the checkout's origin, from an https or ssh GitHub URL. */

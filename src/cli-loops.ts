@@ -8,7 +8,8 @@ import { acquire, release } from "./loop-lock.ts";
 import { onTerm, type Term } from "./loop-term.ts";
 import { autoSelfUpdate, spawnSelfUpdate } from "./self-update-run.ts";
 
-export async function runDuty(d: Deps, a: Args, x: string | undefined): Promise<number> {
+/** `newTerm`: how the loop learns it should stop between passes (SIGTERM by default; tests pass their own). */
+export async function runDuty(d: Deps, a: Args, x: string | undefined, newTerm: () => Term = onTerm): Promise<number> {
   if (x === "stop") {
     d.store.setStop(d.now(), one(a, "text") ?? "stopped by hand", "duty");
     console.log("DUTY STOPPED");
@@ -33,7 +34,7 @@ export async function runDuty(d: Deps, a: Args, x: string | undefined): Promise<
   const lock = d.store.lockPath("duty");
   const held = acquire(d, lock);
   if ("holder" in held) throw new Refusal(`another duty loop runs in this home (${held.holder})`);
-  const term = onTerm();
+  const term = newTerm();
   try {
     for (;;) {
       for (const e of await dutyTick(d))
@@ -56,12 +57,16 @@ export async function runDuty(d: Deps, a: Args, x: string | undefined): Promise<
   return 0;
 }
 
-/** `startSelfUpdate`: what the trigger after each pass starts (tests pass a stub; the CLI the detached process). */
+/**
+ * `startSelfUpdate`: what the trigger after each pass starts (the detached process; tests pass a stub). `newTerm`: as
+ * for runDuty.
+ */
 export async function runLoop(
   d: Deps,
   a: Args,
   x: string | undefined,
   startSelfUpdate: (d: Deps) => void = spawnSelfUpdate,
+  newTerm: () => Term = onTerm,
 ): Promise<number> {
   if (x === "stop") {
     d.store.setStop(d.now(), one(a, "text") ?? "stopped by hand");
@@ -107,7 +112,7 @@ export async function runLoop(
       "--interval and --max-load must be finite positive numbers; --max-lanes and --max-starts whole numbers >= 0",
     );
   }
-  const term = onTerm();
+  const term = newTerm();
   try {
     return await loopPasses(d, a, opts, term, startSelfUpdate);
   } finally {
