@@ -24,10 +24,11 @@ const stopText = (s: { at: number; reason: string } | null): string =>
 
 function renderHtml(s: DashboardState): string {
   const lanes = table(
-    ["key", "status", "pane", "last activity", "log", "final"],
+    ["key", "status", "machine", "pane", "last activity", "log", "final"],
     s.lanes.map((l) => [
       esc(l.key),
       `<span class="st-${l.status}">${l.status}</span>`,
+      esc(l.machine),
       esc(l.pane),
       time(l.lastActivityAt),
       l.log.map((e) => `${time(e.at)} ${esc(e.kind)}: ${esc(e.text)}`).join("<br>"),

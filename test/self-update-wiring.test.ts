@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { migratePrompts } from "../src/cli-self-update.ts";
 import { overlayPath, prompt, promptText } from "../src/harness.ts";
 import { autoSelfUpdate, loadSelfUpdateConfig, restartTargets } from "../src/self-update-run.ts";
+import { laneFooter, nudgeText } from "../src/remote.ts";
 import { fetchEnv } from "../src/self-update.ts";
 import { World } from "./fake.ts";
 import { gitWorld, runnerIn, sh } from "./self-update-git.ts";
@@ -39,6 +40,16 @@ describe("prompt overlays", () => {
     mkdirSync(join(home, "prompts", "overlay"), { recursive: true });
     writeFileSync(overlayPath(home, "lead.md"), "    indented rule");
     expect(promptText("lead.md", home)).toBe("Lead.\n\n    indented rule\n");
+  });
+
+  test("remote and adopted lanes get their own overlay in the lane rules and the nudge", () => {
+    promptsIn({ "lane-footer-remote.md": "Remote {{key}}.\n", "nudge-remote.md": "Nudge {{key}}.\n" });
+    const d = new World().deps();
+    mkdirSync(join(d.store.root, "prompts", "overlay"), { recursive: true });
+    writeFileSync(overlayPath(d.store.root, "lane-footer-remote.md"), "\n- remote rule for {{key}}\n");
+    writeFileSync(overlayPath(d.store.root, "nudge-remote.md"), "\n- nudge rule\n");
+    expect(laneFooter(d, "k1", "ubuntu")).toBe("Remote k1.\n\n- remote rule for k1\n");
+    expect(nudgeText(d, "k1", 10, "ubuntu")).toBe("Nudge k1.\n\n- nudge rule\n");
   });
 
   test("no home, or an empty overlay, gives the repo prompt unchanged", () => {

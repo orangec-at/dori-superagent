@@ -77,8 +77,10 @@ export class World {
     return p;
   }
 
-  exec: Exec = async (cmd, argv, options) => {
-    this.calls.push({ cmd, argv });
+  exec: Exec = async (cmd, full, options) => {
+    this.calls.push({ cmd, argv: full });
+    // A call for another machine (`herdr --machine M ...`) reaches the same panes: the recorded argv shows the machine.
+    const argv = cmd === "herdr" && full[0] === "--machine" ? full.slice(2) : full;
     if (cmd === "slow-hook" && this.hang) {
       let killed = false;
       const kill = new Promise<void>((resolve) =>

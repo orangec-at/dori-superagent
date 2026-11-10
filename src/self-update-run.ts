@@ -106,10 +106,13 @@ const POLL_MS = 1000;
 export async function restartRole(d: Deps, role: keyof typeof LOOP_COMMANDS, procs: Procs = realProcs): Promise<void> {
   const ref = d.store.roles()[role];
   if (!ref) throw new Error("not registered (dori up opens it)");
-  const rt = d.runtimes.for(ref);
-  const probe = await rt.probe(ref);
   const sub = role === "duty-loop" ? "duty" : "loop";
   const fallback = LOOP_COMMANDS[role](d.doriCmd);
+  // The pids a probe reports belong to that machine; process.kill here would signal whatever local process has them.
+  if (ref.machine !== undefined)
+    throw new Error(`${refText(ref)} is on machine ${ref.machine}; restart dori ${sub} there by hand with ${fallback}`);
+  const rt = d.runtimes.for(ref);
+  const probe = await rt.probe(ref);
   // An unreadable process list reads as "shell in front"; typing then would queue a second loop behind the old one.
   if (!probe.foreground?.length)
     throw new Error(`cannot read the processes of ${refText(ref)}; restart dori ${sub} by hand with ${fallback}`);

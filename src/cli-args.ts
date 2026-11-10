@@ -4,7 +4,12 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
 
   dori up [--cwd DIR]                         open lead, duty, duty loop and hourly loop sessions
   dori role <lead|duty> [REF]                 register a session (w1:p3, herdr:w1:p3, hc:t7) as lead or duty (default: this one)
+                                              a pane on a saved herdr machine is REF@machine (w4:p3@ubuntu)
   dori start <key> --brief FILE [--cwd DIR]   open a lane: new tab, omo session, brief + lane rules
+             [--machine M --cwd DIR]          ... on a saved herdr SSH machine (herdr --machine M); DIR is on M
+  dori adopt <key> --pane REF [--machine M] [--brief FILE] [--note T] [--cwd DIR]
+                                              watch a running agent session (omo or Claude Code) as a lane: its
+                                              rules, brief and note are delivered once; done leaves the pane open
   dori report <key> --text T [--status working|waiting]
   dori ready <key> --text T --evidence LINK [--evidence LINK ...]
   dori send <lead|duty|key|pane> --text T     deliver now, or queue until the pane's agent is idle

@@ -23,15 +23,19 @@ export { omoScreenIdle } from "./probe.ts";
 
 export type HerdrOptions = { readonly env?: Env; readonly sleep?: Sleep };
 
-/** herdr behind the session runtime interface: a session is a pane, its group the pane's workspace. */
+/**
+ * herdr behind the session runtime interface: a session is a pane, its group the pane's workspace. A ref with a
+ * `machine` is a pane on that saved SSH machine: every call for it goes through `herdr --machine <label>`.
+ */
 export class HerdrRuntime implements SessionRuntime {
   readonly kind = "herdr" as const;
   private readonly cli: HerdrCli;
+  private readonly remote = new Map<string, HerdrCli>();
   private readonly env: Env;
   private readonly sleep: Sleep;
 
   constructor(
-    exec: Exec = spawnExec,
+    private readonly exec: Exec = spawnExec,
     session: string | undefined = process.env["DORI_HERDR_SESSION"],
     options: HerdrOptions = {},
   ) {
@@ -40,20 +44,32 @@ export class HerdrRuntime implements SessionRuntime {
     this.sleep = options.sleep ?? ((ms) => Bun.sleep(ms));
   }
 
+  /** The CLI for this machine, or for a saved SSH machine. */
+  private on(machine: string | undefined): HerdrCli {
+    if (!machine) return this.cli;
+    let cli = this.remote.get(machine);
+    if (cli === undefined) {
+      cli = new HerdrCli(this.exec, undefined, machine);
+      this.remote.set(machine, cli);
+    }
+    return cli;
+  }
+
   self(): SessionRef | undefined {
     return self(this.env);
   }
 
-  createGroup(label: string, cwd: string): Promise<string> {
-    return createGroup(this.cli, label, cwd);
+  createGroup(label: string, cwd: string, machine?: string): Promise<string> {
+    return createGroup(this.on(machine), label, cwd);
   }
 
-  create(spec: CreateSpec): Promise<SessionRef> {
-    return create(this.cli, spec);
+  async create(spec: CreateSpec): Promise<SessionRef> {
+    const ref = await create(this.on(spec.machine), spec);
+    return spec.machine ? { ...ref, machine: spec.machine } : ref;
   }
 
   start(ref: SessionRef, command: string): Promise<void> {
-    return start(this.cli, ref.id, command);
+    return start(this.on(ref.machine), ref.id, command);
   }
 
   list(filter?: { readonly group?: string }): Promise<readonly SessionInfo[]> {
@@ -61,31 +77,31 @@ export class HerdrRuntime implements SessionRuntime {
   }
 
   probe(ref: SessionRef, opts?: { readonly omoWithoutAgent?: boolean }): Promise<Probe> {
-    return probe(this.cli, ref.id, true, undefined, opts?.omoWithoutAgent ?? false);
+    return probe(this.on(ref.machine), ref.id, true, undefined, opts?.omoWithoutAgent ?? false);
   }
 
   read(ref: SessionRef, lines: number): Promise<string> {
-    return this.cli.read(ref.id, lines);
+    return this.on(ref.machine).read(ref.id, lines);
   }
 
   /** herdr types whatever the status word says (the caller decided), so `when` and `force` change nothing here. */
   deliver(ref: SessionRef, text: string, _opts?: DeliverOptions): Promise<DeliverOutcome> {
-    return deliver(this.cli, ref.id, text, this.sleep);
+    return deliver(this.on(ref.machine), ref.id, text, this.sleep);
   }
 
   submitTyped(ref: SessionRef, into: AgentIdentity): Promise<SubmitResult> {
-    return submitTyped(this.cli, ref.id, into);
+    return submitTyped(this.on(ref.machine), ref.id, into);
   }
 
   typeIntoShell(ref: SessionRef, text: string): Promise<boolean> {
-    return typeIntoShell(this.cli, ref.id, text);
+    return typeIntoShell(this.on(ref.machine), ref.id, text);
   }
 
   keys(ref: SessionRef, pressed: readonly Key[]): Promise<void> {
-    return keys(this.cli, ref.id, pressed);
+    return keys(this.on(ref.machine), ref.id, pressed);
   }
 
   close(ref: SessionRef, scope: CloseScope = "session"): Promise<void> {
-    return close(this.cli, ref, scope);
+    return close(this.on(ref.machine), ref, scope);
   }
 }

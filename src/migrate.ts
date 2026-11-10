@@ -22,6 +22,13 @@ export type Target = { readonly lane?: string; readonly role?: Role; readonly al
 const AGENT_ROLES: readonly Role[] = ["lead", "duty"];
 const LOOP_ROLES: readonly Role[] = ["duty-loop", "hourly-loop"];
 const isOpen = (l: Lane): boolean => l.status !== "done" && l.status !== "lost";
+/** Why a lane cannot be handed over, or undefined: migrate closes the old pane and opens the new one on this machine. */
+const unmovable = (l: Lane): string | undefined =>
+  l.adopted
+    ? "adopted lane: its pane is the operator's"
+    : l.sessionRef.machine
+      ? `runs on machine ${l.sessionRef.machine}: migrate moves only this machine's sessions`
+      : undefined;
 
 function laneSubject(d: Deps, key: string): Subject {
   const lane = d.store.lane(key);
@@ -157,6 +164,12 @@ export async function migrate(d: Deps, t: Target, opts: MigrateOpts): Promise<nu
   for (const key of lanes) {
     const lane = d.store.lane(key);
     if (!lane || !isOpen(lane)) throw new Refusal(`no open lane ${key}`);
+    const why = unmovable(lane);
+    if (why !== undefined && t.all) {
+      opts.log(`SKIP ${key} ${why}`);
+      continue;
+    }
+    if (why !== undefined) throw new Refusal(`migrate refused for ${key}: ${why}`);
     code = Math.max(code, await migrateName(d, key, lane.sessionRef, opts, () => laneSubject(d, key)));
   }
   for (const role of roles) {

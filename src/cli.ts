@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { runBacklog, runDuty, runLoop } from "./cli-loops.ts";
 import { status, up } from "./cli-up.ts";
 import { done, ready, report, startLane } from "./lanes.ts";
+import { adoptLane } from "./adopt.ts";
 import { mergeGate, parsePr, review } from "./gate.ts";
 import { runSelfUpdate } from "./cli-self-update.ts";
 import { afterMerge } from "./self-update-run.ts";
@@ -25,6 +26,7 @@ const COMMANDS = new Set([
   "up",
   "role",
   "start",
+  "adopt",
   "report",
   "ready",
   "send",
@@ -80,14 +82,24 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       return 0;
     }
     case "start": {
-      const cwd = one(a, "cwd");
-      const workspace = one(a, "workspace");
+      const [cwd, workspace, machine] = [one(a, "cwd"), one(a, "workspace"), one(a, "machine")];
       const lane = await startLane(d, need(x, "lane key"), need(one(a, "brief"), "--brief"), {
         ...(cwd !== undefined ? { cwd } : {}),
         ...(workspace !== undefined ? { group: workspace } : {}),
+        ...(machine !== undefined ? { machine } : {}),
       });
       console.log(`STARTED ${lane.key} pane=${refText(lane.sessionRef)} brief=${lane.brief}`);
       return 0;
+    }
+    case "adopt": {
+      const opts = Object.fromEntries(
+        (["machine", "brief", "note", "cwd"] as const).flatMap((f) =>
+          one(a, f) === undefined ? [] : [[f, one(a, f)]],
+        ),
+      );
+      const { lane, sent } = await adoptLane(d, need(x, "lane key"), need(one(a, "pane"), "--pane"), opts);
+      console.log(`ADOPTED ${lane.key} pane=${refText(lane.sessionRef)} brief=${lane.brief}`);
+      return deliveryOutcome(sent, lane.key);
     }
     case "report": {
       const st = one(a, "status");

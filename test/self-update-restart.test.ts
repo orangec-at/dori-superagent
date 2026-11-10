@@ -21,6 +21,20 @@ describe("restartRole", () => {
     expect(w.panes.get("w1:p8")!.ran).toEqual([`${d.doriCmd} loop`]);
   });
 
+  test("a loop role on another machine is not signalled: its pids would name local processes", async () => {
+    const w = new World();
+    const d = w.deps();
+    w.addPane("w1:p8", "shell").foreground = [{ name: "bun", argv: loopArgv("loop") }];
+    d.store.setRole("hourly-loop", { ...href("w1:p8"), machine: "ubuntu" });
+    const killed: number[] = [];
+    const procs = { kill: (pid: number) => void killed.push(pid), alive: () => false, sleep: async () => {} };
+    await expect(restartRole(d, "hourly-loop", procs)).rejects.toThrow(
+      "is on machine ubuntu; restart dori loop there by hand",
+    );
+    expect(killed).toEqual([]);
+    expect(w.panes.get("w1:p8")!.ran).toEqual([]);
+  });
+
   test("a pane whose processes cannot be read is not typed into: the old loop may still be in front", async () => {
     const w = new World();
     const d = w.deps();

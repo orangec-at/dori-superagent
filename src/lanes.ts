@@ -1,44 +1,63 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { shq } from "./delivery.ts";
-import { prompt, type Deps } from "./harness.ts";
+import type { Deps } from "./harness.ts";
 import { settled, tellLead, type SendResult } from "./inbox.ts";
 import { Refusal } from "./refusal.ts";
 import { runHook } from "./hooks.ts";
 import { refText } from "./refs.ts";
+import { doriHost, laneFooter } from "./remote.ts";
 import { groupId } from "./runtime/group.ts";
 import { openSession } from "./runtime/types.ts";
 import { KEY_RE, reservedKey, type Lane } from "./store-types.ts";
 
-export async function startLane(
-  d: Deps,
-  key: string,
-  briefFile: string,
-  opts: { cwd?: string; group?: string } = {},
-): Promise<Lane> {
+/** Refuses a key no new lane may take: a bad shape, a role name, or a lane that is still open. */
+export function checkNewKey(d: Deps, key: string): void {
   if (!KEY_RE.test(key)) throw new Refusal(`lane key must match ${KEY_RE}`);
   const reserved = reservedKey(key);
   if (reserved) throw new Refusal(reserved);
   const existing = d.store.lane(key);
   if (existing && existing.status !== "done" && existing.status !== "lost")
     throw new Refusal(`lane ${key} is already open in ${refText(existing.sessionRef)}`);
-  const cwd = resolve(opts.cwd ?? process.cwd());
+}
+
+/**
+ * `machine`: open the lane on that saved herdr SSH machine, in a new "dori" workspace there. `cwd` is then a directory
+ * on that machine and must be given; the agent reads its brief and calls dori over ssh back to this machine.
+ */
+export async function startLane(
+  d: Deps,
+  key: string,
+  briefFile: string,
+  opts: { cwd?: string; group?: string; machine?: string } = {},
+): Promise<Lane> {
+  checkNewKey(d, key);
+  const { machine } = opts;
+  const rt = d.runtimes.default;
+  if (machine !== undefined && rt.kind !== "herdr") throw new Refusal("--machine needs the herdr runtime");
+  if (machine !== undefined && opts.cwd === undefined)
+    throw new Refusal(`--machine needs --cwd: a directory on ${machine}`);
+  const cwd = machine !== undefined ? (opts.cwd ?? "") : resolve(opts.cwd ?? process.cwd());
   const briefPath = d.store.briefPath(key);
-  const footer = prompt("lane-footer.md", { key, dori: d.doriCmd }, d.store.root);
+  const footer = laneFooter(d, key, machine);
   await Bun.write(briefPath, `${readFileSync(briefFile, "utf8").trimEnd()}\n\n${footer}`);
 
   // The group is the caller's own when it runs in a session of the selected runtime (a lane opened from the lead's
-  // workspace stays there); otherwise herdr gets a new "dori" workspace and hc this home's group label.
-  const rt = d.runtimes.default;
+  // workspace stays there); otherwise herdr gets a new "dori" workspace and hc this home's group label. A lane on
+  // another machine always gets a "dori" workspace there: no local workspace exists on it.
   const self = d.runtimes.selfAny(process.env);
   const group =
     opts.group ??
-    (self?.runtime === rt.kind ? self.group : undefined) ??
-    (rt.kind === "herdr" ? await rt.createGroup("dori", cwd) : groupId(d.store.root));
-  const kickoff = `Read your brief at ${briefPath} and execute it. Your lane key is ${key}.`;
+    (machine === undefined && self?.runtime === rt.kind ? self.group : undefined) ??
+    (rt.kind === "herdr" ? await rt.createGroup("dori", cwd, machine) : groupId(d.store.root));
+  const kickoff =
+    machine === undefined
+      ? `Read your brief at ${briefPath} and execute it. Your lane key is ${key}.`
+      : `Read your brief with \`ssh ${doriHost()} cat ${shq(briefPath)}\` and execute it. Your lane key is ${key}.`;
+  const env = { DORI_LANE: key, ...(machine === undefined ? { DORI_HOME: d.store.root } : {}) };
   const ref = await openSession(
     rt,
-    { name: key, role: "lane", container: "tab", cwd, env: { DORI_LANE: key, DORI_HOME: d.store.root }, group },
+    { name: key, role: "lane", container: "tab", cwd, env, group, ...(machine !== undefined ? { machine } : {}) },
     `${d.agentCmd} ${shq(kickoff)}`,
   );
 
@@ -116,12 +135,19 @@ export async function done(d: Deps, key: string): Promise<void> {
   const lane = d.store.lane(key);
   if (!lane) throw new Refusal(`no lane ${key}`);
   if (lane.status !== "ready") throw new Refusal(`lane ${key} is ${lane.status}, not ready: no final answer recorded`);
-  const rt = d.runtimes.for(lane.sessionRef);
-  const { status: st } = await rt.probe(lane.sessionRef);
-  if (st === "working" || st === "blocked" || st === "error")
-    throw new Refusal(`lane ${key} pane is ${st}; let it finish first`);
-  if (st !== "gone") await rt.close(lane.sessionRef);
+  // An adopted pane was the operator's before dori watched it: the lane ends, the session stays.
+  if (!lane.adopted) {
+    const rt = d.runtimes.for(lane.sessionRef);
+    const { status: st } = await rt.probe(lane.sessionRef);
+    if (st === "working" || st === "blocked" || st === "error")
+      throw new Refusal(`lane ${key} pane is ${st}; let it finish first`);
+    if (st !== "gone") await rt.close(lane.sessionRef);
+  }
   lane.status = "done";
-  lane.log.push({ at: d.now(), kind: "done", text: "closed by lead" });
+  lane.log.push({
+    at: d.now(),
+    kind: "done",
+    text: lane.adopted ? "lane ended by lead; pane left open" : "closed by lead",
+  });
   d.store.saveLane(lane);
 }

@@ -1,10 +1,15 @@
 export type RuntimeKind = "herdr" | "hc";
-/** One session as its runtime addresses it. `group`: the herdr workspace id or the hc dori.group label. `container`: the herdr tab id (absent on hc). */
+/**
+ * One session as its runtime addresses it. `group`: the herdr workspace id or the hc dori.group label. `container`: the
+ * herdr tab id (absent on hc). `machine`: a saved herdr SSH machine (`herdr --machine <label>`) the pane lives on;
+ * absent for this machine.
+ */
 export type SessionRef = {
   readonly runtime: RuntimeKind;
   readonly id: string;
   readonly group?: string;
   readonly container?: string;
+  readonly machine?: string;
 };
 export type AgentStatus = "idle" | "working" | "blocked" | "error" | "done" | "unknown" | "shell" | "gone";
 export type AgentIdentity = { readonly agent?: string; readonly pgid?: number };
@@ -43,6 +48,8 @@ export type CreateSpec = {
   readonly container: "workspace-root" | "tab" | "split-below";
   readonly group?: string;
   readonly near?: SessionRef;
+  /** herdr: create the session on this saved SSH machine. */
+  readonly machine?: string;
 };
 export type DeliverWhen = "idle" | "working" | "any";
 /** `when`: the status the text may be typed under (hc: --if idle / --if working / none for "any"; "any" still never types into an `unknown` or `shell` session). `force`: type into a blocked agent (hc --force; herdr: no-op). */
@@ -60,8 +67,8 @@ export interface SessionRuntime {
   readonly kind: RuntimeKind;
   /** The caller's own session from the runtime's env (HERDR_PANE_ID + HERDR_WORKSPACE_ID / HC_TERMINAL_ID), or undefined. */
   self(): SessionRef | undefined;
-  /** herdr: `workspace create --label <label> --cwd <cwd> --no-focus` -> the workspace id (its root pane is left as is, as today). hc: returns `label` unchanged, no call. */
-  createGroup(label: string, cwd: string): Promise<string>;
+  /** herdr: `workspace create --label <label> --cwd <cwd> --no-focus` (on `machine` when given) -> the workspace id (its root pane is left as is, as today). hc: returns `label` unchanged, no call. */
+  createGroup(label: string, cwd: string, machine?: string): Promise<string>;
   /** A session with the user's shell in it and nothing started. */
   create(spec: CreateSpec): Promise<SessionRef>;
   /** herdr: `pane run <id> <command>`. hc: `send <id> <command>` into the shell (no --if: a shell reports no status). */
@@ -91,17 +98,33 @@ const BARE_HERDR = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/;
 const HC_ADDRESS = /^t[0-9a-z]+$/;
 const ID_SHAPES: Readonly<Record<RuntimeKind, RegExp>> = { herdr: BARE_HERDR, hc: HC_ADDRESS };
 const KINDS = Object.keys(ID_SHAPES) as RuntimeKind[];
+/** A herdr machine label: no `_`, `:` or `/`, so a ref with it still names one inbox file. */
+export const MACHINE_RE = /^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$/;
 
-/** "herdr:w1:p3", "hc:t7", bare "w1:p3" (herdr). A bare "t7" is NOT a ref (it is a legal lane key); undefined otherwise. */
+/** A herdr pane id with an optional `@<machine>` suffix (`w4:p3@ubuntu`). */
+const herdrRef = (text: string): SessionRef | undefined => {
+  const [id = "", machine, ...rest] = text.split("@");
+  if (rest.length > 0 || !BARE_HERDR.test(id)) return undefined;
+  if (machine === undefined) return { runtime: "herdr", id };
+  return MACHINE_RE.test(machine) ? { runtime: "herdr", id, machine } : undefined;
+};
+
+/**
+ * "herdr:w1:p3", "hc:t7", bare "w1:p3" (herdr); a herdr pane on a saved SSH machine adds `@<machine>`
+ * ("w4:p3@ubuntu", "herdr:w4:p3@ubuntu"). A bare "t7" is NOT a ref (it is a legal lane key); undefined otherwise.
+ */
 export const parseRef: (text: string) => SessionRef | undefined = (text) => {
   for (const runtime of KINDS) {
     if (!text.startsWith(`${runtime}:`)) continue;
     const id = text.slice(runtime.length + 1);
+    if (runtime === "herdr") return herdrRef(id);
     return ID_SHAPES[runtime].test(id) ? { runtime, id } : undefined;
   }
-  return BARE_HERDR.test(text) ? { runtime: "herdr", id: text } : undefined;
+  return herdrRef(text);
 };
-export const formatRef: (ref: SessionRef) => string = (ref) => `${ref.runtime}:${ref.id}`;
+/** The ref's id with its `@<machine>` suffix when it has one. */
+export const idText = (ref: SessionRef): string => (ref.machine ? `${ref.id}@${ref.machine}` : ref.id);
+export const formatRef: (ref: SessionRef) => string = (ref) => `${ref.runtime}:${idText(ref)}`;
 /**
  * create + start in one call (the root harness path). A start that fails closes the session create just made (scope
  * "session"), so no idle shell is left behind, and rethrows the start error; a close that fails too is one stderr line.

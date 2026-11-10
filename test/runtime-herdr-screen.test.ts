@@ -42,6 +42,30 @@ describe("omoScreenIdle (#62: herdr reports an omo with live monitors as working
     expect((await rt.probe(ref("w1:p1"))).status).toBe("working");
   });
 
+  test("Claude Code (#12): its idle input box reads idle; a turn, a draft or a permission dialog does not", async () => {
+    expect(omoScreenIdle(await screen("claude-idle"))).toBe(true);
+    expect(omoScreenIdle(await screen("claude-turn"))).toBe(false);
+    expect(omoScreenIdle(await screen("claude-draft"))).toBe(false);
+    expect(omoScreenIdle(await screen("claude-permission"))).toBe(false);
+  });
+
+  test("probe of a Claude Code pane herdr reports working or unknown follows its screen", async () => {
+    const { w, rt } = world();
+    for (const status of ["working", "unknown"] as const) {
+      const p = w.addPane("w1:p1", status);
+      p.agent = "claude";
+      p.foreground = "claude";
+      for (const [name, want] of [
+        ["claude-idle", "idle"],
+        ["claude-turn", status],
+        ["claude-permission", status],
+      ] as const) {
+        p.screen = await screen(name);
+        expect((await rt.probe(ref("w1:p1"))).status).toBe(want);
+      }
+    }
+  });
+
   test("blocked is never read as idle, whatever the screen shows", async () => {
     const { w, rt, herdr } = world();
     w.addPane("w1:p1", "blocked").screen = await screen("omo-idle-live-monitors");
