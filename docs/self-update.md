@@ -10,9 +10,10 @@ dori self-update [--check] [--now] [--migrate-prompts]
 ## What one run does
 
 1. `git fetch origin`, then compare HEAD with `origin/HEAD` (falling back to `origin/main`):
-   `current`, `behind` (fast-forwardable), `diverged` (local commits) or `dirty` (tracked local edits).
+   `current`, `behind` (fast-forwardable), `diverged` (local commits), `off-branch` (a branch other than the
+   default one is checked out; a detached HEAD is fine) or `dirty` (tracked local edits).
    `--check` prints that line and stops; untracked files do not count as dirty.
-2. Only `behind` goes on. `diverged` and `dirty` are left untouched and the reason is told.
+2. Only `behind` goes on. `diverged`, `off-branch` and `dirty` are left untouched and the reason is told.
 3. The target commit is proven **in a throwaway worktree** (`git worktree add --detach` under the temp
    directory): `bun install --frozen-lockfile`, then `bun run typecheck` and `bun test ./test/`. The live
    checkout still runs its proven code while this happens, and the worktree is removed either way.

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { LOOP_COMMANDS } from "./cli-up.ts";
+import { shq } from "./delivery.ts";
 import { CLI, REPO, type Deps } from "./harness.ts";
 import { ConfigError } from "./hooks.ts";
 import { tellLead } from "./inbox.ts";
@@ -109,12 +110,15 @@ export async function restartRole(d: Deps, role: keyof typeof LOOP_COMMANDS, pro
   const rt = d.runtimes.for(ref);
   const probe = await rt.probe(ref);
   const sub = role === "duty-loop" ? "duty" : "loop";
-  const pids = (probe.foreground ?? [])
-    .filter((p) => p.argv.some((a) => a.endsWith("cli.ts")) && p.argv.includes(sub))
-    .flatMap((p) => (p.pid === undefined ? [] : [p.pid]));
+  const fallback = LOOP_COMMANDS[role](d.doriCmd);
+  // An unreadable process list reads as "shell in front"; typing then would queue a second loop behind the old one.
+  if (!probe.foreground?.length)
+    throw new Error(`cannot read the processes of ${refText(ref)}; restart dori ${sub} by hand with ${fallback}`);
+  const loops = probe.foreground.filter((p) => p.argv.some((a) => a.endsWith("cli.ts")) && p.argv.includes(sub));
+  const pids = loops.flatMap((p) => (p.pid === undefined ? [] : [p.pid]));
   if (pids.length === 0 && !probe.shellInFront)
-    throw new Error(`no dori ${sub} process in front of ${refText(ref)}; restart it by hand`);
-  const command = LOOP_COMMANDS[role](d.doriCmd);
+    throw new Error(`no dori ${sub} process in front of ${refText(ref)}; restart it by hand with ${fallback}`);
+  const command = loops[0] === undefined ? fallback : (restartCommand(d.doriCmd, loops[0].argv) ?? fallback);
   for (const pid of pids) procs.kill(pid);
   for (let waited = 0; waited < RESTART_WAIT_MS && pids.some(procs.alive); waited += POLL_MS)
     await procs.sleep(POLL_MS);
@@ -123,6 +127,19 @@ export async function restartRole(d: Deps, role: keyof typeof LOOP_COMMANDS, pro
       `dori ${sub} in ${refText(ref)} is still finishing its pass ${RESTART_WAIT_MS / 60_000} min after SIGTERM; it exits when the pass ends and nothing replaces it: start it again by hand with ${command}`,
     );
   await rt.start(ref, command);
+}
+
+const word = (s: string): string => (/^[\w./:=@%+-]+$/.test(s) ? s : shq(s));
+
+/**
+ * The stopped loop's own subcommand and flags behind the current `dori` command, so a loop started by hand with
+ * `--max-lanes`, `--interval` or `--max-load` comes back with them. `--force` is dropped: it would run a pass at once.
+ */
+export function restartCommand(dori: string, argv: readonly string[]): string | undefined {
+  const at = argv.findIndex((a) => a.endsWith("cli.ts"));
+  if (at < 0) return undefined;
+  const args = argv.slice(at + 1).filter((a) => a !== "--force");
+  return [dori, ...args.map(word)].join(" ");
 }
 
 export const repoRunner =

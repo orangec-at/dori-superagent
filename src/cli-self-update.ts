@@ -138,7 +138,7 @@ export async function runSelfUpdate(d: Deps, a: Args, run: Runner = repoRunner(d
     });
     const good = r.outcome === "updated" || r.outcome === "current";
     if (good) forgetFailures(d);
-    else rememberFailure(d, situation(before));
+    else rememberFailure(d, situation(r.status));
     if (r.outcome === "current") console.log(r.line);
     return good ? 0 : 1;
   } catch (e) {

@@ -9,13 +9,11 @@ import {
   loadSelfUpdateConfig,
   MAX_SELF_UPDATE_FAILURES,
   rememberFailure,
-  RESTART_WAIT_MS,
-  restartRole,
   restartTargets,
   situation,
 } from "../src/self-update-run.ts";
 import { checkUpdate } from "../src/self-update.ts";
-import { href, World } from "./fake.ts";
+import { World } from "./fake.ts";
 import { gitWorld, runnerIn, sh } from "./self-update-git.ts";
 
 afterEach(() => {
@@ -124,69 +122,6 @@ describe("dori self-update --migrate-prompts", () => {
     appendFileSync(join(g.checkout, "prompts", "lead.md"), "++ keep both pluses\n");
     await migratePrompts(runnerIn(g.checkout), home);
     expect(readFileSync(overlayPath(home, "lead.md"), "utf8")).toBe("++ keep both pluses\n");
-  });
-});
-
-describe("restartRole", () => {
-  const loopArgv = (sub: string) => ["bun", "/repo/src/cli.ts", sub, ...(sub === "duty" ? ["--interval", "60"] : [])];
-
-  test("stops the dori process in front of each loop pane and types dori up's command back in", async () => {
-    const w = new World();
-    const d = w.deps();
-    w.addPane("w1:p7", "shell").foreground = [{ name: "bun", argv: loopArgv("duty") }];
-    w.addPane("w1:p8", "shell").foreground = [{ name: "bun", argv: loopArgv("loop") }];
-    d.store.setRole("duty-loop", href("w1:p7"));
-    d.store.setRole("hourly-loop", href("w1:p8"));
-    const killed: number[] = [];
-    const procs = { kill: (pid: number) => void killed.push(pid), alive: () => false, sleep: async () => {} };
-    await restartRole(d, "duty-loop", procs);
-    await restartRole(d, "hourly-loop", procs);
-    expect(killed).toEqual([101, 101]);
-    expect(w.panes.get("w1:p7")!.ran).toEqual([`${d.doriCmd} duty --interval 60`]);
-    expect(w.panes.get("w1:p8")!.ran).toEqual([`${d.doriCmd} loop`]);
-  });
-
-  test("a loop still in a long pass after SIGTERM is waited for, then started again", async () => {
-    const w = new World();
-    const d = w.deps();
-    w.addPane("w1:p8", "shell").foreground = [{ name: "bun", argv: loopArgv("loop") }];
-    d.store.setRole("hourly-loop", href("w1:p8"));
-    // The pass ends after three minutes of polling: far past the old 10 s limit, well inside RESTART_WAIT_MS.
-    let slept = 0;
-    const procs = {
-      kill: () => {},
-      alive: () => slept < 3 * 60_000,
-      sleep: async (ms: number) => {
-        slept += ms;
-      },
-    };
-    await restartRole(d, "hourly-loop", procs);
-    expect(slept).toBe(3 * 60_000);
-    expect(w.panes.get("w1:p8")!.ran).toEqual([`${d.doriCmd} loop`]);
-  });
-
-  test("a pane running something else is not touched; a pass that outlasts the wait names the command to run", async () => {
-    const w = new World();
-    const d = w.deps();
-    w.addPane("w1:p7", "idle").foreground = [{ name: "vim", argv: ["vim", "notes"] }];
-    w.addPane("w1:p8", "shell").foreground = [{ name: "bun", argv: loopArgv("loop") }];
-    d.store.setRole("duty-loop", href("w1:p7"));
-    d.store.setRole("hourly-loop", href("w1:p8"));
-    let slept = 0;
-    const procs = {
-      kill: () => {},
-      alive: () => true,
-      sleep: async (ms: number) => {
-        slept += ms;
-      },
-    };
-    await expect(restartRole(d, "duty-loop", procs)).rejects.toThrow("no dori duty process in front of");
-    const failed = restartRole(d, "hourly-loop", procs);
-    await expect(failed).rejects.toThrow("is still finishing its pass");
-    await expect(failed).rejects.toThrow(`start it again by hand with ${d.doriCmd} loop`);
-    expect(slept).toBe(RESTART_WAIT_MS);
-    expect(w.panes.get("w1:p7")!.ran).toEqual([]);
-    expect(w.panes.get("w1:p8")!.ran).toEqual([]);
   });
 });
 

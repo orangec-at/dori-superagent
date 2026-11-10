@@ -2,10 +2,8 @@
 // runs from and restart the duty loop, the hourly loop and the configured services. The live checkout is never left
 // on unproven code: install and checks run somewhere else first. Fast-forward only: never force, never reset --hard,
 // never drop a local commit.
-import { randomUUID } from "node:crypto";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { ExecResult } from "./runtime/exec.ts";
+import { DEFAULT_INSTALL, short, tail, verify } from "./self-update-verify.ts";
 
 /** Runs one command in the checkout, or under `where` (the verification worktree, with its own environment). */
 export type Runner = (
@@ -38,7 +36,6 @@ export const DEFAULT_CHECKS: readonly (readonly string[])[] = [
   ["bun", "run", "typecheck"],
   ["bun", "test", "./test/"],
 ];
-export const DEFAULT_INSTALL: readonly string[] = ["bun", "install", "--frozen-lockfile"];
 
 export type UpdateStatus =
   | { readonly state: "current"; readonly head: string; readonly target: string; readonly upstream: string }
@@ -51,6 +48,13 @@ export type UpdateStatus =
     }
   | { readonly state: "diverged"; readonly head: string; readonly target: string; readonly upstream: string }
   | {
+      readonly state: "off-branch";
+      readonly head: string;
+      readonly target: string;
+      readonly upstream: string;
+      readonly branch: string;
+    }
+  | {
       readonly state: "dirty";
       readonly head: string;
       readonly target: string;
@@ -58,13 +62,19 @@ export type UpdateStatus =
       readonly files: readonly string[];
     };
 
+/** `status` is the check the run acted on, so a failure is remembered under the commit that was actually tried. */
 export type UpdateOutcome =
-  | { readonly outcome: "current" | "updated"; readonly line: string; readonly restartFailures: readonly string[] }
-  | { readonly outcome: "refused" | "unproven" | "failed" | "rolled-back"; readonly line: string };
-
-const short = (sha: string): string => sha.slice(0, 7);
-const tail = (r: ExecResult, n = 15): string =>
-  `${r.stdout}\n${r.stderr}`.trim().split("\n").slice(-n).join("\n") || `exit ${r.code}`;
+  | {
+      readonly outcome: "current" | "updated";
+      readonly line: string;
+      readonly status: UpdateStatus;
+      readonly restartFailures: readonly string[];
+    }
+  | {
+      readonly outcome: "refused" | "unproven" | "failed" | "rolled-back";
+      readonly line: string;
+      readonly status: UpdateStatus;
+    };
 
 async function git(run: Runner, argv: readonly string[]): Promise<string> {
   const r = await run("git", argv);
@@ -86,6 +96,11 @@ export async function checkUpdate(run: Runner): Promise<UpdateStatus> {
   const target = await git(run, ["rev-parse", upstream]);
   const base = { head, target, upstream };
   if (head === target) return { state: "current", ...base };
+  // A detached HEAD only moves HEAD; a checked-out branch other than the default one would be dragged to it.
+  const onBranch = await run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  const branch = onBranch.code === 0 ? onBranch.stdout.trim() : undefined;
+  if (branch !== undefined && branch !== upstream.replace(/^origin\//, ""))
+    return { state: "off-branch", ...base, branch };
   const ancestor = await run("git", ["merge-base", "--is-ancestor", head, target]);
   if (ancestor.code !== 0) return { state: "diverged", ...base };
   // Untracked files do not block a fast-forward unless they collide, and git refuses that case itself.
@@ -108,69 +123,10 @@ export function statusLine(s: UpdateStatus): string {
       return `SELF_UPDATE_BEHIND ${short(s.head)}..${short(s.target)} (${s.behind} commit(s) behind ${s.upstream})`;
     case "diverged":
       return `SELF_UPDATE_DIVERGED ${short(s.head)} is not an ancestor of ${s.upstream} ${short(s.target)}: local commits, no fast-forward`;
+    case "off-branch":
+      return `SELF_UPDATE_OFF_BRANCH the checkout is on ${s.branch}, not ${s.upstream.replace(/^origin\//, "")}: check out the default branch (or detach HEAD) to update`;
     case "dirty":
       return `SELF_UPDATE_DIRTY local changes in ${s.files.join(", ")}: move machine rules to $DORI_HOME/prompts/overlay (dori self-update --migrate-prompts)`;
-  }
-}
-
-/** Runs the checks in order; the first failure is returned with the tail of its output. */
-async function runChecks(
-  run: Runner,
-  checks: SelfUpdateOpts["checks"],
-  where: { cwd: string; env: Record<string, string> },
-): Promise<string | undefined> {
-  for (const [cmd, ...argv] of checks) {
-    if (cmd === undefined) continue;
-    const r = await run(cmd, argv, where);
-    if (r.code !== 0) return `${[cmd, ...argv].join(" ")} failed:\n${tail(r)}`;
-  }
-  return undefined;
-}
-
-/**
- * The environment the install and the checks run under: no `DORI_*`, `HERDR_*` or `HC_*` variable of the detached
- * self-update process reaches them, and `DORI_HOME` points inside the throwaway worktree. A test suite that reads
- * the environment therefore cannot touch the live home or the panes it was started from.
- */
-function checkEnv(
-  dir: string,
-  from: Readonly<Record<string, string | undefined>> = process.env,
-): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(from)) if (v !== undefined && !/^(DORI|HERDR|HC)_/.test(k)) env[k] = v;
-  env["DORI_HOME"] = join(dir, ".self-update-home");
-  return env;
-}
-
-/** Worktrees left behind by a run that was killed before its `finally`: their entries and directories go now. */
-async function pruneWorktrees(run: Runner): Promise<void> {
-  await run("git", ["worktree", "prune"]);
-  const listed = await run("git", ["worktree", "list", "--porcelain"]);
-  for (const line of listed.stdout.split("\n")) {
-    const path = line.startsWith("worktree ") ? line.slice("worktree ".length) : undefined;
-    if (path?.includes("dori-self-update-")) await run("git", ["worktree", "remove", "--force", path]);
-  }
-}
-
-/**
- * Installs and runs the checks against `target` in a worktree outside the live checkout, so the running dori keeps
- * its proven code until the checks are green. The worktree is removed whatever happens.
- */
-async function verify(io: SelfUpdateIo, target: string, opts: SelfUpdateOpts): Promise<string | undefined> {
-  await pruneWorktrees(io.run);
-  const dir = join(tmpdir(), `dori-self-update-${short(target)}-${randomUUID()}`);
-  const added = await io.run("git", ["worktree", "add", "--detach", "--quiet", dir, target]);
-  if (added.code !== 0) return `git worktree add for the checks failed: ${tail(added, 3)}`;
-  const where = { cwd: dir, env: checkEnv(dir) };
-  try {
-    const [cmd, ...argv] = opts.install ?? DEFAULT_INSTALL;
-    if (cmd !== undefined) {
-      const i = await io.run(cmd, argv, where);
-      if (i.code !== 0) return `${[cmd, ...argv].join(" ")} in the verification worktree failed:\n${tail(i)}`;
-    }
-    return await runChecks(io.run, opts.checks, where);
-  } finally {
-    await io.run("git", ["worktree", "remove", "--force", dir]);
   }
 }
 
@@ -191,11 +147,11 @@ async function rollBack(io: SelfUpdateIo, old: string, opts: SelfUpdateOpts): Pr
  */
 export async function selfUpdate(io: SelfUpdateIo, opts: SelfUpdateOpts): Promise<UpdateOutcome> {
   const s = await checkUpdate(io.run);
-  if (s.state === "current") return { outcome: "current", line: statusLine(s), restartFailures: [] };
+  if (s.state === "current") return { outcome: "current", line: statusLine(s), status: s, restartFailures: [] };
   if (s.state !== "behind") {
     const line = `[SELF-UPDATE] refused: ${statusLine(s)}`;
     await io.tell(line);
-    return { outcome: "refused", line };
+    return { outcome: "refused", line, status: s };
   }
   const old = s.head;
   const range = `${short(old)}..${short(s.target)}`;
@@ -203,14 +159,14 @@ export async function selfUpdate(io: SelfUpdateIo, opts: SelfUpdateOpts): Promis
   if (unproven !== undefined) {
     const line = `[SELF-UPDATE] ${range} not applied: still at ${short(old)}, nothing restarted. ${unproven}`;
     await io.tell(line);
-    return { outcome: "unproven", line };
+    return { outcome: "unproven", line, status: s };
   }
   const lockChanged = (await io.run("git", ["diff", "--quiet", old, s.target, "--", "bun.lock"])).code !== 0;
   const ff = await io.run("git", ["merge", "--ff-only", s.target]);
   if (ff.code !== 0) {
     const line = `[SELF-UPDATE] ${range} failed: git merge --ff-only: ${tail(ff, 3)}; still at ${short(old)}`;
     await io.tell(line);
-    return { outcome: "failed", line };
+    return { outcome: "failed", line, status: s };
   }
   if (lockChanged) {
     const [cmd, ...argv] = opts.install ?? DEFAULT_INSTALL;
@@ -222,7 +178,7 @@ export async function selfUpdate(io: SelfUpdateIo, opts: SelfUpdateOpts): Promis
         ? `[SELF-UPDATE] ${range} ROLLBACK FAILED (${back}); nothing restarted, fix the checkout by hand. ${why}`
         : `[SELF-UPDATE] ${range} rolled back to ${short(old)}; nothing restarted. ${why}`;
       await io.tell(line);
-      return { outcome: "rolled-back", line };
+      return { outcome: "rolled-back", line, status: s };
     }
   }
   const restartFailures: string[] = [];
@@ -235,5 +191,5 @@ export async function selfUpdate(io: SelfUpdateIo, opts: SelfUpdateOpts): Promis
   }
   const line = `[SELF-UPDATE] ${range}${restartFailures.length ? ` (restart failed: ${restartFailures.join("; ")})` : ""}`;
   await io.tell(line);
-  return { outcome: "updated", line, restartFailures };
+  return { outcome: "updated", line, status: s, restartFailures };
 }

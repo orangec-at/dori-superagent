@@ -65,6 +65,17 @@ describe("checkUpdate", () => {
     expect((await checkUpdate(runnerIn(g.checkout))).state).toBe("diverged");
   });
 
+  test("a checked-out branch other than the default is off-branch; a detached HEAD can still be fast-forwarded", async () => {
+    const g = await gitWorld();
+    await g.push("a.txt");
+    await sh(g.checkout, "git", "checkout", "--quiet", "-b", "experiment");
+    expect(await checkUpdate(runnerIn(g.checkout))).toMatchObject({ state: "off-branch", branch: "experiment" });
+    const r = await selfUpdate(io(g.checkout), { checks: [["true"]], restarts: [], install: NO_INSTALL });
+    expect(r.outcome).toBe("refused");
+    await sh(g.checkout, "git", "checkout", "--quiet", "--detach");
+    expect((await checkUpdate(runnerIn(g.checkout))).state).toBe("behind");
+  });
+
   test("an untracked file does not make the checkout dirty", async () => {
     const g = await gitWorld();
     await g.push("a.txt");
@@ -81,6 +92,7 @@ describe("selfUpdate", () => {
     const x = io(g.checkout);
     const r = await selfUpdate(x, { checks: [["true"]], restarts: ROLES, install: NO_INSTALL });
     expect(r.outcome).toBe("updated");
+    expect(r.status).toMatchObject({ head: old, target });
     expect(await sh(g.checkout, "git", "rev-parse", "HEAD")).toBe(target);
     expect(x.restarted).toEqual(["service:dori-serve", "role:duty-loop", "role:hourly-loop"]);
     expect(x.told).toEqual([`[SELF-UPDATE] ${old.slice(0, 7)}..${target.slice(0, 7)}`]);
@@ -192,15 +204,21 @@ describe("selfUpdate", () => {
     expect(text.trim().split("\n").at(-1)).toBe("0");
   });
 
-  test("a worktree left behind by a killed run is removed before the next verification", async () => {
+  test("a worktree left by a dead run is removed; one a live run is checking in is kept", async () => {
     const g = await gitWorld();
     await g.push("a.txt");
-    const stale = join(tmpdir(), `dori-self-update-stale-${randomUUID()}`);
-    await sh(g.checkout, "git", "worktree", "add", "--detach", "--quiet", stale, "HEAD");
+    // pid_max on Linux is at most 4194304, so this pid can never be alive.
+    const dead = join(tmpdir(), `dori-self-update-abc1234-2147483646-${randomUUID()}`);
+    const live = join(tmpdir(), `dori-self-update-abc1234-${process.pid}-${randomUUID()}`);
+    await sh(g.checkout, "git", "worktree", "add", "--detach", "--quiet", dead, "HEAD");
+    await sh(g.checkout, "git", "worktree", "add", "--detach", "--quiet", live, "HEAD");
     const r = await selfUpdate(io(g.checkout), { checks: [["true"]], restarts: [], install: NO_INSTALL });
     expect(r.outcome).toBe("updated");
-    expect(await sh(g.checkout, "git", "worktree", "list", "--porcelain")).not.toContain("dori-self-update-");
-    expect(existsSync(stale)).toBe(false);
+    const list = await sh(g.checkout, "git", "worktree", "list", "--porcelain");
+    expect(existsSync(dead)).toBe(false);
+    expect(list).not.toContain(dead);
+    expect(list).toContain(live);
+    await sh(g.checkout, "git", "worktree", "remove", "--force", live);
   });
 
   test("a restart that fails is reported in the line; the other restarts still run", async () => {
