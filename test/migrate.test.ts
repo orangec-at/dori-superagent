@@ -169,6 +169,17 @@ describe("dori migrate: one lane herdr -> hc", () => {
     expect(readJournal(d.store.root, "k")).toBeUndefined();
   });
 
+  test("an omo pane herdr sees no agent in is not asked for a checkpoint, whatever its screen shows (#5)", async () => {
+    const { w, d, opts } = migrateWorld("shell");
+    const pane = w.panes.get("w1:p3")!;
+    pane.foreground = "omo";
+    pane.screen = readFileSync(join(import.meta.dir, "fixtures", "screens", "omo-idle-live-monitors.txt"), "utf8");
+    w.promptFails.set("w1:p3", "agent_not_ready");
+    await migrate(d, { lane: "k" }, opts());
+    expect(pane.received).toEqual([]);
+    expect(w.calls.some((c) => c.argv[0] === "agent" || c.argv[1] === "send-text")).toBe(false);
+  });
+
   test("dutyTick leaves a migrating lane's record untouched and holds its inbox", async () => {
     const { w, d } = migrateWorld();
     w.clock += 60 * 60_000;

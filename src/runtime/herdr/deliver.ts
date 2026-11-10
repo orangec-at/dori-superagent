@@ -1,6 +1,6 @@
 import type { AgentIdentity, DeliverOutcome, Key, SubmitResult } from "../types.ts";
 import { type HerdrCli, reasonOf, ToolError } from "./exec.ts";
-import { foreground, paneAgent, probe } from "./probe.ts";
+import { foreground, paneAgent, probe, screenShowsIdle } from "./probe.ts";
 
 /** The terminal needs a moment to finish a bracketed paste before an Enter is read as a submit. */
 export const PASTE_SETTLE_MS = 400;
@@ -52,9 +52,11 @@ export async function deliver(cli: HerdrCli, paneId: string, text: string, sleep
     if (!(e instanceof ToolError) || !/agent_not_ready/.test(e.result.stderr || e.result.stdout))
       return ambiguous("agent prompt", e);
     // agent_not_ready also covers an agent that exited and left a shell in front: typing would run the text there.
-    // Re-read right before typing (#66): only a pane that still has an agent gets keystrokes.
+    // Re-read right before typing (#66): only a pane that still has an agent gets keystrokes. herdr may see no agent
+    // in an omo pane (#5): its screen must then positively show omo's idle input, and the foreground check below holds.
     const { status, agent } = await paneAgent(cli, paneId);
-    if (status === "shell" || status === "gone") return NO_AGENT;
+    if (status === "gone") return NO_AGENT;
+    if (status === "shell" && !(await screenShowsIdle(cli, paneId))) return NO_AGENT;
     const front = await foreground(cli, paneId, HOLDING);
     if (front.shell) return NO_AGENT;
     // A multi-line paste swallows the Enter that follows it, so type the message as one line.
@@ -77,14 +79,16 @@ export async function deliver(cli: HerdrCli, paneId: string, text: string, sleep
  * the text again. `changed`, pressing nothing: herdr sees no agent in the pane, or a different one (another name or
  * foreground process group), so the typed text is not in this input (#108). `wait`, pressing nothing: the agent is
  * still reported but a shell is in front (suspended with Ctrl+Z, #66/#69), or the lookup failed. Throws herdr's
- * error when every Enter failed.
+ * error when every Enter failed. A pane herdr sees no agent in is the same agent only when the text was typed with
+ * no agent either (#5), nothing interactive is in front, and the foreground process group matches.
  */
 export async function submitTyped(cli: HerdrCli, paneId: string, typedInto: AgentIdentity): Promise<SubmitResult> {
   const { status, agent } = await paneAgent(cli, paneId);
   if (status === "gone") return "wait";
-  if (status === "shell") return "changed";
   // submitTyped holds the Enter of an earlier delivery, so a failed lookup is reported as holding that delivery.
   const front = await foreground(cli, paneId, HOLDING);
+  if (status === "shell" && (front.shell || typedInto.agent !== undefined || typedInto.pgid === undefined))
+    return "changed";
   if (front.shell) return "wait";
   if (typedInto.agent !== undefined && agent !== typedInto.agent) return "changed";
   if (typedInto.pgid !== undefined && front.pgid !== typedInto.pgid) return "changed";
