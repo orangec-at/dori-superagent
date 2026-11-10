@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkUpdate, type RestartTarget, selfUpdate, type SelfUpdateIo } from "../src/self-update.ts";
@@ -13,6 +13,11 @@ const ROLES: RestartTarget[] = [
 ];
 
 const NO_INSTALL = ["true"];
+
+afterEach(() => {
+  delete process.env["HERDR_PANE_ID"];
+  delete process.env["DORI_HOME"];
+});
 
 /** An install command that succeeds on every run but the nth, so the checkout install can fail after a green worktree. */
 function installFailingOn(nth: number): string[] {
@@ -166,6 +171,36 @@ describe("selfUpdate", () => {
     expect(r.outcome).toBe("current");
     expect(x.told).toEqual([]);
     expect(x.restarted).toEqual([]);
+  });
+
+  test("the install and the checks see no live DORI_HOME and no HERDR_* variable", async () => {
+    const g = await gitWorld();
+    await g.push("a.txt");
+    const seen = join(tmpdir(), `dori-env-${randomUUID()}`);
+    process.env["HERDR_PANE_ID"] = "w1:p1";
+    process.env["DORI_HOME"] = "/live/dori/home";
+    const x = io(g.checkout);
+    const r = await selfUpdate(x, {
+      checks: [["sh", "-c", `{ echo "home=$DORI_HOME"; env | grep -c '^HERDR_' || true; } > ${seen}`]],
+      restarts: [],
+      install: NO_INSTALL,
+    });
+    expect(r.outcome).toBe("updated");
+    const text = readFileSync(seen, "utf8");
+    expect(text).not.toContain("/live/dori/home");
+    expect(text).toContain("home=");
+    expect(text.trim().split("\n").at(-1)).toBe("0");
+  });
+
+  test("a worktree left behind by a killed run is removed before the next verification", async () => {
+    const g = await gitWorld();
+    await g.push("a.txt");
+    const stale = join(tmpdir(), `dori-self-update-stale-${randomUUID()}`);
+    await sh(g.checkout, "git", "worktree", "add", "--detach", "--quiet", stale, "HEAD");
+    const r = await selfUpdate(io(g.checkout), { checks: [["true"]], restarts: [], install: NO_INSTALL });
+    expect(r.outcome).toBe("updated");
+    expect(await sh(g.checkout, "git", "worktree", "list", "--porcelain")).not.toContain("dori-self-update-");
+    expect(existsSync(stale)).toBe(false);
   });
 
   test("a restart that fails is reported in the line; the other restarts still run", async () => {

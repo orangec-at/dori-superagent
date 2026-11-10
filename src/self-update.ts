@@ -7,8 +7,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExecResult } from "./runtime/exec.ts";
 
-/** Runs one command in the checkout, or in `cwd` when one is given (the verification worktree). */
-export type Runner = (cmd: string, argv: readonly string[], cwd?: string) => Promise<ExecResult>;
+/** Runs one command in the checkout, or under `where` (the verification worktree, with its own environment). */
+export type Runner = (
+  cmd: string,
+  argv: readonly string[],
+  where?: { readonly cwd?: string; readonly env?: Readonly<Record<string, string>> },
+) => Promise<ExecResult>;
 
 /** What a successful update restarts: a role pane `dori up` opened, or a user systemd service. */
 export type RestartTarget =
@@ -110,13 +114,42 @@ export function statusLine(s: UpdateStatus): string {
 }
 
 /** Runs the checks in order; the first failure is returned with the tail of its output. */
-async function runChecks(run: Runner, checks: SelfUpdateOpts["checks"], cwd: string): Promise<string | undefined> {
+async function runChecks(
+  run: Runner,
+  checks: SelfUpdateOpts["checks"],
+  where: { cwd: string; env: Record<string, string> },
+): Promise<string | undefined> {
   for (const [cmd, ...argv] of checks) {
     if (cmd === undefined) continue;
-    const r = await run(cmd, argv, cwd);
+    const r = await run(cmd, argv, where);
     if (r.code !== 0) return `${[cmd, ...argv].join(" ")} failed:\n${tail(r)}`;
   }
   return undefined;
+}
+
+/**
+ * The environment the install and the checks run under: no `DORI_*`, `HERDR_*` or `HC_*` variable of the detached
+ * self-update process reaches them, and `DORI_HOME` points inside the throwaway worktree. A test suite that reads
+ * the environment therefore cannot touch the live home or the panes it was started from.
+ */
+function checkEnv(
+  dir: string,
+  from: Readonly<Record<string, string | undefined>> = process.env,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(from)) if (v !== undefined && !/^(DORI|HERDR|HC)_/.test(k)) env[k] = v;
+  env["DORI_HOME"] = join(dir, ".self-update-home");
+  return env;
+}
+
+/** Worktrees left behind by a run that was killed before its `finally`: their entries and directories go now. */
+async function pruneWorktrees(run: Runner): Promise<void> {
+  await run("git", ["worktree", "prune"]);
+  const listed = await run("git", ["worktree", "list", "--porcelain"]);
+  for (const line of listed.stdout.split("\n")) {
+    const path = line.startsWith("worktree ") ? line.slice("worktree ".length) : undefined;
+    if (path?.includes("dori-self-update-")) await run("git", ["worktree", "remove", "--force", path]);
+  }
 }
 
 /**
@@ -124,16 +157,18 @@ async function runChecks(run: Runner, checks: SelfUpdateOpts["checks"], cwd: str
  * its proven code until the checks are green. The worktree is removed whatever happens.
  */
 async function verify(io: SelfUpdateIo, target: string, opts: SelfUpdateOpts): Promise<string | undefined> {
+  await pruneWorktrees(io.run);
   const dir = join(tmpdir(), `dori-self-update-${short(target)}-${randomUUID()}`);
   const added = await io.run("git", ["worktree", "add", "--detach", "--quiet", dir, target]);
   if (added.code !== 0) return `git worktree add for the checks failed: ${tail(added, 3)}`;
+  const where = { cwd: dir, env: checkEnv(dir) };
   try {
     const [cmd, ...argv] = opts.install ?? DEFAULT_INSTALL;
     if (cmd !== undefined) {
-      const i = await io.run(cmd, argv, dir);
+      const i = await io.run(cmd, argv, where);
       if (i.code !== 0) return `${[cmd, ...argv].join(" ")} in the verification worktree failed:\n${tail(i)}`;
     }
-    return await runChecks(io.run, opts.checks, dir);
+    return await runChecks(io.run, opts.checks, where);
   } finally {
     await io.run("git", ["worktree", "remove", "--force", dir]);
   }

@@ -3,8 +3,9 @@ import { need, one, textOf, USAGE, type Args } from "./cli-args.ts";
 import { dutyTick } from "./duty.ts";
 import type { Deps } from "./harness.ts";
 import { Refusal } from "./refusal.ts";
-import { HOUR, loopTick, msUntilNext, summary } from "./loop.ts";
+import { HOUR, type LoopOpts, loopTick, msUntilNext, summary } from "./loop.ts";
 import { acquire, release } from "./loop-lock.ts";
+import { onTerm, type Term } from "./loop-term.ts";
 import { autoSelfUpdate } from "./self-update-run.ts";
 
 export async function runDuty(d: Deps, a: Args, x: string | undefined): Promise<number> {
@@ -32,14 +33,24 @@ export async function runDuty(d: Deps, a: Args, x: string | undefined): Promise<
   const lock = d.store.lockPath("duty");
   const held = acquire(d, lock);
   if ("holder" in held) throw new Refusal(`another duty loop runs in this home (${held.holder})`);
+  const term = onTerm();
   try {
     for (;;) {
       for (const e of await dutyTick(d))
         console.log(`DUTY ${[e.lane ?? e.pane, e.action].filter(Boolean).join(" ")}${e.detail ? `: ${e.detail}` : ""}`);
       if (one(a, "once")) break;
-      await Bun.sleep(interval);
+      if (term.stopped()) {
+        console.log("DUTY STOPPED by SIGTERM after this pass");
+        break;
+      }
+      await term.wait(interval);
+      if (term.stopped()) {
+        console.log("DUTY STOPPED by SIGTERM between passes");
+        break;
+      }
     }
   } finally {
+    term.off();
     release(d, held.nonce, lock);
   }
   return 0;
@@ -90,6 +101,15 @@ export async function runLoop(d: Deps, a: Args, x: string | undefined): Promise<
       "--interval and --max-load must be finite positive numbers; --max-lanes and --max-starts whole numbers >= 0",
     );
   }
+  const term = onTerm();
+  try {
+    return await loopPasses(d, a, opts, term);
+  } finally {
+    term.off();
+  }
+}
+
+async function loopPasses(d: Deps, a: Args, opts: LoopOpts, term: Term): Promise<number> {
   for (;;) {
     try {
       const run = await loopTick(d, opts);
@@ -109,7 +129,15 @@ export async function runLoop(d: Deps, a: Args, x: string | undefined): Promise<
     }
     if (one(a, "once")) break;
     opts.force = false;
-    await Bun.sleep(msUntilNext(d, interval));
+    if (term.stopped()) {
+      console.log("LOOP STOPPED by SIGTERM after this pass");
+      break;
+    }
+    await term.wait(msUntilNext(d, opts.interval ?? HOUR));
+    if (term.stopped()) {
+      console.log("LOOP STOPPED by SIGTERM between passes");
+      break;
+    }
   }
   return 0;
 }

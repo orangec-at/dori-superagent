@@ -14,8 +14,8 @@ export async function sh(cwd: string, cmd: string, ...argv: string[]): Promise<s
 
 export const runnerIn =
   (cwd: string): Runner =>
-  (cmd, argv, at) =>
-    spawnExec(cmd, argv, { cwd: at ?? cwd });
+  (cmd, argv, where) =>
+    spawnExec(cmd, argv, { cwd: where?.cwd ?? cwd, ...(where?.env === undefined ? {} : { env: where.env }) });
 
 /** A bare origin with one commit on main, the dori checkout cloned from it, and a second clone that pushes. */
 export async function gitWorld(): Promise<{

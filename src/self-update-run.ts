@@ -113,8 +113,8 @@ export async function restartRole(d: Deps, role: keyof typeof LOOP_COMMANDS, pro
 
 export const repoRunner =
   (d: Deps, repo: string = REPO): Runner =>
-  (cmd, argv, cwd) =>
-    d.exec(cmd, argv, { cwd: cwd ?? repo });
+  (cmd, argv, where) =>
+    d.exec(cmd, argv, { cwd: where?.cwd ?? repo, ...(where?.env === undefined ? {} : { env: where.env }) });
 
 export function selfUpdateIo(d: Deps, c: SelfUpdateConfig, run: Runner = repoRunner(d)): SelfUpdateIo {
   return {

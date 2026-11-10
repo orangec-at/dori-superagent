@@ -2,8 +2,15 @@
 // and end-to-end tests point it at an isolated session.
 
 export type ExecResult = { readonly code: number; readonly stdout: string; readonly stderr: string };
-/** `onSpawn` gets the running process, so a caller that gives up on it can kill it. `cwd`: where it runs. */
-export type ExecOptions = { readonly onSpawn?: (proc: { kill(): void }) => void; readonly cwd?: string };
+/**
+ * `onSpawn` gets the running process, so a caller that gives up on it can kill it. `cwd`: where it runs. `env`:
+ * replaces the whole environment (not merged), so a caller can run a command without this process's variables.
+ */
+export type ExecOptions = {
+  readonly onSpawn?: (proc: { kill(): void }) => void;
+  readonly cwd?: string;
+  readonly env?: Readonly<Record<string, string>>;
+};
 export type Exec = (cmd: string, argv: readonly string[], options?: ExecOptions) => Promise<ExecResult>;
 
 export const spawnExec: Exec = async (cmd, argv, options) => {
@@ -12,6 +19,7 @@ export const spawnExec: Exec = async (cmd, argv, options) => {
     stderr: "pipe",
     stdin: "ignore",
     ...(options?.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options?.env === undefined ? {} : { env: options.env }),
   });
   options?.onSpawn?.(proc);
   const [stdout, stderr, code] = await Promise.all([

@@ -23,10 +23,13 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
   dori review <owner/repo#N> [--model M]      fresh omo reviewer at the exact head -> receipt
   dori merge <owner/repo#N> [--dry-run]       CLEAR receipt at head + green checks -> squash merge
   dori done <key>                             lead closes a READY lane
-  dori self-update [--check] [--now]          fast-forward this checkout to origin's default branch, run typecheck +
-                                              tests (rolled back on failure), restart the duty and hourly loops and
-                                              selfUpdate.services; [SELF-UPDATE] old..new to the lead and selfUpdate.notify
-  dori self-update --migrate-prompts          move local prompts/*.md additions to DORI_HOME/prompts/overlay/
+  dori self-update [--check] [--now]          prove origin's default branch in a throwaway worktree (install,
+                                              typecheck, tests), then fast-forward this checkout and restart the duty
+                                              and hourly loops and selfUpdate.services; [SELF-UPDATE] old..new to the
+                                              lead and selfUpdate.notify. Nothing is restarted unless the checks pass;
+                                              a situation that failed twice is left alone until --now or a new commit
+  dori self-update --migrate-prompts          move local prompts/*.md end-of-file additions to
+                                              DORI_HOME/prompts/overlay/ (anything else is reported as SKIP)
   dori migrate [--to hc|herdr] (--lane K | --role lead|duty|duty-loop|hourly-loop | --all) [--dry-run]
                [--wait-minutes N] [--resume]  hand sessions over to another runtime; MIGRATED, SKIP, DEFERRED,
                                               or MIGRATE_ROLLBACK (exit 3) per session
