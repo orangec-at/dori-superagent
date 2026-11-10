@@ -155,6 +155,15 @@ export class Store {
     return this.readJson(this.receiptPath(pr, sha));
   }
 
+  /** Every review receipt, newest first. */
+  receipts(): ReviewReceipt[] {
+    return readdirSync(join(this.root, "receipts"))
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => this.readJson<ReviewReceipt>(join(this.root, "receipts", f)))
+      .filter((r): r is ReviewReceipt => r !== undefined)
+      .sort((a, b) => b.at - a.at);
+  }
+
   // ---------- backlog ----------
 
   itemBrief(id: string): string {

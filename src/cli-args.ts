@@ -27,6 +27,8 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
                [--wait-minutes N] [--resume]  hand sessions over to another runtime; MIGRATED, SKIP, DEFERRED,
                                               or MIGRATE_ROLLBACK (exit 3) per session
   dori status
+  dori serve [--port N] [--host H]            read-only dashboard: / (HTML, refreshes every 30s) and /api/state (JSON);
+                                              default 127.0.0.1:8787
 
 --text may be omitted to read the message from stdin.
 send, report and ready exit 3 and print HELD <target> when the delivery may or may not have reached the pane:
