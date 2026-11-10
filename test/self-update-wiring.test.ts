@@ -7,7 +7,8 @@ import { overlayPath, prompt, promptText } from "../src/harness.ts";
 import {
   autoSelfUpdate,
   loadSelfUpdateConfig,
-  rememberSituation,
+  MAX_SELF_UPDATE_FAILURES,
+  rememberFailure,
   restartRole,
   restartTargets,
   situation,
@@ -75,9 +76,40 @@ describe("dori self-update --migrate-prompts", () => {
     const home = mkdtempSync(join(tmpdir(), "dori-home-"));
     writeFileSync(join(g.checkout, "prompts", "lead.md"), "You are the lead.\n");
     const [line] = await migratePrompts(runnerIn(g.checkout), home);
-    expect(line).toStartWith("SKIP prompts/lead.md: the local change removes lines");
+    expect(line).toStartWith("SKIP prompts/lead.md: the local change is not a plain addition at the end");
     expect(await sh(g.checkout, "git", "diff", "--name-only")).toBe("prompts/lead.md");
     expect(existsSync(overlayPath(home, "lead.md"))).toBe(false);
+  });
+
+  test("a line inserted mid-file is left in place: an overlay could only come back at the end", async () => {
+    const g = await gitWorld();
+    const home = mkdtempSync(join(tmpdir(), "dori-home-"));
+    const file = join(g.checkout, "prompts", "lead.md");
+    writeFileSync(file, "You are the lead.\n- inserted rule\n- rule one\n");
+    const [line] = await migratePrompts(runnerIn(g.checkout), home);
+    expect(line).toStartWith("SKIP prompts/lead.md: the local change is not a plain addition at the end");
+    expect(readFileSync(file, "utf8")).toBe("You are the lead.\n- inserted rule\n- rule one\n");
+    expect(existsSync(overlayPath(home, "lead.md"))).toBe(false);
+  });
+
+  test("removing a --- rule is a removal, not an addition, even though its diff line starts with ---", async () => {
+    const g = await gitWorld();
+    const home = mkdtempSync(join(tmpdir(), "dori-home-"));
+    const file = join(g.checkout, "prompts", "lead.md");
+    writeFileSync(file, "You are the lead.\n---\n- rule one\n");
+    await sh(g.checkout, "git", "commit", "--quiet", "-am", "add a rule line");
+    writeFileSync(file, "You are the lead.\n- rule one\n- added rule\n");
+    const [line] = await migratePrompts(runnerIn(g.checkout), home);
+    expect(line).toStartWith("SKIP prompts/lead.md: the local change is not a plain addition at the end");
+    expect(existsSync(overlayPath(home, "lead.md"))).toBe(false);
+  });
+
+  test("an added line starting with + keeps its character", async () => {
+    const g = await gitWorld();
+    const home = mkdtempSync(join(tmpdir(), "dori-home-"));
+    appendFileSync(join(g.checkout, "prompts", "lead.md"), "++ keep both pluses\n");
+    await migratePrompts(runnerIn(g.checkout), home);
+    expect(readFileSync(overlayPath(home, "lead.md"), "utf8")).toBe("++ keep both pluses\n");
   });
 });
 
@@ -140,10 +172,14 @@ describe("selfUpdate config and the automatic trigger", () => {
     expect(await autoSelfUpdate(d, start, run)).toStartWith("SELF_UPDATE_CURRENT");
     await g.push("a.txt");
     expect(await autoSelfUpdate(d, start, run)).toStartWith("SELF_UPDATE_STARTED behind");
-    rememberSituation(d, situation(await checkUpdate(run)));
+    const s = situation(await checkUpdate(run));
+    rememberFailure(d, s);
+    // One failure is not enough to go quiet: a flaky check run must not stop the host from updating.
+    expect(await autoSelfUpdate(d, start, run)).toStartWith("SELF_UPDATE_STARTED behind");
+    for (let i = 1; i < MAX_SELF_UPDATE_FAILURES; i++) rememberFailure(d, s);
     expect(await autoSelfUpdate(d, start, run)).toStartWith("SELF_UPDATE_SKIPPED behind");
     writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ selfUpdate: { auto: false } }));
     expect(await autoSelfUpdate(d, start, run)).toStartWith("SELF_UPDATE_OFF");
-    expect(started).toBe(1);
+    expect(started).toBe(2);
   });
 });

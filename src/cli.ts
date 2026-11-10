@@ -141,10 +141,13 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
     case "merge": {
       const dryRun = one(a, "dry-run") === "true";
       console.log(await mergeGate(d, need(x, "PR"), { dryRun }));
-      // A merge into dori's own repo is new code for this checkout: start the self-update in the background.
-      if (!dryRun && parsePr(x!).repo === (await originRepo(repoRunner(d)))) {
+      // A merge into dori's own repo is new code for this checkout: start the self-update in the background. The
+      // merge already happened, so nothing in here may throw out of the command.
+      if (!dryRun) {
         try {
-          console.log(await autoSelfUpdate(d));
+          const origin = await originRepo(repoRunner(d));
+          if (origin !== undefined && parsePr(x!).repo.toLowerCase() === origin.toLowerCase())
+            console.log(await autoSelfUpdate(d));
         } catch (e) {
           console.error(`SELF_UPDATE_ERROR ${e instanceof Error ? e.message : String(e)}`);
         }

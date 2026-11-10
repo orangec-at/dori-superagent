@@ -24,6 +24,8 @@ export type SelfUpdateConfig = {
   /** User systemd services restarted after a good update, e.g. ["dori-serve"]. */
   readonly services: readonly string[];
   readonly checks: readonly (readonly string[])[];
+  /** How dependencies are installed; defaults to `bun install --frozen-lockfile`. */
+  readonly install?: readonly string[];
 };
 
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
@@ -42,6 +44,7 @@ export function loadSelfUpdateConfig(root: string): SelfUpdateConfig {
   const notify: unknown = Reflect.get(raw, "notify");
   const services: unknown = Reflect.get(raw, "services");
   const checks: unknown = Reflect.get(raw, "checks");
+  const install: unknown = Reflect.get(raw, "install");
   if (auto !== undefined && typeof auto !== "boolean")
     throw new ConfigError("config.json: selfUpdate.auto must be true or false");
   if (notify !== undefined && typeof notify !== "string")
@@ -50,9 +53,12 @@ export function loadSelfUpdateConfig(root: string): SelfUpdateConfig {
     throw new ConfigError("config.json: selfUpdate.services must be an array of strings");
   if (checks !== undefined && !(Array.isArray(checks) && checks.every((c) => strings(c) && c.length > 0)))
     throw new ConfigError("config.json: selfUpdate.checks must be an array of argv arrays");
+  if (install !== undefined && !(strings(install) && install.length > 0))
+    throw new ConfigError("config.json: selfUpdate.install must be a non-empty array of strings (an argv)");
   return {
     auto: auto !== false && !off,
     ...(notify === undefined ? {} : { notify }),
+    ...(install === undefined ? {} : { install }),
     services: services ?? [],
     checks: (checks as string[][] | undefined) ?? DEFAULT_CHECKS,
   };
@@ -107,8 +113,8 @@ export async function restartRole(d: Deps, role: keyof typeof LOOP_COMMANDS, pro
 
 export const repoRunner =
   (d: Deps, repo: string = REPO): Runner =>
-  (cmd, argv) =>
-    d.exec(cmd, argv, { cwd: repo });
+  (cmd, argv, cwd) =>
+    d.exec(cmd, argv, { cwd: cwd ?? repo });
 
 export function selfUpdateIo(d: Deps, c: SelfUpdateConfig, run: Runner = repoRunner(d)): SelfUpdateIo {
   return {
@@ -130,17 +136,30 @@ export function selfUpdateIo(d: Deps, c: SelfUpdateConfig, run: Runner = repoRun
 }
 
 /**
- * The last outcome that changed nothing (refused, failed, rolled back), keyed by head, target and state. A run that
- * is not `--now` skips the same situation, so a broken commit on main is told once, not every hour.
+ * How many times the same situation (head, target, state) may fail before automatic runs go quiet about it. One
+ * flaky check run must not stop the host from updating until the next commit lands; a genuinely broken commit is
+ * told twice, not every hour. `--now` always retries.
  */
+export const MAX_SELF_UPDATE_FAILURES = 2;
+
+type Memo = { readonly situation?: string; readonly failures?: number };
 const memoPath = (d: Deps) => join(d.store.root, "self-update.json");
+const memo = (d: Deps): Memo =>
+  existsSync(memoPath(d)) ? (JSON.parse(readFileSync(memoPath(d), "utf8")) as Memo) : {};
+const write = (d: Deps, m: Memo): void => writeFileSync(memoPath(d), `${JSON.stringify({ ...m, at: d.now() })}\n`);
+
 export const situation = (s: UpdateStatus): string => `${s.head}:${s.target}:${s.state}`;
-export const lastSituation = (d: Deps): string | undefined =>
-  existsSync(memoPath(d))
-    ? (JSON.parse(readFileSync(memoPath(d), "utf8")) as { situation?: string }).situation
-    : undefined;
-export const rememberSituation = (d: Deps, s: string | undefined): void =>
-  writeFileSync(memoPath(d), `${JSON.stringify({ situation: s, at: d.now() })}\n`);
+
+/** Whether automatic runs should leave this situation alone: it already failed MAX_SELF_UPDATE_FAILURES times. */
+export const isQuiet = (d: Deps, s: UpdateStatus): boolean => {
+  const m = memo(d);
+  return m.situation === situation(s) && (m.failures ?? 0) >= MAX_SELF_UPDATE_FAILURES;
+};
+export const rememberFailure = (d: Deps, s: string): void => {
+  const m = memo(d);
+  write(d, { situation: s, failures: m.situation === s ? (m.failures ?? 0) + 1 : 1 });
+};
+export const forgetFailures = (d: Deps): void => write(d, { failures: 0 });
 
 /** Starts `dori self-update` in its own session, logging to `$DORI_HOME/self-update.log`: it outlives the loop it restarts. */
 export function spawnSelfUpdate(d: Deps): void {
@@ -161,8 +180,8 @@ export async function autoSelfUpdate(
   if (!loadSelfUpdateConfig(d.store.root).auto) return "SELF_UPDATE_OFF (selfUpdate.auto or DORI_SELF_UPDATE=off)";
   const s = await checkUpdate(run);
   if (s.state === "current") return `SELF_UPDATE_CURRENT ${s.head.slice(0, 7)}`;
-  if (lastSituation(d) === situation(s))
-    return `SELF_UPDATE_SKIPPED ${s.state} at ${s.target.slice(0, 7)} was already told`;
+  if (isQuiet(d, s))
+    return `SELF_UPDATE_SKIPPED ${s.state} at ${s.target.slice(0, 7)} failed ${MAX_SELF_UPDATE_FAILURES} times already`;
   start(d);
   return `SELF_UPDATE_STARTED ${s.state} ${s.head.slice(0, 7)}..${s.target.slice(0, 7)} (log: ${join(d.store.root, "self-update.log")})`;
 }

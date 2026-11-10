@@ -14,8 +14,8 @@ export async function sh(cwd: string, cmd: string, ...argv: string[]): Promise<s
 
 export const runnerIn =
   (cwd: string): Runner =>
-  (cmd, argv) =>
-    spawnExec(cmd, argv, { cwd });
+  (cmd, argv, at) =>
+    spawnExec(cmd, argv, { cwd: at ?? cwd });
 
 /** A bare origin with one commit on main, the dori checkout cloned from it, and a second clone that pushes. */
 export async function gitWorld(): Promise<{
@@ -30,6 +30,7 @@ export async function gitWorld(): Promise<{
   mkdirSync(join(seed, "prompts"), { recursive: true });
   await sh(root, "git", "init", "--quiet", "--initial-branch=main", seed);
   writeFileSync(join(seed, "prompts", "lead.md"), "You are the lead.\n- rule one\n");
+  writeFileSync(join(seed, "bun.lock"), "lock 0\n");
   await sh(seed, "git", "add", ".");
   await sh(seed, "git", "commit", "--quiet", "-m", "seed");
   await sh(seed, "git", "remote", "add", "origin", origin);
