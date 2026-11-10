@@ -29,6 +29,9 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
   dori status
   dori serve [--port N] [--host H]            read-only dashboard: / (HTML, refreshes every 30s) and /api/state (JSON);
                                               default 127.0.0.1:8787
+  dori reply <address> <text> [--file F ...]  answer a front end: slack:<channel>:<thread_ts> (files too),
+                                              discord:<channel>, hermes:<machine>/<profile> (its Bot Chat);
+                                              REPLIED, or REPLY_FAILED <address>: <reason> and exit 1
 
 --text may be omitted to read the message from stdin.
 send, report and ready exit 3 and print HELD <target> when the delivery may or may not have reached the pane:

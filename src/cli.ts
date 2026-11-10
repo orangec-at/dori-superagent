@@ -12,6 +12,7 @@ import { inboxList, releaseHeld, sendToShell } from "./inbox-held.ts";
 import { Refusal } from "./refusal.ts";
 import { runMigrate } from "./migrate.ts";
 import { serveDashboard } from "./serve.ts";
+import { ReplyError, reply } from "./reply.ts";
 import { refText } from "./refs.ts";
 import { ConfigError as RuntimeConfigError, RuntimeChoiceError } from "./runtime/select.ts";
 import { parseRef } from "./runtime/types.ts";
@@ -34,6 +35,7 @@ const COMMANDS = new Set([
   "backlog",
   "migrate",
   "serve",
+  "reply",
 ]);
 
 /** Prints the line for a delivery that did not land now and returns the exit code: HELD 3, everything else 0. */
@@ -148,6 +150,20 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       const server = serveDashboard(d.store, { host: one(a, "host") ?? "127.0.0.1", port, now: d.now });
       console.log(`SERVING ${server.url.href} home=${d.store.root} (read-only)`);
       return new Promise<number>(() => {});
+    }
+    case "reply": {
+      const address = need(x, "reply address");
+      const files = a.flags.get("file") ?? [];
+      const text = a.pos.slice(2).join(" ") || one(a, "text") || (files.length > 0 ? "" : await textOf(a));
+      try {
+        await reply(d.exec, address, text, { home: d.store.root, files });
+      } catch (e) {
+        if (!(e instanceof ReplyError)) throw e;
+        console.error(e.message);
+        return 1;
+      }
+      console.log(`REPLIED ${address}`);
+      return 0;
     }
     default:
       console.log(USAGE);
