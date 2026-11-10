@@ -1,0 +1,20 @@
+[
+  { "name": "endo", "host": "", "profile": "endo", "role": "review", "description": "엔도: code review" },
+  { "name": "yeondo", "host": "", "profile": "yeondo", "role": "research", "description": "연도: research" },
+  { "name": "bido", "host": "", "profile": "bido", "role": "assistant", "description": "비도" },
+  {
+    "name": "appminhee",
+    "host": "mini",
+    "profile": "appminhee",
+    "role": "ios",
+    "description": "앱민희: iOS builds on the Mac mini"
+  },
+  {
+    "name": "hongbungi",
+    "host": "ubuntu",
+    "profile": "hongbungi",
+    "role": "marketing",
+    "description": "홍붕이: promotion drafts"
+  },
+  { "name": "panbungi", "host": "ubuntu", "profile": "panbungi", "role": "sales", "description": "판붕이: sales" }
+]

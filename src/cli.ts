@@ -14,6 +14,7 @@ import { runMigrate } from "./migrate.ts";
 import { serveDashboard } from "./serve.ts";
 import { ReplyError, reply } from "./reply.ts";
 import { refText } from "./refs.ts";
+import { agentLine, agentsPath, DELEGATE_EXIT, delegate, loadAgents } from "./agents.ts";
 import { ConfigError as RuntimeConfigError, RuntimeChoiceError } from "./runtime/select.ts";
 import { parseRef } from "./runtime/types.ts";
 import type { Role } from "./store-types.ts";
@@ -36,6 +37,8 @@ const COMMANDS = new Set([
   "migrate",
   "serve",
   "reply",
+  "agents",
+  "delegate",
 ]);
 
 /** Prints the line for a delivery that did not land now and returns the exit code: HELD 3, everything else 0. */
@@ -164,6 +167,22 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       }
       console.log(`REPLIED ${address}`);
       return 0;
+    }
+    case "agents": {
+      const agents = loadAgents(d.store.root);
+      if (agents.length === 0) console.log(`NO_AGENTS ${agentsPath(d.store.root)}`);
+      for (const agent of agents) console.log(agentLine(agent));
+      return 0;
+    }
+    case "delegate": {
+      const name = need(x, "agent name");
+      const seconds = Number(one(a, "timeout") ?? "600");
+      if (!(seconds > 0)) throw new Refusal("--timeout must be a positive number of seconds");
+      const text = await textOf(a);
+      const r = await delegate(d.exec, name, text, { home: d.store.root, timeoutMs: seconds * 1000, now: d.now });
+      if (r.outcome === "ok") process.stdout.write(r.output);
+      else console.error(`DELEGATE_${r.outcome.toUpperCase()} ${name}: ${r.output}`);
+      return DELEGATE_EXIT[r.outcome];
     }
     default:
       console.log(USAGE);
