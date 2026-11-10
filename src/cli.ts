@@ -3,7 +3,9 @@ import { resolve } from "node:path";
 import { runBacklog, runDuty, runLoop } from "./cli-loops.ts";
 import { status, up } from "./cli-up.ts";
 import { done, ready, report, startLane } from "./lanes.ts";
-import { mergeGate, review } from "./gate.ts";
+import { mergeGate, parsePr, review } from "./gate.ts";
+import { runSelfUpdate } from "./cli-self-update.ts";
+import { autoSelfUpdate, originRepo, repoRunner } from "./self-update-run.ts";
 import { need, one, parse, textOf, USAGE } from "./cli-args.ts";
 import { defaultDeps, ROLES, type Deps } from "./harness.ts";
 import { ConfigError, hooksSettled } from "./hooks.ts";
@@ -39,6 +41,7 @@ const COMMANDS = new Set([
   "reply",
   "agents",
   "delegate",
+  "self-update",
 ]);
 
 /** Prints the line for a delivery that did not land now and returns the exit code: HELD 3, everything else 0. */
@@ -135,9 +138,21 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       console.log(`REVIEW ${x} head=${r.sha} verdict=${r.verdict}`);
       return r.verdict === "CLEAR" ? 0 : 1;
     }
-    case "merge":
-      console.log(await mergeGate(d, need(x, "PR"), { dryRun: one(a, "dry-run") === "true" }));
+    case "merge": {
+      const dryRun = one(a, "dry-run") === "true";
+      console.log(await mergeGate(d, need(x, "PR"), { dryRun }));
+      // A merge into dori's own repo is new code for this checkout: start the self-update in the background.
+      if (!dryRun && parsePr(x!).repo === (await originRepo(repoRunner(d)))) {
+        try {
+          console.log(await autoSelfUpdate(d));
+        } catch (e) {
+          console.error(`SELF_UPDATE_ERROR ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
       return 0;
+    }
+    case "self-update":
+      return runSelfUpdate(d, a);
     case "done":
       await done(d, need(x, "lane key"));
       console.log(`DONE ${x}`);

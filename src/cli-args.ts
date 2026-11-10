@@ -23,6 +23,10 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
   dori review <owner/repo#N> [--model M]      fresh omo reviewer at the exact head -> receipt
   dori merge <owner/repo#N> [--dry-run]       CLEAR receipt at head + green checks -> squash merge
   dori done <key>                             lead closes a READY lane
+  dori self-update [--check] [--now]          fast-forward this checkout to origin's default branch, run typecheck +
+                                              tests (rolled back on failure), restart the duty and hourly loops and
+                                              selfUpdate.services; [SELF-UPDATE] old..new to the lead and selfUpdate.notify
+  dori self-update --migrate-prompts          move local prompts/*.md additions to DORI_HOME/prompts/overlay/
   dori migrate [--to hc|herdr] (--lane K | --role lead|duty|duty-loop|hourly-loop | --all) [--dry-run]
                [--wait-minutes N] [--resume]  hand sessions over to another runtime; MIGRATED, SKIP, DEFERRED,
                                               or MIGRATE_ROLLBACK (exit 3) per session
@@ -46,7 +50,18 @@ export type Args = { pos: string[]; flags: Map<string, string[]> };
 
 // Flags that never take a value. Every other flag takes the next argument verbatim, even one starting with "--", so a
 // relayed value such as `--from "$SENDER"` or `--text "$MSG"` can never turn into a flag like --to-shell (#66).
-const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["once", "force", "dry-run", "to-shell", "all", "resume", "help"]);
+const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
+  "once",
+  "force",
+  "dry-run",
+  "to-shell",
+  "all",
+  "resume",
+  "help",
+  "check",
+  "now",
+  "migrate-prompts",
+]);
 
 export function parse(argv: readonly string[]): Args {
   const pos: string[] = [];

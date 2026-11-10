@@ -36,7 +36,7 @@ export async function review(
   const hook = loadHooks(d.store.root).reviewCommand;
   const sha = await headSha(d, pr);
   const vars = { pr: pr.id, repo: pr.repo, number: String(pr.number), sha };
-  const text = prompt("review.md", vars);
+  const text = prompt("review.md", vars, d.store.root);
   const [cmd, ...argv] = hook
     ? substitute(hook, { ...vars, text })
     : [d.agentCmd, "-p", "--no-session", ...(model ? ["--model", model] : []), text];

@@ -79,7 +79,7 @@ export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
         await sendOrThrow(
           d,
           lane.key,
-          prompt("nudge.md", { key: lane.key, minutes: String(Math.floor(idleMin)), dori: d.doriCmd }),
+          prompt("nudge.md", { key: lane.key, minutes: String(Math.floor(idleMin)), dori: d.doriCmd }, d.store.root),
           "duty",
         );
         events.push({ lane: lane.key, action: `nudge-${lane.nudges}` });

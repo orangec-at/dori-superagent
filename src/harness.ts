@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { cpus, loadavg } from "node:os";
 import { join, resolve } from "node:path";
 import { shq } from "./delivery.ts";
@@ -15,7 +15,9 @@ import { Telemetry, type Usage } from "./telemetry.ts";
 export { KEY_RE, reservedKey };
 
 const PROMPTS = join(import.meta.dir, "..", "prompts");
-const CLI = resolve(import.meta.dir, "cli.ts");
+export const CLI = resolve(import.meta.dir, "cli.ts");
+/** The checkout this dori runs from: `dori self-update` fast-forwards it. */
+export const REPO = resolve(import.meta.dir, "..");
 
 export type Deps = {
   readonly store: Store;
@@ -61,8 +63,19 @@ export const defaultDeps = (): Deps => {
 /** `DORI_PROMPTS_DIR` when set, else the repo's `prompts/`. */
 export const promptsDir = (): string => process.env["DORI_PROMPTS_DIR"] || PROMPTS;
 
-export const prompt = (name: string, vars: Record<string, string>): string =>
-  readFileSync(join(promptsDir(), name), "utf8").replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? `{{${k}}}`);
+/** A machine's own additions to a prompt live outside the checkout, so the checkout stays clean for self-update. */
+export const overlayPath = (home: string, name: string): string => join(home, "prompts", "overlay", name);
+
+/** The repo prompt with `$DORI_HOME/prompts/overlay/<name>` appended after one blank line when that file has text. */
+export function promptText(name: string, home: string | undefined): string {
+  const base = readFileSync(join(promptsDir(), name), "utf8");
+  const path = home === undefined ? undefined : overlayPath(home, name);
+  const extra = path !== undefined && existsSync(path) ? readFileSync(path, "utf8").trim() : "";
+  return extra ? `${base.trimEnd()}\n\n${extra}\n` : base;
+}
+
+export const prompt = (name: string, vars: Record<string, string>, home?: string): string =>
+  promptText(name, home).replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? `{{${k}}}`);
 
 /** The roles `dori role` registers by hand; `dori up` also registers the two loop sessions. */
 export const ROLES: readonly Role[] = ["lead", "duty"];

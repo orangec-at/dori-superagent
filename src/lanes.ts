@@ -24,7 +24,7 @@ export async function startLane(
     throw new Refusal(`lane ${key} is already open in ${refText(existing.sessionRef)}`);
   const cwd = resolve(opts.cwd ?? process.cwd());
   const briefPath = d.store.briefPath(key);
-  const footer = prompt("lane-footer.md", { key, dori: d.doriCmd });
+  const footer = prompt("lane-footer.md", { key, dori: d.doriCmd }, d.store.root);
   await Bun.write(briefPath, `${readFileSync(briefFile, "utf8").trimEnd()}\n\n${footer}`);
 
   // The group is the caller's own when it runs in a session of the selected runtime (a lane opened from the lead's

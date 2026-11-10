@@ -5,6 +5,7 @@ import type { Deps } from "./harness.ts";
 import { Refusal } from "./refusal.ts";
 import { HOUR, loopTick, msUntilNext, summary } from "./loop.ts";
 import { acquire, release } from "./loop-lock.ts";
+import { autoSelfUpdate } from "./self-update-run.ts";
 
 export async function runDuty(d: Deps, a: Args, x: string | undefined): Promise<number> {
   if (x === "stop") {
@@ -100,6 +101,11 @@ export async function runLoop(d: Deps, a: Args, x: string | undefined): Promise<
     } catch (e) {
       console.error(`LOOP ERROR ${e instanceof Error ? e.message : String(e)}`);
       if (one(a, "once")) return 1;
+    }
+    try {
+      console.log(await autoSelfUpdate(d));
+    } catch (e) {
+      console.error(`SELF_UPDATE_ERROR ${e instanceof Error ? e.message : String(e)}`);
     }
     if (one(a, "once")) break;
     opts.force = false;
