@@ -12,6 +12,8 @@ export type DashboardState = {
     key: string;
     status: LaneStatus;
     pane: string;
+    /** The saved herdr machine the lane's pane runs on, or "local". */
+    machine: string;
     lastActivityAt: number;
     log: { at: number; kind: string; text: string }[];
     final: { text: string; evidence: string[]; at: number } | null;
@@ -39,6 +41,7 @@ export function dashboardState(store: Store, now: number): DashboardState {
       key: l.key,
       status: l.status,
       pane: refText(l.sessionRef),
+      machine: l.sessionRef.machine ?? "local",
       lastActivityAt: l.lastActivityAt,
       log: l.log.slice(-LOG_LINES),
       final: l.final ?? null,

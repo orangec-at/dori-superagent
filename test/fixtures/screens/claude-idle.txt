@@ -1,0 +1,8 @@
+● Done. The login test now waits for the session cookie before it asserts, and it passed 20 runs in a row.
+
+✻ Brewed for 41s · done 오후 5:41
+                                                                                                                        
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ⧉ history
