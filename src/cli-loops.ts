@@ -3,10 +3,13 @@ import { need, one, textOf, USAGE, type Args } from "./cli-args.ts";
 import { dutyTick } from "./duty.ts";
 import type { Deps } from "./harness.ts";
 import { Refusal } from "./refusal.ts";
-import { HOUR, loopTick, msUntilNext, summary } from "./loop.ts";
+import { HOUR, type LoopOpts, loopTick, msUntilNext, summary } from "./loop.ts";
 import { acquire, release } from "./loop-lock.ts";
+import { onTerm, type Term } from "./loop-term.ts";
+import { autoSelfUpdate, spawnSelfUpdate } from "./self-update-run.ts";
 
-export async function runDuty(d: Deps, a: Args, x: string | undefined): Promise<number> {
+/** `newTerm`: how the loop learns it should stop between passes (SIGTERM by default; tests pass their own). */
+export async function runDuty(d: Deps, a: Args, x: string | undefined, newTerm: () => Term = onTerm): Promise<number> {
   if (x === "stop") {
     d.store.setStop(d.now(), one(a, "text") ?? "stopped by hand", "duty");
     console.log("DUTY STOPPED");
@@ -31,20 +34,40 @@ export async function runDuty(d: Deps, a: Args, x: string | undefined): Promise<
   const lock = d.store.lockPath("duty");
   const held = acquire(d, lock);
   if ("holder" in held) throw new Refusal(`another duty loop runs in this home (${held.holder})`);
+  const term = newTerm();
   try {
     for (;;) {
       for (const e of await dutyTick(d))
         console.log(`DUTY ${[e.lane ?? e.pane, e.action].filter(Boolean).join(" ")}${e.detail ? `: ${e.detail}` : ""}`);
       if (one(a, "once")) break;
-      await Bun.sleep(interval);
+      if (term.stopped()) {
+        console.log("DUTY STOPPED by SIGTERM after this pass");
+        break;
+      }
+      await term.wait(interval);
+      if (term.stopped()) {
+        console.log("DUTY STOPPED by SIGTERM between passes");
+        break;
+      }
     }
   } finally {
+    term.off();
     release(d, held.nonce, lock);
   }
   return 0;
 }
 
-export async function runLoop(d: Deps, a: Args, x: string | undefined): Promise<number> {
+/**
+ * `startSelfUpdate`: what the trigger after each pass starts (the detached process; tests pass a stub). `newTerm`: as
+ * for runDuty.
+ */
+export async function runLoop(
+  d: Deps,
+  a: Args,
+  x: string | undefined,
+  startSelfUpdate: (d: Deps) => void = spawnSelfUpdate,
+  newTerm: () => Term = onTerm,
+): Promise<number> {
   if (x === "stop") {
     d.store.setStop(d.now(), one(a, "text") ?? "stopped by hand");
     console.log("LOOP STOPPED");
@@ -89,9 +112,26 @@ export async function runLoop(d: Deps, a: Args, x: string | undefined): Promise<
       "--interval and --max-load must be finite positive numbers; --max-lanes and --max-starts whole numbers >= 0",
     );
   }
+  const term = newTerm();
+  try {
+    return await loopPasses(d, a, opts, term, startSelfUpdate);
+  } finally {
+    term.off();
+  }
+}
+
+async function loopPasses(
+  d: Deps,
+  a: Args,
+  opts: LoopOpts,
+  term: Term,
+  startSelfUpdate: (d: Deps) => void,
+): Promise<number> {
   for (;;) {
+    let ran = false;
     try {
       const run = await loopTick(d, opts);
+      ran = !run.skipped;
       console.log(
         run.skipped
           ? `LOOP skipped: ${run.skipped}`
@@ -101,9 +141,25 @@ export async function runLoop(d: Deps, a: Args, x: string | undefined): Promise<
       console.error(`LOOP ERROR ${e instanceof Error ? e.message : String(e)}`);
       if (one(a, "once")) return 1;
     }
+    // Only after a pass that ran: a stopped loop, one that lost the lock, and a one-off --once run start nothing.
+    if (ran && !one(a, "once")) {
+      try {
+        console.log(autoSelfUpdate(d, startSelfUpdate));
+      } catch (e) {
+        console.error(`SELF_UPDATE_ERROR ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     if (one(a, "once")) break;
     opts.force = false;
-    await Bun.sleep(msUntilNext(d, interval));
+    if (term.stopped()) {
+      console.log("LOOP STOPPED by SIGTERM after this pass");
+      break;
+    }
+    await term.wait(msUntilNext(d, opts.interval ?? HOUR));
+    if (term.stopped()) {
+      console.log("LOOP STOPPED by SIGTERM between passes");
+      break;
+    }
   }
   return 0;
 }

@@ -1,16 +1,22 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { shq } from "./delivery.ts";
-import { promptsDir, type Deps } from "./harness.ts";
+import { promptText, type Deps } from "./harness.ts";
 import { refText } from "./refs.ts";
 import { groupId } from "./runtime/group.ts";
 import { openSession, type SessionRef } from "./runtime/types.ts";
 import { RuntimeChoiceError } from "./runtime/select.ts";
 
+/** What the two loop panes run; `dori self-update` types the same command back in after it stops the old process. */
+export const LOOP_COMMANDS = {
+  "duty-loop": (dori: string) => `${dori} duty --interval 60`,
+  "hourly-loop": (dori: string) => `${dori} loop`,
+} as const;
+
 function renderPrompt(d: Deps, name: string): string {
   const dir = join(d.store.root, "prompts");
   mkdirSync(dir, { recursive: true });
-  const src = readFileSync(join(promptsDir(), name), "utf8").replaceAll("{{dori}}", d.doriCmd);
+  const src = promptText(name, d.store.root).replaceAll("{{dori}}", d.doriCmd);
   const out = join(dir, name);
   writeFileSync(out, src);
   return out;
@@ -43,14 +49,14 @@ export async function up(d: Deps, cwd: string): Promise<void> {
   const loop = await openSession(
     rt,
     { name: "duty-loop", role: "duty-loop", container: "split-below", near: duty, cwd, env, ...inGroup },
-    `${d.doriCmd} duty --interval 60`,
+    LOOP_COMMANDS["duty-loop"](d.doriCmd),
   );
   d.store.setRole("duty-loop", loop);
   const hourlyEnv = rt.kind === "herdr" && group !== undefined ? { ...env, HERDR_WORKSPACE_ID: group } : env;
   const hourly = await openSession(
     rt,
     { name: "hourly-loop", role: "hourly-loop", container: "split-below", near: loop, cwd, env: hourlyEnv, ...inGroup },
-    `${d.doriCmd} loop`,
+    LOOP_COMMANDS["hourly-loop"](d.doriCmd),
   );
   d.store.setRole("hourly-loop", hourly);
   console.log(

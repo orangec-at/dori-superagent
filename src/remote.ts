@@ -17,8 +17,16 @@ export const doriFor = (d: Deps, machine: string | undefined): string =>
  * its arguments into one line the remote shell splits again, so a quoted `--text` would arrive as many words.
  */
 export const laneFooter = (d: Deps, key: string, machine: string | undefined): string =>
-  prompt(machine ? "lane-footer-remote.md" : "lane-footer.md", { key, dori: doriFor(d, machine), host: doriHost() });
+  prompt(
+    machine ? "lane-footer-remote.md" : "lane-footer.md",
+    { key, dori: doriFor(d, machine), host: doriHost() },
+    d.store.root,
+  );
 
 /** The duty loop's nudge for an idle lane, in the same form as its rules. */
 export const nudgeText = (d: Deps, key: string, minutes: number, machine: string | undefined): string =>
-  prompt(machine ? "nudge-remote.md" : "nudge.md", { key, minutes: String(minutes), dori: doriFor(d, machine) });
+  prompt(
+    machine ? "nudge-remote.md" : "nudge.md",
+    { key, minutes: String(minutes), dori: doriFor(d, machine) },
+    d.store.root,
+  );

@@ -136,6 +136,8 @@ A run that passes its gate (not stopped, not locked by another loop, at least an
 
 The loop only opens lanes and sends messages; it never merges, pushes or closes a pane. The full design is in [`docs/hourly-loop.md`](docs/hourly-loop.md).
 
+`dori self-update` keeps the checkout dori runs from current: it proves `origin`'s default branch in a throwaway worktree (install, typecheck, tests), then fast-forwards the checkout and restarts the duty and hourly loop panes plus the configured services, telling the lead and the operator one `[SELF-UPDATE] <old>..<new>` line. It is fast-forward only and never restarts unproven code. Automatic runs are **opt-in, off by default**: with `"selfUpdate": { "auto": true }` in `config.json` it also runs after `dori merge` of its own repository and on every hourly loop pass, so anything that lands on `origin`'s default branch reaches the host within the hour (protect that branch first); `DORI_SELF_UPDATE=off` forces them off. Machine-specific prompt rules live in `~/.dori/prompts/overlay/<name>.md` so the checkout stays clean. See [`docs/self-update.md`](docs/self-update.md).
+
 ![lane lifecycle](docs/lane-flow.png)
 
 `dori start <key> --brief FILE` writes the brief plus the lane rules to `~/.dori/briefs/<key>.md`, opens a tab, runs omo with a prompt that names the brief, records the lane as `working`, and sends the lead `[START <key>]`. From there the lane reports (`[REPORT <key>]`, or `[REPORT <key> WAITING]` when it is blocked outside its own pane) and ends with `[READY <key>]` plus its evidence links. A lane that stays idle gets a nudge at 10 and 20 minutes and is escalated to the lead at 40. A lane whose pane disappears before READY is reported as `[LOST <key>]`.
