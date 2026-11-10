@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# usage: to-dori <reply address> <from> "task"      (the task may also come on stdin)
+#   to-dori discord:123456789012 jaeil "fix the login test in drawhatha"
+# Hands one piece of work to the dori lead inside the reply envelope, so the lead answers with
+# `dori reply <reply address> ...` straight into the conversation it came from.
+# Exit codes are dori send's: 0 delivered or queued, 3 held (it may have arrived: never resend), anything else failed.
+set -euo pipefail
+[ "$#" -ge 2 ] || { echo "usage: to-dori <reply address> <from> \"task\"" >&2; exit 2; }
+reply="$1"; from="$2"; shift 2
+task="${*:-$(cat)}"
+[ -n "${task//[[:space:]]/}" ] || { echo "empty task" >&2; exit 2; }
+case "$reply" in
+  slack:*:* | discord:* | hermes:*/*) ;;
+  *) echo "not a reply address: $reply (slack:<channel>:<thread_ts>, discord:<channel>, hermes:<machine>/<profile>)" >&2; exit 2 ;;
+esac
+export DORI_HOME="${DORI_HOME:-$HOME/.dori}"
+exec bun "${DORI_CLI:-$HOME/workspace/dori-superagent/src/cli.ts}" send lead --from "$from" --text "[reply=$reply from=$from] $task"
