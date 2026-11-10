@@ -4,15 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { migratePrompts } from "../src/cli-self-update.ts";
 import { overlayPath, prompt, promptText } from "../src/harness.ts";
-import {
-  autoSelfUpdate,
-  loadSelfUpdateConfig,
-  MAX_SELF_UPDATE_FAILURES,
-  rememberFailure,
-  restartTargets,
-  situation,
-} from "../src/self-update-run.ts";
-import { checkUpdate } from "../src/self-update.ts";
+import { autoSelfUpdate, loadSelfUpdateConfig, restartTargets } from "../src/self-update-run.ts";
 import { World } from "./fake.ts";
 import { gitWorld, runnerIn, sh } from "./self-update-git.ts";
 
@@ -38,6 +30,14 @@ describe("prompt overlays", () => {
     expect(prompt("lane-footer.md", { key: "k1" }, home)).toBe(
       "Lane k1.\n\n## Machine rules\n9. k1 works in a worktree.\n",
     );
+  });
+
+  test("an overlay without a blank first line gets one, and keeps its indentation", () => {
+    promptsIn({ "lead.md": "Lead.\n" });
+    const home = mkdtempSync(join(tmpdir(), "dori-home-"));
+    mkdirSync(join(home, "prompts", "overlay"), { recursive: true });
+    writeFileSync(overlayPath(home, "lead.md"), "    indented rule");
+    expect(promptText("lead.md", home)).toBe("Lead.\n\n    indented rule\n");
   });
 
   test("no home, or an empty overlay, gives the repo prompt unchanged", () => {
@@ -141,23 +141,18 @@ describe("selfUpdate config and the automatic trigger", () => {
     expect(() => loadSelfUpdateConfig(home)).toThrow("selfUpdate.services must be an array of strings");
   });
 
-  test("behind starts a background update once; the same situation already told is skipped; off starts nothing", async () => {
-    const g = await gitWorld();
-    const d = new World().deps();
-    const run = runnerIn(g.checkout);
+  test("the trigger starts a background run unless auto is off or the loop is stopped, and fetches nothing", () => {
+    const w = new World();
+    const d = w.deps();
     let started = 0;
     const start = () => void started++;
-    expect(await autoSelfUpdate(d, start, run)).toStartWith("SELF_UPDATE_CURRENT");
-    await g.push("a.txt");
-    expect(await autoSelfUpdate(d, start, run)).toStartWith("SELF_UPDATE_STARTED behind");
-    const s = situation(await checkUpdate(run));
-    rememberFailure(d, s);
-    // One failure is not enough to go quiet: a flaky check run must not stop the host from updating.
-    expect(await autoSelfUpdate(d, start, run)).toStartWith("SELF_UPDATE_STARTED behind");
-    for (let i = 1; i < MAX_SELF_UPDATE_FAILURES; i++) rememberFailure(d, s);
-    expect(await autoSelfUpdate(d, start, run)).toStartWith("SELF_UPDATE_SKIPPED behind");
+    expect(autoSelfUpdate(d, start)).toStartWith("SELF_UPDATE_STARTED");
+    d.store.setStop(d.now(), "maintenance");
+    expect(autoSelfUpdate(d, start)).toContain("the loop is stopped (maintenance)");
+    d.store.clearStop();
     writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ selfUpdate: { auto: false } }));
-    expect(await autoSelfUpdate(d, start, run)).toStartWith("SELF_UPDATE_OFF");
-    expect(started).toBe(2);
+    expect(autoSelfUpdate(d, start)).toStartWith("SELF_UPDATE_OFF");
+    expect(started).toBe(1);
+    expect(w.calls.filter((c) => c.cmd === "git")).toEqual([]);
   });
 });

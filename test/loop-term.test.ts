@@ -1,5 +1,8 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { parse } from "../src/cli-args.ts";
+import { runLoop } from "../src/cli-loops.ts";
 import { main } from "../src/cli.ts";
+import type { Deps } from "../src/harness.ts";
 import { onTerm } from "../src/loop-term.ts";
 import { World } from "./fake.ts";
 
@@ -39,6 +42,44 @@ describe("onTerm", () => {
     expect(process.listenerCount("SIGTERM")).toBe(before + 1);
     t.off();
     expect(process.listenerCount("SIGTERM")).toBe(before);
+  });
+});
+
+/** Runs `dori loop` with SIGTERM already on its way, so it ends after its first pass; returns what the trigger did. */
+async function oneLoopPass(d: Deps, argv: string[]): Promise<{ code: number; started: number; lines: string[] }> {
+  let started = 0;
+  const lines: string[] = [];
+  const log = spyOn(console, "log").mockImplementation((...a: unknown[]) => void lines.push(a.join(" ")));
+  try {
+    // runLoop registers its handler before its first await, so the signal lands on the running loop.
+    const running = runLoop(d, parse(["loop", ...argv]), undefined, () => void started++);
+    term();
+    return { code: await running, started, lines };
+  } finally {
+    log.mockRestore();
+  }
+}
+
+describe("dori loop", () => {
+  test("a pass that ran starts the self-update trigger, then SIGTERM ends the loop without waiting", async () => {
+    const r = await oneLoopPass(new World().deps(), ["--interval", "1000000"]);
+    expect(r.code).toBe(0);
+    expect(r.started).toBe(1);
+    expect(r.lines.join("\n")).toContain("LOOP STOPPED by SIGTERM after this pass");
+  });
+
+  test("a stopped loop starts no self-update", async () => {
+    const d = new World().deps();
+    d.store.setStop(d.now(), "maintenance");
+    const r = await oneLoopPass(d, ["--interval", "1000000"]);
+    expect(r.started).toBe(0);
+    expect(r.lines.join("\n")).toContain("LOOP skipped: stopped: maintenance");
+  });
+
+  test("a one-off --once run starts no self-update", async () => {
+    const r = await oneLoopPass(new World().deps(), ["--once"]);
+    expect(r.code).toBe(0);
+    expect(r.started).toBe(0);
   });
 });
 

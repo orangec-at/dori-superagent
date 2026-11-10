@@ -17,6 +17,7 @@ const NO_INSTALL = ["true"];
 afterEach(() => {
   delete process.env["HERDR_PANE_ID"];
   delete process.env["DORI_HOME"];
+  delete process.env["GH_TOKEN"];
 });
 
 /** An install command that succeeds on every run but the nth, so the checkout install can fail after a green worktree. */
@@ -185,23 +186,27 @@ describe("selfUpdate", () => {
     expect(x.restarted).toEqual([]);
   });
 
-  test("the install and the checks see no live DORI_HOME and no HERDR_* variable", async () => {
+  test("the install and the checks see only allowlisted variables: no token, no live HOME or DORI_HOME", async () => {
     const g = await gitWorld();
     await g.push("a.txt");
     const seen = join(tmpdir(), `dori-env-${randomUUID()}`);
     process.env["HERDR_PANE_ID"] = "w1:p1";
     process.env["DORI_HOME"] = "/live/dori/home";
+    process.env["GH_TOKEN"] = "ghp_secret";
     const x = io(g.checkout);
     const r = await selfUpdate(x, {
-      checks: [["sh", "-c", `{ echo "home=$DORI_HOME"; env | grep -c '^HERDR_' || true; } > ${seen}`]],
+      checks: [["sh", "-c", `env > ${seen}`]],
       restarts: [],
       install: NO_INSTALL,
     });
     expect(r.outcome).toBe("updated");
-    const text = readFileSync(seen, "utf8");
-    expect(text).not.toContain("/live/dori/home");
-    expect(text).toContain("home=");
-    expect(text.trim().split("\n").at(-1)).toBe("0");
+    const env = readFileSync(seen, "utf8");
+    expect(env).not.toContain("ghp_secret");
+    expect(env).not.toContain("/live/dori/home");
+    expect(env).not.toMatch(/^HERDR_/m);
+    expect(env).toMatch(/^HOME=.*\.self-update-home$/m);
+    expect(env).not.toContain(`HOME=${process.env["HOME"]}\n`);
+    expect(env).toMatch(/^PATH=/m);
   });
 
   test("a worktree left by a dead run is removed; one a live run is checking in is kept", async () => {

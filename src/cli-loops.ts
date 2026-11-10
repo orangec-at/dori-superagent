@@ -6,7 +6,7 @@ import { Refusal } from "./refusal.ts";
 import { HOUR, type LoopOpts, loopTick, msUntilNext, summary } from "./loop.ts";
 import { acquire, release } from "./loop-lock.ts";
 import { onTerm, type Term } from "./loop-term.ts";
-import { autoSelfUpdate } from "./self-update-run.ts";
+import { autoSelfUpdate, spawnSelfUpdate } from "./self-update-run.ts";
 
 export async function runDuty(d: Deps, a: Args, x: string | undefined): Promise<number> {
   if (x === "stop") {
@@ -56,7 +56,13 @@ export async function runDuty(d: Deps, a: Args, x: string | undefined): Promise<
   return 0;
 }
 
-export async function runLoop(d: Deps, a: Args, x: string | undefined): Promise<number> {
+/** `startSelfUpdate`: what the trigger after each pass starts (tests pass a stub; the CLI the detached process). */
+export async function runLoop(
+  d: Deps,
+  a: Args,
+  x: string | undefined,
+  startSelfUpdate: (d: Deps) => void = spawnSelfUpdate,
+): Promise<number> {
   if (x === "stop") {
     d.store.setStop(d.now(), one(a, "text") ?? "stopped by hand");
     console.log("LOOP STOPPED");
@@ -103,16 +109,24 @@ export async function runLoop(d: Deps, a: Args, x: string | undefined): Promise<
   }
   const term = onTerm();
   try {
-    return await loopPasses(d, a, opts, term);
+    return await loopPasses(d, a, opts, term, startSelfUpdate);
   } finally {
     term.off();
   }
 }
 
-async function loopPasses(d: Deps, a: Args, opts: LoopOpts, term: Term): Promise<number> {
+async function loopPasses(
+  d: Deps,
+  a: Args,
+  opts: LoopOpts,
+  term: Term,
+  startSelfUpdate: (d: Deps) => void,
+): Promise<number> {
   for (;;) {
+    let ran = false;
     try {
       const run = await loopTick(d, opts);
+      ran = !run.skipped;
       console.log(
         run.skipped
           ? `LOOP skipped: ${run.skipped}`
@@ -122,10 +136,13 @@ async function loopPasses(d: Deps, a: Args, opts: LoopOpts, term: Term): Promise
       console.error(`LOOP ERROR ${e instanceof Error ? e.message : String(e)}`);
       if (one(a, "once")) return 1;
     }
-    try {
-      console.log(await autoSelfUpdate(d));
-    } catch (e) {
-      console.error(`SELF_UPDATE_ERROR ${e instanceof Error ? e.message : String(e)}`);
+    // Only after a pass that ran: a stopped loop, one that lost the lock, and a one-off --once run start nothing.
+    if (ran && !one(a, "once")) {
+      try {
+        console.log(autoSelfUpdate(d, startSelfUpdate));
+      } catch (e) {
+        console.error(`SELF_UPDATE_ERROR ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
     if (one(a, "once")) break;
     opts.force = false;

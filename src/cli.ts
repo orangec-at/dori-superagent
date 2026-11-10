@@ -147,7 +147,7 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
         try {
           const origin = await originRepo(repoRunner(d));
           if (origin !== undefined && parsePr(x!).repo.toLowerCase() === origin.toLowerCase())
-            console.log(await autoSelfUpdate(d));
+            console.log(autoSelfUpdate(d));
         } catch (e) {
           console.error(`SELF_UPDATE_ERROR ${e instanceof Error ? e.message : String(e)}`);
         }

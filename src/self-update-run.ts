@@ -9,7 +9,6 @@ import { tellLead } from "./inbox.ts";
 import { refText } from "./refs.ts";
 import { reply } from "./reply.ts";
 import {
-  checkUpdate,
   DEFAULT_CHECKS,
   type RestartTarget,
   type Runner,
@@ -200,21 +199,17 @@ export function spawnSelfUpdate(d: Deps): void {
 }
 
 /**
- * The automatic trigger (after `dori merge` of dori's own repo, and every hourly loop run): when auto is on and the
- * checkout is not current and not in the situation already told, start `dori self-update` in the background.
+ * The automatic trigger (after `dori merge` of dori's own repo, and after every hourly pass that ran): unless auto is
+ * off or the loop is stopped, start `dori self-update` in the background. It does no network call itself: the fetch,
+ * the "already failed twice" check and the lock all live in that detached process, so a stalled fetch can never hang
+ * the hourly loop.
  */
-export async function autoSelfUpdate(
-  d: Deps,
-  start: (d: Deps) => void = spawnSelfUpdate,
-  run: Runner = repoRunner(d),
-): Promise<string> {
+export function autoSelfUpdate(d: Deps, start: (d: Deps) => void = spawnSelfUpdate): string {
   if (!loadSelfUpdateConfig(d.store.root).auto) return "SELF_UPDATE_OFF (selfUpdate.auto or DORI_SELF_UPDATE=off)";
-  const s = await checkUpdate(run);
-  if (s.state === "current") return `SELF_UPDATE_CURRENT ${s.head.slice(0, 7)}`;
-  if (isQuiet(d, s))
-    return `SELF_UPDATE_SKIPPED ${s.state} at ${s.target.slice(0, 7)} failed ${MAX_SELF_UPDATE_FAILURES} times already`;
+  const stop = d.store.stop();
+  if (stop) return `SELF_UPDATE_OFF the loop is stopped (${stop.reason}); dori loop resume turns it back on`;
   start(d);
-  return `SELF_UPDATE_STARTED ${s.state} ${s.head.slice(0, 7)}..${s.target.slice(0, 7)} (log: ${join(d.store.root, "self-update.log")})`;
+  return `SELF_UPDATE_STARTED (log: ${join(d.store.root, "self-update.log")})`;
 }
 
 /** owner/repo of the checkout's origin, from an https or ssh GitHub URL. */

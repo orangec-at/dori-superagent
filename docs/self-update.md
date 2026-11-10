@@ -16,7 +16,9 @@ dori self-update [--check] [--now] [--migrate-prompts]
 2. Only `behind` goes on. `diverged`, `off-branch` and `dirty` are left untouched and the reason is told.
 3. The target commit is proven **in a throwaway worktree** (`git worktree add --detach` under the temp
    directory): `bun install --frozen-lockfile`, then `bun run typecheck` and `bun test ./test/`. The live
-   checkout still runs its proven code while this happens, and the worktree is removed either way.
+   checkout still runs its proven code while this happens, and the worktree is removed either way. These run
+   with an allowlisted environment (`PATH`, locale, `TERM`, `TZ`, `TMPDIR`): no tokens, no ssh agent, and `HOME`
+   and `DORI_HOME` inside the worktree; only bun's package cache is shared.
 4. Green checks: `git merge --ff-only <target>` in the checkout, plus `bun install --frozen-lockfile` when
    `bun.lock` changed. A failing install here goes back with `git reset --keep <old>` and reinstalls.
 5. Restart, in order: `selfUpdate.services` (`systemctl --user restart`), the `duty-loop` pane, the
@@ -35,14 +37,17 @@ checks passed.
 Automatic runs are **on by default**, with no `selfUpdate` config at all:
 
 - `dori merge` of a PR in the checkout's own `origin` repository starts one in the background.
-- Every hourly loop pass checks and starts one when the checkout is behind.
+- Every hourly loop pass that ran starts one (not a skipped pass, not `--once`).
 
-Both are detached (`$DORI_HOME/self-update.log`), because the update restarts the loop that triggered it.
+Both are detached (`$DORI_HOME/self-update.log`), because the update restarts the loop that triggered it. The
+trigger itself makes no network call; the detached run fetches with prompts disabled, a 30 s ssh connect timeout
+and a 60 s https stall limit, so nothing waits on a person or a dead network.
 
 The same situation (head, target, state) is retried `MAX_SELF_UPDATE_FAILURES` (2) times; after that automatic
 runs stay quiet about it until a new commit lands or someone runs `--now`.
 
-Kill switch: `"selfUpdate": { "auto": false }` in `$DORI_HOME/config.json`, or `DORI_SELF_UPDATE=off`.
+Kill switch: `"selfUpdate": { "auto": false }` in `$DORI_HOME/config.json`, or `DORI_SELF_UPDATE=off`. A
+stopped hourly loop (`dori loop stop`) also starts no self-update until `dori loop resume`.
 `--now` runs by hand whatever the switch says.
 
 **Protect the default branch.** With `auto` on, anything pushed to `origin/<default branch>` is installed,
@@ -67,8 +72,8 @@ pull requests on that branch.
 ## Keeping the checkout clean
 
 A fast-forward needs a clean checkout, so machine-specific prompt rules live outside it: anything in
-`$DORI_HOME/prompts/overlay/<name>.md` is appended to the repo's `prompts/<name>.md` after one blank line,
-with `{{variables}}` substituted in both.
+`$DORI_HOME/prompts/overlay/<name>.md` is appended to the repo's `prompts/<name>.md` as written (one blank line
+is added only when the overlay does not start with one), with `{{variables}}` substituted in both.
 
 `dori self-update --migrate-prompts` moves existing local edits there: for each changed `prompts/*.md` whose
 diff only appends at the end of the file, the added lines become the overlay, the full diff is kept as

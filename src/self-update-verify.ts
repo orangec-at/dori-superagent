@@ -26,18 +26,26 @@ async function runChecks(
   return undefined;
 }
 
+/** Variables the install and the checks may see: the toolchain, the locale and the terminal, nothing else. */
+const KEEP = /^(PATH|LANG|LANGUAGE|TERM|TZ|TMPDIR|LC_\w+)$/;
+
 /**
- * The environment the install and the checks run under: no `DORI_*`, `HERDR_*` or `HC_*` variable of the detached
- * self-update process reaches them, and `DORI_HOME` points inside the throwaway worktree. A test suite that reads
- * the environment therefore cannot touch the live home or the panes it was started from.
+ * The environment the install and the checks run under: an allowlist (`KEEP`), so no token (`GH_TOKEN`, webhook
+ * secrets), no `DORI_*`, `HERDR_*` or `HC_*` and no ssh agent reaches code from origin before a person has seen it.
+ * `HOME` and `DORI_HOME` point inside the throwaway worktree; only bun's package cache is shared, so the install
+ * does not download every package again.
  */
-function checkEnv(
+export function checkEnv(
   dir: string,
   from: Readonly<Record<string, string | undefined>> = process.env,
 ): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(from)) if (v !== undefined && !/^(DORI|HERDR|HC)_/.test(k)) env[k] = v;
-  env["DORI_HOME"] = join(dir, ".self-update-home");
+  for (const [k, v] of Object.entries(from)) if (v !== undefined && KEEP.test(k)) env[k] = v;
+  env["HOME"] = join(dir, ".self-update-home");
+  env["DORI_HOME"] = join(dir, ".self-update-home", ".dori");
+  const cache =
+    from["BUN_INSTALL_CACHE_DIR"] ?? (from["HOME"] ? join(from["HOME"], ".bun", "install", "cache") : undefined);
+  if (cache !== undefined) env["BUN_INSTALL_CACHE_DIR"] = cache;
   return env;
 }
 

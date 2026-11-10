@@ -76,10 +76,23 @@ export type UpdateOutcome =
       readonly status: UpdateStatus;
     };
 
-async function git(run: Runner, argv: readonly string[]): Promise<string> {
-  const r = await run("git", argv);
+async function git(run: Runner, argv: readonly string[], where?: Parameters<Runner>[2]): Promise<string> {
+  const r = await run("git", argv, where);
   if (r.code !== 0) throw new Error(`git ${argv.join(" ")} failed: ${tail(r, 3)}`);
   return r.stdout.trim();
+}
+
+/**
+ * The fetch never waits for a person: no credential or host-key prompt (`GIT_TERMINAL_PROMPT=0`, ssh BatchMode), a
+ * 30 s ssh connect timeout, and an https transfer that stalls for 60 s is aborted (`http.lowSpeed*`). A hung fetch
+ * would otherwise hold the self-update lock forever.
+ */
+function fetchEnv(from: Readonly<Record<string, string | undefined>> = process.env): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(from)) if (v !== undefined) env[k] = v;
+  env["GIT_TERMINAL_PROMPT"] = "0";
+  env["GIT_SSH_COMMAND"] ??= "ssh -o BatchMode=yes -o ConnectTimeout=30";
+  return env;
 }
 
 /** origin's default branch (refs/remotes/origin/HEAD), else `main`. */
@@ -90,7 +103,9 @@ async function upstreamRef(run: Runner): Promise<string> {
 
 /** Fetches origin and says whether HEAD is current, behind (fast-forwardable), diverged, or blocked by local edits. */
 export async function checkUpdate(run: Runner): Promise<UpdateStatus> {
-  await git(run, ["fetch", "--quiet", "origin"]);
+  await git(run, ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "fetch", "--quiet", "origin"], {
+    env: fetchEnv(),
+  });
   const upstream = await upstreamRef(run);
   const head = await git(run, ["rev-parse", "HEAD"]);
   const target = await git(run, ["rev-parse", upstream]);

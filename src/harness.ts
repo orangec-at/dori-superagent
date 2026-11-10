@@ -66,12 +66,17 @@ export const promptsDir = (): string => process.env["DORI_PROMPTS_DIR"] || PROMP
 /** A machine's own additions to a prompt live outside the checkout, so the checkout stays clean for self-update. */
 export const overlayPath = (home: string, name: string): string => join(home, "prompts", "overlay", name);
 
-/** The repo prompt with `$DORI_HOME/prompts/overlay/<name>` appended after one blank line when that file has text. */
+/** The repo prompt with `$DORI_HOME/prompts/overlay/<name>` appended when that file has text. */
 export function promptText(name: string, home: string | undefined): string {
   const base = readFileSync(join(promptsDir(), name), "utf8");
   const path = home === undefined ? undefined : overlayPath(home, name);
-  const extra = path !== undefined && existsSync(path) ? readFileSync(path, "utf8").trim() : "";
-  return extra ? `${base.trimEnd()}\n\n${extra}\n` : base;
+  const extra = path !== undefined && existsSync(path) ? readFileSync(path, "utf8") : "";
+  if (!extra.trim()) return base;
+  // Appended as written, so a migrated local append comes back byte for byte; an overlay that does not open with a
+  // blank line of its own gets one, so it never runs into the repo prompt's last line.
+  const head = base.endsWith("\n") ? base : `${base}\n`;
+  const body = extra.endsWith("\n") ? extra : `${extra}\n`;
+  return /^[ \t]*\n/.test(body) ? head + body : `${head}\n${body}`;
 }
 
 export const prompt = (name: string, vars: Record<string, string>, home?: string): string =>
