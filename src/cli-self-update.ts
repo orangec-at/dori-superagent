@@ -58,8 +58,12 @@ export async function migratePrompts(run: Runner, home: string): Promise<string[
   const out: string[] = [];
   const names = await run("git", ["diff", "--name-only", "HEAD", "--", "prompts/"]);
   for (const file of names.stdout.split("\n").filter(Boolean)) {
-    const patch = (await run("git", ["diff", "-U0", "HEAD", "--", file])).stdout;
     const target = overlayPath(home, basename(file));
+    if (dirname(file) !== "prompts") {
+      out.push(`SKIP ${file}: only top-level prompts/*.md have overlays; move it by hand`);
+      continue;
+    }
+    const patch = (await run("git", ["diff", "-U0", "HEAD", "--", file])).stdout;
     const committed = await run("git", ["show", `HEAD:${file}`]);
     if (committed.code !== 0) {
       out.push(`SKIP ${file}: not committed in HEAD; move it into ${target} by hand`);

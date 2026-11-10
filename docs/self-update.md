@@ -19,7 +19,10 @@ dori self-update [--check] [--now] [--migrate-prompts]
 4. Green checks: `git merge --ff-only <target>` in the checkout, plus `bun install --frozen-lockfile` when
    `bun.lock` changed. A failing install here goes back with `git reset --keep <old>` and reinstalls.
 5. Restart, in order: `selfUpdate.services` (`systemctl --user restart`), the `duty-loop` pane, the
-   `hourly-loop` pane. Lanes and the lead session are never touched.
+   `hourly-loop` pane. Each loop gets SIGTERM, finishes the pass it is in (it only stops between passes, so no
+   nudge is half-typed and no inbox batch goes out twice), and is started again with the command `dori up` used.
+   The restart waits up to 15 minutes for that pass; past that it reports the command to run by hand. Lanes and
+   the lead session are never touched.
 6. One `[SELF-UPDATE] <old>..<new>` line to the lead and to `selfUpdate.notify`. Refused, unproven, failed,
    rolled-back and error outcomes are told the same way.
 
@@ -27,6 +30,8 @@ Fast-forward only: no force, no `reset --hard`, no dropping a local commit. Noth
 checks passed.
 
 ## Automatic runs
+
+Automatic runs are **on by default**, with no `selfUpdate` config at all:
 
 - `dori merge` of a PR in the checkout's own `origin` repository starts one in the background.
 - Every hourly loop pass checks and starts one when the checkout is behind.

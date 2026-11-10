@@ -91,8 +91,17 @@ const realProcs: Procs = {
 };
 
 /**
- * Stops the `dori duty` / `dori loop` process in front of the role's pane (SIGTERM, up to 10 s) and types the same
- * command `dori up` started into the shell it leaves behind. A pane with something else in front is left alone.
+ * How long a loop may take to finish the pass it is in after SIGTERM. The loops only stop between passes (see
+ * loop-term.ts), and an hourly pass that opens lanes can take minutes, so the restart waits for the pass rather than
+ * giving up early and leaving the pane with no loop at all.
+ */
+export const RESTART_WAIT_MS = 15 * 60_000;
+const POLL_MS = 1000;
+
+/**
+ * Stops the `dori duty` / `dori loop` process in front of the role's pane (SIGTERM, then waits for its pass to end)
+ * and types the same command `dori up` started into the shell it leaves behind. A pane with something else in front
+ * is left alone.
  */
 export async function restartRole(d: Deps, role: keyof typeof LOOP_COMMANDS, procs: Procs = realProcs): Promise<void> {
   const ref = d.store.roles()[role];
@@ -105,10 +114,15 @@ export async function restartRole(d: Deps, role: keyof typeof LOOP_COMMANDS, pro
     .flatMap((p) => (p.pid === undefined ? [] : [p.pid]));
   if (pids.length === 0 && !probe.shellInFront)
     throw new Error(`no dori ${sub} process in front of ${refText(ref)}; restart it by hand`);
+  const command = LOOP_COMMANDS[role](d.doriCmd);
   for (const pid of pids) procs.kill(pid);
-  for (let i = 0; i < 50 && pids.some(procs.alive); i++) await procs.sleep(200);
-  if (pids.some(procs.alive)) throw new Error(`dori ${sub} in ${refText(ref)} did not stop after SIGTERM`);
-  await rt.start(ref, LOOP_COMMANDS[role](d.doriCmd));
+  for (let waited = 0; waited < RESTART_WAIT_MS && pids.some(procs.alive); waited += POLL_MS)
+    await procs.sleep(POLL_MS);
+  if (pids.some(procs.alive))
+    throw new Error(
+      `dori ${sub} in ${refText(ref)} is still finishing its pass ${RESTART_WAIT_MS / 60_000} min after SIGTERM; it exits when the pass ends and nothing replaces it: start it again by hand with ${command}`,
+    );
+  await rt.start(ref, command);
 }
 
 export const repoRunner =
