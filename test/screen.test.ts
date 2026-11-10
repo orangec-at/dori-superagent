@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { send } from "../src/inbox.ts";
+import { flushInbox, send } from "../src/inbox.ts";
 import { World, href } from "./fake.ts";
 
 // Real omo screens captured with `herdr pane read --source recent`, sanitized (titles, costs, ids, paths replaced).
@@ -83,6 +83,31 @@ describe("delivery to an omo pane herdr sees no agent in", () => {
     expect(await send(d, "lead", "hello", "cli")).toBe("QUEUED");
     expect(lead.received).toEqual([]);
     expect(typed(w)).toBe(false);
+  });
+
+  test("every Enter failed: the next flush presses only Enter, though the typed text hides the idle input", async () => {
+    const { w, d, lead } = setup(await screen("omo-idle-live-monitors"), "omo");
+    w.keyFails = 3;
+    expect(await send(d, "lead", "hello", "cli")).toBe("QUEUED");
+    lead.screen = await screen("omo-draft");
+    const before = w.calls.length;
+    expect(await flushInbox(d, href("w1:p1"))).toBe("delivered");
+    const after = w.calls.slice(before).map((c) => c.argv.slice(0, 2).join(" "));
+    expect(after).toContain("pane send-keys");
+    expect(after).not.toContain("pane send-text");
+    expect(lead.received).toEqual(["hello"]);
+    expect(d.store.queued(href("w1:p1"))).toEqual([]);
+  });
+
+  test("every Enter failed and the foreground changed: the typed text is held, no Enter", async () => {
+    const { w, d, lead } = setup(await screen("omo-idle-live-monitors"), "omo");
+    w.keyFails = 3;
+    expect(await send(d, "lead", "hello", "cli")).toBe("QUEUED");
+    lead.screen = await screen("omo-draft");
+    lead.pgid = 202;
+    const before = w.calls.length;
+    expect(await flushInbox(d, href("w1:p1"))).toBe("held");
+    expect(w.calls.slice(before).some((c) => c.argv[1] === "send-keys")).toBe(false);
   });
 
   test("a shell in front is refused whatever the screen shows", async () => {

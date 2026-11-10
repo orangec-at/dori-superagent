@@ -83,18 +83,22 @@ async function flushLocked(d: Deps, ref: SessionRef): Promise<"delivered" | "que
   if (all.length === 0) return "delivered";
   const queued = all.filter((m) => m.attempt?.state !== "ambiguous");
   const rt = d.runtimes.for(ref);
-  // The probe carries the #62 screen check on herdr: an omo with live monitors between turns reads idle.
-  const { status } = await rt.probe(ref);
+  // The probe carries the #62 screen check on herdr: an omo with live monitors between turns reads idle; so does an omo
+  // herdr sees no agent in (#5), asked for here only.
+  const { status, shellInFront } = await rt.probe(ref, { omoWithoutAgent: true });
   // Before the held check, so a gone session with only held messages says so instead of delivery-ambiguous forever (#108).
   if (status === "gone") throw new Refusal(`pane ${refText(ref)} is gone; ${all.length} message(s) kept in its inbox`);
   if (queued.length === 0) return "held";
   const typed = queued.filter((m) => m.attempt?.state === "typed");
-  if (status === "shell") {
+  // #5: text typed into a no-agent omo pane hides its idle input, so the pane reads shell; with nothing interactive in
+  // front, submitTyped compares the foreground with the one the text was typed into instead.
+  const typedWithoutAgent = status === "shell" && !shellInFront && typed.length > 0;
+  if (status === "shell" && !typedWithoutAgent) {
     // The agent the text was typed into is gone from the session: an Enter later would go to another agent's empty input.
     if (typed.length > 0) await holdTyped(d, ref, typed, "the agent left the pane before its Enter");
     return "no-agent";
   }
-  if (!READY_TO_READ.includes(status)) return "queued";
+  if (!typedWithoutAgent && !READY_TO_READ.includes(status)) return "queued";
   const first = typed[0];
   if (first !== undefined) {
     // An earlier pass typed these and only the Enter failed: press Enter, never type them again (#89), and only into

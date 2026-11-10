@@ -60,8 +60,8 @@ export class HerdrRuntime implements SessionRuntime {
     return list(this.cli, filter?.group);
   }
 
-  probe(ref: SessionRef): Promise<Probe> {
-    return probe(this.cli, ref.id);
+  probe(ref: SessionRef, opts?: { readonly omoWithoutAgent?: boolean }): Promise<Probe> {
+    return probe(this.cli, ref.id, true, undefined, opts?.omoWithoutAgent ?? false);
   }
 
   read(ref: SessionRef, lines: number): Promise<string> {

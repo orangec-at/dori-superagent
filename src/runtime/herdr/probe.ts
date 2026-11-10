@@ -105,23 +105,30 @@ export async function screenShowsIdle(cli: HerdrCli, paneId: string): Promise<bo
 
 /**
  * Which statuses the screen may turn into idle: `working` (#62), `unknown` (an omo herdr has not classified yet, e.g.
- * right after a restart) and `shell` with no shell in front (#5: herdr sees no agent in an omo pane). A bare shell
- * never shows omo's input box, and a shell in front is never read (#66).
+ * right after a restart) and, only when the caller asks (`omoWithoutAgent`), `shell` with no shell in front (#5:
+ * herdr sees no agent in an omo pane). A bare shell never shows omo's input box; a shell in front is never read (#66).
  */
-const screenMayShowIdle = (status: AgentStatus, shellInFront: boolean): boolean =>
-  status === "working" || status === "unknown" || (status === "shell" && !shellInFront);
+const screenMayShowIdle = (status: AgentStatus, shellInFront: boolean, omoWithoutAgent: boolean): boolean =>
+  status === "working" || status === "unknown" || (omoWithoutAgent && status === "shell" && !shellInFront);
 
 /**
  * One snapshot of a pane: herdr's status (with the #62/#5 screen check), the agent, its foreground, title and cwd.
  * `screenCheck: false` skips the #62 screen read, for callers that act the same whether the agent is idle or working.
- * `onFail` ends the stderr line of a failed process-info lookup (see foreground).
+ * `onFail` ends the stderr line of a failed process-info lookup (see foreground). `omoWithoutAgent`: see
+ * screenMayShowIdle; off, a pane herdr sees no agent in stays `shell` whatever its screen shows.
  */
-export async function probe(cli: HerdrCli, paneId: string, screenCheck = true, onFail = AS_DOUBT): Promise<Probe> {
+export async function probe(
+  cli: HerdrCli,
+  paneId: string,
+  screenCheck = true,
+  onFail = AS_DOUBT,
+  omoWithoutAgent = false,
+): Promise<Probe> {
   const { status, agent, title, cwd } = await paneAgent(cli, paneId);
   if (status === "gone") return { status, shellInFront: true };
   const front = await foreground(cli, paneId, onFail);
   const seen: AgentStatus =
-    screenCheck && screenMayShowIdle(status, front.shell) && (await screenShowsIdle(cli, paneId)) ? "idle" : status;
+    screenCheck && screenMayShowIdle(status, front.shell, omoWithoutAgent) && (await screenShowsIdle(cli, paneId)) ? "idle" : status;
   return {
     status: seen,
     ...(agent !== undefined ? { agent } : {}),

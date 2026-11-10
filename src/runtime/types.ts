@@ -67,7 +67,11 @@ export interface SessionRuntime {
   /** herdr: `pane run <id> <command>`. hc: `send <id> <command>` into the shell (no --if: a shell reports no status). */
   start(ref: SessionRef, command: string): Promise<void>;
   list(filter?: { readonly group?: string }): Promise<readonly SessionInfo[]>;
-  probe(ref: SessionRef): Promise<Probe>;
+  /**
+   * `omoWithoutAgent` (herdr, #5): a pane herdr sees no agent in reads idle when nothing interactive is in front and
+   * its screen shows omo's idle input. Only the inbox flush asks for it: elsewhere `shell` keeps meaning no agent.
+   */
+  probe(ref: SessionRef, opts?: { readonly omoWithoutAgent?: boolean }): Promise<Probe>;
   read(ref: SessionRef, lines: number): Promise<string>;
   /** Never types into a session whose probe says shellInFront, whatever `status` says. Default `when` = "idle". */
   deliver(ref: SessionRef, text: string, opts?: DeliverOptions): Promise<DeliverOutcome>;

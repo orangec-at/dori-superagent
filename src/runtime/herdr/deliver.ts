@@ -79,14 +79,16 @@ export async function deliver(cli: HerdrCli, paneId: string, text: string, sleep
  * the text again. `changed`, pressing nothing: herdr sees no agent in the pane, or a different one (another name or
  * foreground process group), so the typed text is not in this input (#108). `wait`, pressing nothing: the agent is
  * still reported but a shell is in front (suspended with Ctrl+Z, #66/#69), or the lookup failed. Throws herdr's
- * error when every Enter failed.
+ * error when every Enter failed. A pane herdr sees no agent in is the same agent only when the text was typed with
+ * no agent either (#5), nothing interactive is in front, and the foreground process group matches.
  */
 export async function submitTyped(cli: HerdrCli, paneId: string, typedInto: AgentIdentity): Promise<SubmitResult> {
   const { status, agent } = await paneAgent(cli, paneId);
   if (status === "gone") return "wait";
-  if (status === "shell") return "changed";
   // submitTyped holds the Enter of an earlier delivery, so a failed lookup is reported as holding that delivery.
   const front = await foreground(cli, paneId, HOLDING);
+  if (status === "shell" && (front.shell || typedInto.agent !== undefined || typedInto.pgid === undefined))
+    return "changed";
   if (front.shell) return "wait";
   if (typedInto.agent !== undefined && agent !== typedInto.agent) return "changed";
   if (typedInto.pgid !== undefined && front.pgid !== typedInto.pgid) return "changed";
