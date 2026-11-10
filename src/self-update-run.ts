@@ -17,7 +17,10 @@ import {
 } from "./self-update.ts";
 
 export type SelfUpdateConfig = {
-  /** false = the kill switch: no self-update after `dori merge` or from the hourly loop (`--now` still runs). */
+  /**
+   * Opt-in: only `true` lets `dori merge` and the hourly loop start a self-update. Default (absent) is off, and
+   * `DORI_SELF_UPDATE=off` forces it off. A `dori self-update` run by hand is never stopped by it.
+   */
   readonly auto: boolean;
   /** A `dori reply` address (discord:<channel>, slack:..., hermes:...) that gets every `[SELF-UPDATE]` line. */
   readonly notify?: string;
@@ -37,7 +40,7 @@ export function loadSelfUpdateConfig(root: string): SelfUpdateConfig {
     ? Reflect.get(JSON.parse(readFileSync(path, "utf8")) as object, "selfUpdate")
     : undefined;
   const off = process.env["DORI_SELF_UPDATE"] === "off";
-  if (raw === undefined) return { auto: !off, services: [], checks: DEFAULT_CHECKS };
+  if (raw === undefined) return { auto: false, services: [], checks: DEFAULT_CHECKS };
   if (typeof raw !== "object" || raw === null || Array.isArray(raw))
     throw new ConfigError("config.json: selfUpdate must be an object");
   const auto: unknown = Reflect.get(raw, "auto");
@@ -56,7 +59,7 @@ export function loadSelfUpdateConfig(root: string): SelfUpdateConfig {
   if (install !== undefined && !(strings(install) && install.length > 0))
     throw new ConfigError("config.json: selfUpdate.install must be a non-empty array of strings (an argv)");
   return {
-    auto: auto !== false && !off,
+    auto: auto === true && !off,
     ...(notify === undefined ? {} : { notify }),
     ...(install === undefined ? {} : { install }),
     services: services ?? [],
@@ -200,7 +203,7 @@ export const forgetFailures = (d: Deps): void => write(d, { failures: 0 });
 export function spawnSelfUpdate(d: Deps): void {
   const log = openSync(join(d.store.root, "self-update.log"), "a");
   const env = { ...process.env, DORI_HOME: d.store.root };
-  spawn(process.execPath, [CLI, "self-update"], { detached: true, stdio: ["ignore", log, log], env }).unref();
+  spawn(process.execPath, [CLI, "self-update", "--auto"], { detached: true, stdio: ["ignore", log, log], env }).unref();
 }
 
 /**
@@ -210,7 +213,8 @@ export function spawnSelfUpdate(d: Deps): void {
  * the hourly loop.
  */
 export function autoSelfUpdate(d: Deps, start: (d: Deps) => void = spawnSelfUpdate): string {
-  if (!loadSelfUpdateConfig(d.store.root).auto) return "SELF_UPDATE_OFF (selfUpdate.auto or DORI_SELF_UPDATE=off)";
+  if (!loadSelfUpdateConfig(d.store.root).auto)
+    return 'SELF_UPDATE_OFF automatic runs are opt-in: set "selfUpdate": { "auto": true } in config.json';
   const stop = d.store.stop();
   if (stop) return `SELF_UPDATE_OFF the loop is stopped (${stop.reason}); dori loop resume turns it back on`;
   start(d);

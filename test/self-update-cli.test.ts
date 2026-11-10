@@ -67,23 +67,48 @@ describe("dori self-update", () => {
     expect(memo(d).failures).toBe(0);
   });
 
-  test("a failed run is counted, and the kill switch stops a run that is not --now", async () => {
+  test("a failed run is counted; the switch stops --auto runs only, never a run by hand", async () => {
     const g = await gitWorld();
     const d = new World().deps();
-    configure(d, { checks: [["false"]], install: ["true"] });
+    configure(d, { auto: true, checks: [["false"]], install: ["true"] });
     const run = runnerIn(g.checkout);
     await g.push("a.txt");
     const restore = capture();
     try {
-      expect(await runSelfUpdate(d, parse(["self-update"]), run)).toBe(1);
+      expect(await runSelfUpdate(d, parse(["self-update", "--auto"]), run)).toBe(1);
       expect(memo(d).failures).toBe(1);
       process.env["DORI_SELF_UPDATE"] = "off";
-      expect(await runSelfUpdate(d, parse(["self-update"]), run)).toBe(0);
+      expect(await runSelfUpdate(d, parse(["self-update", "--auto"]), run)).toBe(0);
       expect(lines.join("\n")).toContain("SELF_UPDATE_OFF");
+      expect(memo(d).failures).toBe(1);
+      expect(await runSelfUpdate(d, parse(["self-update"]), run)).toBe(1);
+      expect(memo(d).failures).toBe(2);
     } finally {
       restore();
     }
-    expect(memo(d).failures).toBe(1);
+  });
+
+  test("with no config, an --auto run stops before any git call, and a run by hand updates", async () => {
+    const g = await gitWorld();
+    const d = new World().deps();
+    const calls: string[] = [];
+    const real = runnerIn(g.checkout);
+    const run: typeof real = (cmd, argv, where) => {
+      calls.push(cmd);
+      return real(cmd, argv, where);
+    };
+    const target = await g.push("a.txt");
+    const restore = capture();
+    try {
+      expect(await runSelfUpdate(d, parse(["self-update", "--auto"]), run)).toBe(0);
+      expect(lines.join("\n")).toContain("SELF_UPDATE_OFF automatic runs are opt-in");
+      expect(calls).toEqual([]);
+      configure(d, { checks: [["true"]], install: ["true"] });
+      expect(await runSelfUpdate(d, parse(["self-update"]), run)).toBe(0);
+    } finally {
+      restore();
+    }
+    expect(await sh(g.checkout, "git", "rev-parse", "HEAD")).toBe(target);
   });
 
   test("a broken config and a failing fetch are told, not just logged", async () => {
@@ -167,6 +192,9 @@ describe("dori merge and the checkout's origin", () => {
     let started = 0;
     const start = () => void started++;
     expect(await afterMerge(d, "other/repo", run, start)).toBeUndefined();
+    expect(await afterMerge(d, "orangec-at/dori-superagent", run, start)).toStartWith("SELF_UPDATE_OFF");
+    expect(started).toBe(0);
+    configure(d, { auto: true });
     expect(await afterMerge(d, "Orangec-At/Dori-Superagent", run, start)).toStartWith("SELF_UPDATE_STARTED");
     expect(started).toBe(1);
     writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ selfUpdate: { auto: "yes" } }));

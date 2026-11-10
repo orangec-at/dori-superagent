@@ -1,4 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { parse } from "../src/cli-args.ts";
 import { runDuty, runLoop } from "../src/cli-loops.ts";
 import type { Deps } from "../src/harness.ts";
@@ -65,8 +67,17 @@ async function oneLoopPass(d: Deps, argv: string[]): Promise<{ code: number; sta
 }
 
 describe("dori loop", () => {
-  test("a pass that ran starts the self-update trigger, then a stop request ends the loop without waiting", async () => {
+  test("with auto off (the default) a pass that ran starts no self-update", async () => {
     const r = await oneLoopPass(new World().deps(), ["--interval", "1000000"]);
+    expect(r.code).toBe(0);
+    expect(r.started).toBe(0);
+    expect(r.lines.join("\n")).toContain("SELF_UPDATE_OFF automatic runs are opt-in");
+  });
+
+  test("opted in, a pass that ran starts the self-update trigger, then a stop request ends the loop", async () => {
+    const d = new World().deps();
+    writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ selfUpdate: { auto: true } }));
+    const r = await oneLoopPass(d, ["--interval", "1000000"]);
     expect(r.code).toBe(0);
     expect(r.started).toBe(1);
     expect(r.lines.join("\n")).toContain("LOOP STOPPED by SIGTERM after this pass");
@@ -74,6 +85,7 @@ describe("dori loop", () => {
 
   test("a stopped loop starts no self-update", async () => {
     const d = new World().deps();
+    writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ selfUpdate: { auto: true } }));
     d.store.setStop(d.now(), "maintenance");
     const r = await oneLoopPass(d, ["--interval", "1000000"]);
     expect(r.started).toBe(0);
@@ -81,7 +93,9 @@ describe("dori loop", () => {
   });
 
   test("a one-off --once run starts no self-update", async () => {
-    const r = await oneLoopPass(new World().deps(), ["--once"]);
+    const d = new World().deps();
+    writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ selfUpdate: { auto: true } }));
+    const r = await oneLoopPass(d, ["--once"]);
     expect(r.code).toBe(0);
     expect(r.started).toBe(0);
   });

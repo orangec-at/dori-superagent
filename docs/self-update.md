@@ -34,7 +34,15 @@ checks passed.
 
 ## Automatic runs
 
-Automatic runs are **on by default**, with no `selfUpdate` config at all:
+Automatic runs are **opt-in and off by default**. With no `selfUpdate` config, or anything but `"auto": true`,
+nothing starts a self-update by itself; `dori self-update` and `--check` run by hand work either way. To turn
+automatic runs on, add this to `$DORI_HOME/config.json` (no restart needed: the next merge or hourly pass reads it):
+
+```json
+{ "selfUpdate": { "auto": true } }
+```
+
+Once on:
 
 - `dori merge` of a PR in the checkout's own `origin` repository starts one in the background.
 - Every hourly loop pass that ran starts one (not a skipped pass, not `--once`).
@@ -48,11 +56,12 @@ The same situation (head, target, state) is retried `MAX_SELF_UPDATE_FAILURES` (
 runs stay quiet about it until a new commit lands or someone runs `--now`. A run that errors (origin unreachable,
 a broken `config.json`) counts the same way under its error message, so an outage is told twice, not every hour.
 
-Kill switch: `"selfUpdate": { "auto": false }` in `$DORI_HOME/config.json`, or `DORI_SELF_UPDATE=off`. A
-stopped hourly loop (`dori loop stop`) also starts no self-update until `dori loop resume`.
-`--now` runs by hand whatever the switch says.
+Turning them off again: remove `auto` (or set it to `false`), or set `DORI_SELF_UPDATE=off` in the environment,
+which forces them off even when `auto` is `true`. A stopped hourly loop (`dori loop stop`) also starts no
+self-update until `dori loop resume`. The switch only governs the runs the trigger starts (`dori self-update
+--auto`); a run by hand ignores it, and `--now` also retries a situation that already failed twice.
 
-**Protect the default branch.** With `auto` on, anything pushed to `origin/<default branch>` is installed,
+**Protect the default branch before turning `auto` on.** With it on, anything pushed to `origin/<default branch>` is installed,
 tested and restarted on this host within the hour, not only what passed the `dori merge` CLEAR gate. Require
 pull requests on that branch.
 

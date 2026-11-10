@@ -123,13 +123,14 @@ export async function runSelfUpdate(d: Deps, a: Args, run: Runner = repoRunner(d
       for (const line of await migratePrompts(run, d.store.root)) console.log(line);
       return 0;
     }
-    return await update(d, one(a, "now") === "true", run);
+    return await update(d, one(a, "now") === "true", one(a, "auto") === "true", run);
   } finally {
     release(d, lock.nonce, lockPath);
   }
 }
 
-async function update(d: Deps, now: boolean, run: Runner): Promise<number> {
+/** `auto`: started by the trigger (`--auto`), so the opt-in switch applies; a run by hand ignores it. */
+async function update(d: Deps, now: boolean, auto: boolean, run: Runner): Promise<number> {
   let config: SelfUpdateConfig;
   try {
     config = loadSelfUpdateConfig(d.store.root);
@@ -137,8 +138,8 @@ async function update(d: Deps, now: boolean, run: Runner): Promise<number> {
     // A bad config would otherwise only reach self-update.log: this run is detached and nobody reads that.
     return tellError(d, now, selfUpdateIo(d, QUIET, run).tell, e);
   }
-  if (!now && !config.auto) {
-    console.log("SELF_UPDATE_OFF selfUpdate.auto is false or DORI_SELF_UPDATE=off; --now runs it anyway");
+  if (auto && !config.auto) {
+    console.log("SELF_UPDATE_OFF automatic runs are opt-in (selfUpdate.auto) or forced off (DORI_SELF_UPDATE=off)");
     return 0;
   }
   const io = selfUpdateIo(d, config, run);

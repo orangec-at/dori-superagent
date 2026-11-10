@@ -159,26 +159,37 @@ describe("selfUpdate config and the automatic trigger", () => {
     expect(fetchEnv(false, { GIT_SSH_COMMAND: "ssh -i deploy" })["GIT_SSH_COMMAND"]).toBe("ssh -i deploy");
   });
 
-  test("config: services come before the two loop roles; auto off by config or DORI_SELF_UPDATE=off", () => {
+  test("config: auto is opt-in (only true turns it on), DORI_SELF_UPDATE=off forces it off; services come first", () => {
     const home = mkdtempSync(join(tmpdir(), "dori-home-"));
-    expect(loadSelfUpdateConfig(home)).toMatchObject({ auto: true, services: [] });
+    const auto = (selfUpdate: unknown): boolean => {
+      writeFileSync(join(home, "config.json"), JSON.stringify({ selfUpdate }));
+      return loadSelfUpdateConfig(home).auto;
+    };
+    expect(loadSelfUpdateConfig(home)).toMatchObject({ auto: false, services: [] });
+    expect(auto({})).toBe(false);
+    expect(auto({ auto: false })).toBe(false);
+    expect(auto({ auto: true })).toBe(true);
+    process.env["DORI_SELF_UPDATE"] = "off";
+    expect(auto({ auto: true })).toBe(false);
+    delete process.env["DORI_SELF_UPDATE"];
     writeFileSync(
       join(home, "config.json"),
       JSON.stringify({ selfUpdate: { services: ["dori-serve"], notify: "discord:1" } }),
     );
     const c = loadSelfUpdateConfig(home);
     expect(restartTargets(c).map((t) => t.name)).toEqual(["dori-serve", "duty-loop", "hourly-loop"]);
-    process.env["DORI_SELF_UPDATE"] = "off";
-    expect(loadSelfUpdateConfig(home).auto).toBe(false);
     writeFileSync(join(home, "config.json"), JSON.stringify({ selfUpdate: { services: "dori-serve" } }));
     expect(() => loadSelfUpdateConfig(home)).toThrow("selfUpdate.services must be an array of strings");
   });
 
-  test("the trigger starts a background run unless auto is off or the loop is stopped, and fetches nothing", () => {
+  test("the trigger starts a background run only when opted in and the loop is running, and fetches nothing", () => {
     const w = new World();
     const d = w.deps();
     let started = 0;
     const start = () => void started++;
+    expect(autoSelfUpdate(d, start)).toStartWith("SELF_UPDATE_OFF automatic runs are opt-in");
+    expect(started).toBe(0);
+    writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ selfUpdate: { auto: true } }));
     expect(autoSelfUpdate(d, start)).toStartWith("SELF_UPDATE_STARTED");
     d.store.setStop(d.now(), "maintenance");
     expect(autoSelfUpdate(d, start)).toContain("the loop is stopped (maintenance)");
