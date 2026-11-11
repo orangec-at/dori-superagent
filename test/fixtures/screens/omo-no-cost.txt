@@ -1,0 +1,10 @@
+ The issue says the status line shows a session cost such as $6.856.
+
+ Todo
+ Brief
+ [•] Read dori-3 brief and plan work
+── • Running eval (6s • esc to interrupt) ─────────────────────────────────────────────────────────────────────────────
+❯
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/workspace/dori-superagent • main • 110K/1M (11.0%) (auto)   (anthropic-subscription@account-2) claude-opus-5-5:medium
+(😺 OmO Native by Q Kim) Pursuing goal (2m) mem:agent-00000000 3h ago running · delivery:senpi-codemode:no...

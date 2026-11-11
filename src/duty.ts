@@ -1,3 +1,4 @@
+import { COST_SCREEN_LINES, limitFor, loadBudgets, noteCost } from "./budget.ts";
 import { DeliveryUncertain, failureDetail } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
 import { runHook } from "./hooks.ts";
@@ -6,6 +7,7 @@ import { leadRotationTick } from "./lead-rotate.ts";
 import { Refusal } from "./refusal.ts";
 import { refText } from "./refs.ts";
 import { nudgeText } from "./remote.ts";
+import type { SessionRef } from "./runtime/types.ts";
 import type { Lane } from "./store-types.ts";
 
 export const NUDGE_MINUTES = [10, 20, 40] as const;
@@ -15,6 +17,13 @@ export type DutyEvent = { lane?: string; pane?: string; action: string; detail?:
 /** An open lane the duty loop watches; a lane being migrated is left alone (no nudge, no lost, no activity stamp). */
 const watched = (lane: Lane): boolean =>
   (lane.status === "working" || lane.status === "waiting") && lane.migration !== true;
+
+/** The pane's screen for its cost, or undefined when it cannot be read: the lane then keeps its last cost (#3). */
+const screenOf = (d: Deps, ref: SessionRef): Promise<string | undefined> =>
+  d.runtimes
+    .for(ref)
+    .read(ref, COST_SCREEN_LINES)
+    .catch(() => undefined);
 
 /** One proactive pass: flush inboxes of panes that became idle, nudge silent lanes, escalate, detect lost panes. */
 export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
@@ -58,6 +67,7 @@ export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
     if (!watched(listed)) continue;
     try {
       const { status: st } = await d.runtimes.for(listed.sessionRef).probe(listed.sessionRef);
+      const screen = st === "gone" ? undefined : await screenOf(d, listed.sessionRef);
       // Re-read right before deciding and saving: a report, a READY or a migration may have landed during the probe.
       const lane = d.store.lane(listed.key);
       if (lane === undefined || !watched(lane) || lane.sessionRef.id !== listed.sessionRef.id) continue;
@@ -71,12 +81,19 @@ export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
         events.push({ lane: lane.key, action: "lost" });
         continue;
       }
+      const alert = noteCost(lane, screen, limitFor(loadBudgets(d.store.root), lane.key), now);
+      if (lane.costAt === now) d.store.saveLane(lane);
+      if (alert !== undefined) {
+        await tellLead(d, alert, "duty");
+        events.push({ lane: lane.key, action: lane.budgetAlert === "over" ? "budget-over" : "budget-80" });
+      }
       if (st === "working") {
         lane.lastActivityAt = now;
         d.store.saveLane(lane);
         continue;
       }
-      if (lane.status === "waiting" || st === "blocked" || st === "error") continue;
+      // A lane over its budget is never nudged or escalated (the lead was told OVER), and never stopped either.
+      if (lane.status === "waiting" || st === "blocked" || st === "error" || lane.budgetAlert === "over") continue;
       const idleMin = (now - lane.lastActivityAt) / 60_000;
       const due = NUDGE_MINUTES[lane.nudges];
       if (due === undefined || idleMin < due) continue;
