@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { dutyTick } from "../src/duty.ts";
 import { flushInbox, send } from "../src/inbox.ts";
 import { World, href } from "./fake.ts";
 
@@ -59,13 +60,13 @@ describe("delivery to a pane herdr calls working", () => {
 
 // #5: herdr reports no agent (shell) for an omo pane; `agent prompt` refuses it, so the text goes by send-text.
 describe("delivery to an omo pane herdr sees no agent in", () => {
-  function setup(screenText: string, foreground: string) {
+  function setup(screenText: string, foreground: string, refusal = "agent_not_ready") {
     const w = new World();
     const d = w.deps();
     const lead = w.addPane("w1:p1", "shell");
     lead.screen = screenText;
     lead.foreground = foreground;
-    w.promptFails.set("w1:p1", "agent_not_ready");
+    w.promptFails.set("w1:p1", refusal);
     d.store.setRole("lead", href("w1:p1"));
     return { w, d, lead };
   }
@@ -76,6 +77,18 @@ describe("delivery to an omo pane herdr sees no agent in", () => {
     expect(await send(d, "lead", "hello", "cli")).toBe("DELIVERED");
     expect(lead.received).toEqual(["hello"]);
     expect(typed(w)).toBe(true);
+  });
+
+  test("herdr answers agent_not_found (it dropped the omo's identity): typed and delivered, not held", async () => {
+    const { w, d, lead } = setup(
+      await screen("omo-idle-live-monitors"),
+      "omo",
+      '{"error":{"code":"agent_not_found","message":"agent target w1:p1 not found"}}',
+    );
+    expect(await send(d, "lead", "hello", "cli")).toBe("DELIVERED");
+    expect(lead.received).toEqual(["hello"]);
+    expect(typed(w)).toBe(true);
+    expect(d.store.queued(href("w1:p1"))).toEqual([]);
   });
 
   test("a bare shell screen: the message is queued and nothing is typed", async () => {
@@ -115,5 +128,30 @@ describe("delivery to an omo pane herdr sees no agent in", () => {
     expect(await send(d, "lead", "hello", "cli")).toBe("QUEUED");
     expect(lead.received).toEqual([]);
     expect(typed(w)).toBe(false);
+  });
+});
+
+describe("entries held by an older dori for agent_not_found", () => {
+  test("are delivered on the next dutyTick; a timeout-held entry stays held", async () => {
+    const w = new World();
+    const d = w.deps();
+    const lead = w.addPane("w1:p1", "idle");
+    d.store.setRole("lead", href("w1:p1"));
+    const held = (at: number, text: string, detail: string) => ({
+      at,
+      from: "cli",
+      text,
+      attempt: { at, state: "ambiguous" as const, detail },
+    });
+    d.store.saveInbox(href("w1:p1"), [
+      held(w.clock - 2, "LOST", 'herdr agent prompt failed: {"error":{"code":"agent_not_found"}}'),
+      held(w.clock - 1, "MAYBE", "timeout"),
+    ]);
+    expect(await dutyTick(d)).toEqual([
+      { pane: "w1:p1", action: "flushed" },
+      { pane: "w1:p1", action: "delivery-ambiguous", detail: "1 message(s) held, not resent" },
+    ]);
+    expect(lead.received).toEqual(["LOST"]);
+    expect(d.store.queued(href("w1:p1")).map((m) => m.text)).toEqual(["MAYBE"]);
   });
 });

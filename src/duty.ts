@@ -1,7 +1,7 @@
 import { DeliveryUncertain, failureDetail } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
 import { runHook } from "./hooks.ts";
-import { flushInbox, sendOrThrow, tellLead } from "./inbox.ts";
+import { flushInbox, isHeld, sendOrThrow, tellLead } from "./inbox.ts";
 import { leadRotationTick } from "./lead-rotate.ts";
 import { Refusal } from "./refusal.ts";
 import { refText } from "./refs.ts";
@@ -43,7 +43,7 @@ export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
         });
       }
       // Held after an ambiguous delivery (#89): shown on every pass, resent never; the lead was told once.
-      const held = d.store.queued(at).filter((m) => m.attempt?.state === "ambiguous").length;
+      const held = d.store.queued(at).filter(isHeld).length;
       if (held > 0)
         events.push({ pane: paneId, action: "delivery-ambiguous", detail: `${held} message(s) held, not resent` });
     } catch (e) {

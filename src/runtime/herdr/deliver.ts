@@ -10,6 +10,8 @@ export const ENTER_ATTEMPTS = 3;
 export type Sleep = (ms: number) => Promise<void>;
 
 const NO_AGENT: DeliverOutcome = { kind: "no-agent" };
+/** herdr refusals of `agent prompt` that come before anything reaches the pane. */
+const NOT_TAKEN = /agent_not_ready|agent_not_found/;
 /** How a failed lookup ends its stderr line on the delivery path: the message stays queued. */
 const HOLDING = "holding delivery";
 const ambiguous = (step: string, failure: unknown): DeliverOutcome => ({
@@ -46,10 +48,11 @@ export async function deliver(cli: HerdrCli, paneId: string, text: string, sleep
     return { kind: "delivered" };
   } catch (e) {
     // herdr only accepts `agent prompt` for agents it started itself (`herdr agent start`); an omo launched
-    // with `pane run` is detected but refused. Fall back to typing the text and pressing Enter.
-    // Match herdr's own output, never e.message: that carries argv, which includes the delivered text.
+    // with `pane run` is detected but refused (agent_not_ready), or not detected at all (agent_not_found: herdr drops
+    // an omo's identity from time to time, #5). Both are refused before anything is typed, so fall back to typing the
+    // text and pressing Enter. Match herdr's own output, never e.message: that carries argv, which includes the text.
     // Any other failure (a timeout, say) may come after herdr handed the prompt over: it is ambiguous.
-    if (!(e instanceof ToolError) || !/agent_not_ready/.test(e.result.stderr || e.result.stdout))
+    if (!(e instanceof ToolError) || !NOT_TAKEN.test(e.result.stderr || e.result.stdout))
       return ambiguous("agent prompt", e);
     // agent_not_ready also covers an agent that exited and left a shell in front: typing would run the text there.
     // Re-read right before typing (#66): only a pane that still has an agent gets keystrokes. herdr may see no agent

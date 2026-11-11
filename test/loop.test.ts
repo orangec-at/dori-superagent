@@ -50,8 +50,11 @@ describe("hourly loop", () => {
     const { w, d, brief, add, tick } = setup();
     add("next");
     add("blocked", { priority: 1, decision: "which database?" });
+    add("pa", { priority: 2 });
+    add("pb", { priority: 2 });
     await startLane(d, "hand-a", brief, { group: "w1" });
     await startLane(d, "hand-b", brief, { group: "w1" });
+    expect((await tick({ maxLanes: 2 })).started).toEqual(["pa (p2)", "pb (p2)"]);
     const full = await tick({ maxLanes: 2 });
     expect(full.started).toEqual([]);
     expect(full.held[0]).toContain("0 free of 2 lanes");

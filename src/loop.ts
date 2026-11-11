@@ -67,6 +67,21 @@ async function sync(d: Deps, run: LoopRun): Promise<void> {
 
 const isOpenLane = (status: string): boolean => status !== "done" && status !== "lost";
 
+/**
+ * Lanes holding one of the loop's slots: backlog lanes still at work. A READY lane waits only for the human's merge,
+ * and an ad-hoc lane (no running backlog item, opened by the lead) is not the loop's, so neither keeps the backlog
+ * from moving. The host load and memory checks still bound how many lanes run at once.
+ */
+function busyLanes(d: Deps): number {
+  const running = new Set(
+    d.store
+      .items()
+      .filter((i) => i.status === "running")
+      .map((i) => i.id),
+  );
+  return d.store.lanes().filter((l) => isOpenLane(l.status) && l.status !== "ready" && running.has(l.key)).length;
+}
+
 async function pull(
   d: Deps,
   run: LoopRun,
@@ -80,7 +95,7 @@ async function pull(
     return;
   }
   const host = d.host();
-  const open = d.store.lanes().filter((l) => isOpenLane(l.status)).length;
+  const open = busyLanes(d);
   let starts = Math.max(0, Math.min(maxLanes - open, maxStarts));
   const candidates = d.store
     .items()
@@ -183,7 +198,7 @@ export async function loopTick(d: Deps, opts: LoopOpts = {}): Promise<LoopRun> {
     const running = new Set(items.filter((i) => i.status === "running").map((i) => i.id));
     const lanes = d.store.lanes().filter((l) => isOpenLane(l.status));
     run.status = {
-      lanes: lanes.length,
+      lanes: busyLanes(d),
       maxLanes,
       adhoc: lanes.filter((l) => !running.has(l.key)).map((l) => l.key),
       items: {
