@@ -8,13 +8,18 @@ import { done, ready } from "../src/lanes.ts";
 import { main } from "../src/cli.ts";
 import { setup } from "./harness-setup.ts";
 
-const saved = process.env["DORI_SSH_HOST"];
+const saved = { host: process.env["DORI_SSH_HOST"], path: process.env["DORI_REMOTE_PATH"] };
 beforeEach(() => {
   process.env["DORI_SSH_HOST"] = "fedora";
+  process.env["DORI_REMOTE_PATH"] = "/opt/bin";
 });
 afterEach(() => {
-  if (saved === undefined) delete process.env["DORI_SSH_HOST"];
-  else process.env["DORI_SSH_HOST"] = saved;
+  for (const [k, v] of [
+    ["DORI_SSH_HOST", saved.host],
+    ["DORI_REMOTE_PATH", saved.path],
+  ] as const)
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
 });
 
 function claudePane(w: ReturnType<typeof setup>["w"], id: string, status: "idle" | "working" = "idle") {
@@ -61,7 +66,7 @@ describe("dori adopt", () => {
     const pane = claudePane(w, "w4:p3");
     const { lane } = await adoptLane(d, "yogaday-pr", "w4:p3", { machine: "ubuntu" });
     expect(lane.sessionRef).toMatchObject({ id: "w4:p3", machine: "ubuntu" });
-    expect(pane.received[0]).toContain("| ssh fedora 'dori' report yogaday-pr");
+    expect(pane.received[0]).toContain("| ssh fedora 'PATH=/opt/bin:$PATH dori' report yogaday-pr");
     expect(pane.received[0]).toContain("Continue the task already in progress");
     expect(w.calls.filter((c) => c.argv.includes("w4:p3")).every((c) => c.argv[1] === "ubuntu")).toBe(true);
   });

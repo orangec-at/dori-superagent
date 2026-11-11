@@ -27,17 +27,24 @@ On 2026-11-10 both were already saved and `reachable` on fedora.
 An agent on ubuntu or mini cannot run the dori CLI there. Its lane rules call dori on fedora over ssh instead:
 
 ```sh
-printf '%s\n' '<milestone>' | ssh fedora 'DORI_HOME=... bun .../src/cli.ts' report <key>
+printf '%s\n' '<milestone>' | ssh brady@fedora 'PATH=/home/brady/.local/bin:$PATH DORI_HOME=... bun .../src/cli.ts' report <key>
 ```
 
 The message text goes on stdin, never in `--text`: ssh joins its arguments into one line that the remote shell splits
 again, so a quoted `--text` would arrive as many words. For this to work:
 
-- each machine reaches fedora with `ssh fedora` and no prompt (key auth; checked from ubuntu on 2026-11-10);
-- `bun` is on fedora's PATH for a non-interactive ssh command, or `DORI_CMD` names the full command;
-- `DORI_SSH_HOST` overrides the name the rules use for fedora (default: fedora's hostname).
+- each machine reaches fedora with the ssh target and no prompt (key auth). The target defaults to `<user>@<host>` of
+  fedora, because a bare `ssh fedora` from the Mac mini logs in as `mac`; set `remote.ssh` in `$DORI_HOME/config.json`
+  or `DORI_SSH_HOST` to override it;
+- a non-interactive ssh command on fedora has no login PATH, so the rules prepend the directories of the running `bun`
+  and of `herdr` to PATH; set `remote.path` in config.json or `DORI_REMOTE_PATH` (a `:`-separated list) to override.
 
-`dori start --machine` writes the brief on fedora and tells the agent to read it with `ssh fedora cat <brief>`.
+```json
+{ "remote": { "ssh": "brady@fedora", "path": "/home/brady/.local/bin" } }
+```
+
+`dori start --machine` writes the brief on fedora and tells the agent to read it with `ssh <target> cat <brief>`. When a
+remote lane is escalated after its nudges, the lead hears that its ssh report command may be failing.
 
 ## 3. Adopt a running session
 

@@ -10,13 +10,18 @@ import { href } from "./fake.ts";
 import { setup } from "./harness-setup.ts";
 import { ref, world } from "./herdr-recorder.ts";
 
-const saved = process.env["DORI_SSH_HOST"];
+const saved = { host: process.env["DORI_SSH_HOST"], path: process.env["DORI_REMOTE_PATH"] };
 beforeEach(() => {
   process.env["DORI_SSH_HOST"] = "fedora";
+  process.env["DORI_REMOTE_PATH"] = "/opt/bin";
 });
 afterEach(() => {
-  if (saved === undefined) delete process.env["DORI_SSH_HOST"];
-  else process.env["DORI_SSH_HOST"] = saved;
+  for (const [k, v] of [
+    ["DORI_SSH_HOST", saved.host],
+    ["DORI_REMOTE_PATH", saved.path],
+  ] as const)
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
 });
 
 describe("session refs with a machine", () => {
@@ -71,8 +76,8 @@ describe("dori start --machine", () => {
     expect(opening[1]!.argv.join(" ")).not.toContain("DORI_HOME=");
     expect(w.panes.get(lane.paneId)!.ran[0]).toContain("ssh fedora cat ");
     const rules = await Bun.file(lane.brief).text();
-    expect(rules).toContain("| ssh fedora 'dori' report ios-fix");
-    expect(rules).toContain(`| ssh fedora 'dori' ready ios-fix --evidence "'<link>'"`);
+    expect(rules).toContain("| ssh fedora 'PATH=/opt/bin:$PATH dori' report ios-fix");
+    expect(rules).toContain(`| ssh fedora 'PATH=/opt/bin:$PATH dori' ready ios-fix --evidence "'<link>'"`);
     expect(lead.received).toEqual([`[START ios-fix] lane opened in ${lane.paneId}@mini`]);
   });
 
@@ -90,7 +95,7 @@ describe("dori start --machine", () => {
     pane.status = "idle";
     w.clock += (NUDGE_MINUTES[0] + 1) * 60_000;
     expect(await dutyTick(d)).toContainEqual({ lane: "ios-fix", action: "nudge-1" });
-    expect(pane.received.at(-1)).toContain("| ssh fedora 'dori' report ios-fix --status waiting");
+    expect(pane.received.at(-1)).toContain("| ssh fedora 'PATH=/opt/bin:$PATH dori' report ios-fix --status waiting");
     await ready(d, "ios-fix", "built", ["https://github.com/o/r/pull/9"]);
     expect(lead.received.at(-1)).toStartWith("[READY ios-fix]");
     await done(d, "ios-fix");
