@@ -89,7 +89,8 @@ export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
       } else {
         await tellLead(
           d,
-          `[ESCALATE ${lane.key}] idle ${Math.floor(idleMin)} min with no READY after ${lane.nudges - 1} nudges`,
+          `[ESCALATE ${lane.key}] idle ${Math.floor(idleMin)} min with no READY after ${lane.nudges - 1} nudges` +
+            (lane.sessionRef.machine ? ` (remote lane: its ssh report command may be failing)` : ""),
           "duty",
         );
         events.push({ lane: lane.key, action: "escalated" });

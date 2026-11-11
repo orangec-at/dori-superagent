@@ -53,7 +53,7 @@ export async function startLane(
   const kickoff =
     machine === undefined
       ? `Read your brief at ${briefPath} and execute it. Your lane key is ${key}.`
-      : `Read your brief with \`ssh ${doriHost()} cat ${shq(briefPath)}\` and execute it. Your lane key is ${key}.`;
+      : `Read your brief with \`ssh ${doriHost(d)} cat ${shq(briefPath)}\` and execute it. Your lane key is ${key}.`;
   const env = { DORI_LANE: key, ...(machine === undefined ? { DORI_HOME: d.store.root } : {}) };
   const ref = await openSession(
     rt,
