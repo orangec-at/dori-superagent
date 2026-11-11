@@ -19,8 +19,8 @@ export type RestartTarget =
 
 export type SelfUpdateIo = {
   readonly run: Runner;
-  /** Resolves when restarted; throws with the reason otherwise. */
-  readonly restart: (target: RestartTarget) => Promise<void>;
+  /** Resolves when restarted, with a note when it took more than asking (a loop that needed SIGKILL); throws otherwise. */
+  readonly restart: (target: RestartTarget) => Promise<string | undefined>;
   /** One line to the lead and the operator. */
   readonly tell: (text: string) => Promise<void>;
 };
@@ -203,14 +203,16 @@ export async function selfUpdate(io: SelfUpdateIo, opts: SelfUpdateOpts): Promis
     }
   }
   const restartFailures: string[] = [];
+  const notes: string[] = [];
   for (const t of opts.restarts) {
     try {
-      await io.restart(t);
+      const note = await io.restart(t);
+      if (note) notes.push(note);
     } catch (e) {
       restartFailures.push(`${t.kind} ${t.name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  const line = `[SELF-UPDATE] ${range}${restartFailures.length ? ` (restart failed: ${restartFailures.join("; ")})` : ""}`;
+  const line = `[SELF-UPDATE] ${range}${restartFailures.length ? ` (restart failed: ${restartFailures.join("; ")})` : ""}${notes.length ? ` (${notes.join("; ")})` : ""}`;
   await io.tell(line);
   return { outcome: "updated", line, status: s, restartFailures };
 }

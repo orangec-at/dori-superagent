@@ -21,7 +21,7 @@ import {
 } from "./lead-rotate-state.ts";
 import { refText } from "./refs.ts";
 import type { Probe, SessionRef } from "./runtime/types.ts";
-import { type Procs, realProcs } from "./self-update-run.ts";
+import { type Procs, realProcs } from "./self-update-restart.ts";
 
 /** After a rotation or a timed-out handoff, automatic rotation waits this long (the old footer may still be on screen). */
 export const QUIET_MS = 60 * 60_000;

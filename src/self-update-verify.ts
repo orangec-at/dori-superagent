@@ -1,5 +1,6 @@
 // Proving a target commit before dori's own checkout moves to it: install and checks run in a throwaway worktree,
-// under an environment that cannot reach the live home or panes.
+// under a scrubbed environment (no tokens, no DORI_HOME, no pane variables). It is not a sandbox: the checks run as
+// this user, so code that names an absolute path can still reach the live home.
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

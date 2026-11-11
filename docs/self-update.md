@@ -18,14 +18,18 @@ dori self-update [--check] [--now] [--migrate-prompts]
    directory): `bun install --frozen-lockfile`, then `bun run typecheck` and `bun test ./test/`. The live
    checkout still runs its proven code while this happens, and the worktree is removed either way. These run
    with an allowlisted environment (`PATH`, locale, `TERM`, `TZ`, `TMPDIR`): no tokens, no ssh agent, and `HOME`
-   and `DORI_HOME` inside the worktree; only bun's package cache is shared.
+   and `DORI_HOME` inside the worktree; only bun's package cache is shared. The environment is scrubbed, not
+   sandboxed: the checks run as your user with your filesystem and network, so code that names an absolute path
+   (the live `~/.dori`, `~/.ssh`) can still read or write it. That is why `auto` needs a protected default branch.
 4. Green checks: `git merge --ff-only <target>` in the checkout, plus `bun install --frozen-lockfile` when
    `bun.lock` changed. A failing install here goes back with `git reset --keep <old>` and reinstalls.
 5. Restart, in order: `selfUpdate.services` (`systemctl --user restart`), the `duty-loop` pane, the
    `hourly-loop` pane. Each loop gets SIGTERM, finishes the pass it is in (it only stops between passes, so no
    nudge is half-typed and no inbox batch goes out twice), and is started again with the command `dori up` used.
-   The restart waits up to 15 minutes for that pass; past that it reports the command to run by hand. Lanes and
-   the lead session are never touched.
+   The restart waits up to 15 minutes for that pass; a pass still running then is taken as hung and gets SIGKILL,
+   the loop is started again, and the `[SELF-UPDATE]` line says so (that pass may have stopped half-way). Only a
+   process that survives SIGKILL too is left with the command to run by hand. Lanes and the lead session are
+   never touched.
 6. One `[SELF-UPDATE] <old>..<new>` line to the lead and to `selfUpdate.notify`. Refused, unproven, failed,
    rolled-back and error outcomes are told the same way.
 
@@ -58,7 +62,7 @@ a broken `config.json`) counts the same way under its error message, so an outag
 
 Turning them off again: remove `auto` (or set it to `false`), or set `DORI_SELF_UPDATE=off` in the environment,
 which forces them off even when `auto` is `true`. A stopped hourly loop (`dori loop stop`) also starts no
-self-update until `dori loop resume`. The switch only governs the runs the trigger starts (`dori self-update
+self-update until `dori loop resume`, and neither does the pass during which the loop got SIGTERM. The switch only governs the runs the trigger starts (`dori self-update
 --auto`); a run by hand ignores it, and `--now` also retries a situation that already failed twice.
 
 **Protect the default branch before turning `auto` on.** With it on, anything pushed to `origin/<default branch>` is installed,
