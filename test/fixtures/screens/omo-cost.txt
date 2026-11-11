@@ -1,0 +1,10 @@
+ ↳ Want the full story on any tip? Ask about it: the give-me-tips skill has the tour.
+
+ Todo
+ Execution
+ [•] Execute brief deliverables as specified
+── • Working (21s • esc to interrupt) ─────────────────────────────────────────────────────────────────────────────────
+❯
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/workspace • CH93.0% • $0.743 • 80K/1M (8.0%) (auto)         (anthropic-subscription@account-2) claude-opus-5-5:medium
+(😺 OmO Native by Q Kim) Pursuing goal (3m) mem:agent-00000000 37m ago running · delivery:senpi-codemode:notific...

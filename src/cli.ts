@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { resolve } from "node:path";
 import { runBacklog, runDuty, runLoop } from "./cli-loops.ts";
+import { runBudget } from "./cli-budget.ts";
 import { status, up } from "./cli-up.ts";
 import { done, ready, report, startLane } from "./lanes.ts";
 import { adoptLane } from "./adopt.ts";
@@ -39,6 +40,7 @@ const COMMANDS = new Set([
   "status",
   "loop",
   "backlog",
+  "budget",
   "migrate",
   "serve",
   "reply",
@@ -147,6 +149,8 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       return runLoop(d, a, x);
     case "backlog":
       return runBacklog(d, a, x);
+    case "budget":
+      return runBudget(d, a, x);
     case "review": {
       const r = await review(d, need(x, "PR"), one(a, "model"));
       console.log(`REVIEW ${x} head=${r.sha} verdict=${r.verdict}`);

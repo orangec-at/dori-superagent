@@ -1,3 +1,4 @@
+import { limitFor, loadBudgets } from "./budget.ts";
 import { inboxRefs } from "./inbox-files.ts";
 import { refText, sameSession } from "./refs.ts";
 import type { SessionRef } from "./runtime/types.ts";
@@ -15,6 +16,10 @@ export type DashboardState = {
     /** The saved herdr machine the lane's pane runs on, or "local". */
     machine: string;
     lastActivityAt: number;
+    /** The session cost last read from the pane (#3), when it was read, and the lane's limit from budgets.json. */
+    costUsd: number | null;
+    costAt: number | null;
+    budgetUsd: number | null;
     log: { at: number; kind: string; text: string }[];
     final: { text: string; evidence: string[]; at: number } | null;
   }[];
@@ -29,6 +34,7 @@ const LOG_LINES = 5;
 
 export function dashboardState(store: Store, now: number): DashboardState {
   const lanes = store.lanes();
+  const budgets = loadBudgets(store.root);
   const roles = Object.entries(store.roles()) as [Role, SessionRef][];
   const ownerOf = (ref: SessionRef): string | null =>
     roles.find(([, r]) => sameSession(r, ref))?.[0] ??
@@ -43,6 +49,9 @@ export function dashboardState(store: Store, now: number): DashboardState {
       pane: refText(l.sessionRef),
       machine: l.sessionRef.machine ?? "local",
       lastActivityAt: l.lastActivityAt,
+      costUsd: l.costUsd ?? null,
+      costAt: l.costAt ?? null,
+      budgetUsd: limitFor(budgets, l.key) ?? null,
       log: l.log.slice(-LOG_LINES),
       final: l.final ?? null,
     })),

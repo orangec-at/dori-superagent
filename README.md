@@ -176,6 +176,10 @@ When a delivery failed after the text may already have reached the pane, only En
 
 A lane that has not reported for 10 minutes, and whose pane is not working, gets `prompts/nudge.md` in its pane, again at 20, and at 40 the duty loop sends the lead `[ESCALATE <key>]`. A lane that reported `--status waiting`, or whose pane is `blocked`, is left alone.
 
+### Cost budgets per lane
+
+Each duty pass reads the bottom of every working or waiting lane's pane and records the session cost from omo's status line (`... • CH93.0% • $0.743 • 80K/1M ...`) on the lane as `costUsd` with the time it was read; a screen that cannot be read, or shows no cost, keeps the last reading. `dori budget set <key|default> --usd N` sets a limit in `$DORI_HOME/budgets.json` (`default` covers every lane without its own) and `dori budget show` lists the limits and each open lane's cost. Past 80% of its limit the lead gets `[BUDGET 80%] <key> $x / $N` once; at the limit it gets `[BUDGET OVER]` once, and the duty loop stops nudging and escalating that lane. It is never stopped or closed. `dori status` and the dashboard show the cost too.
+
 ### Merge needs a CLEAR receipt at the exact head and green checks
 
 `dori merge` reads the PR's head SHA with `gh`, then requires a receipt for that SHA in `~/.dori/receipts/` with verdict `CLEAR`. Only `dori review` writes receipts: it runs a fresh non-interactive omo on `prompts/review.md` pinned to that SHA, and when the reviewer prints no `VERDICT:` line, no receipt is written.

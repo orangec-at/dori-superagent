@@ -8,6 +8,8 @@ export type LaneStatus = "working" | "waiting" | "ready" | "done" | "lost";
  * before a `dori migrate`. `migration`: a handover is in progress, and the duty loop leaves the record alone.
  * `sessionPath`: the agent's own session file, when its command records one; `dori migrate --resume` needs it.
  * `adopted`: `dori adopt` registered an agent session dori did not open; `dori done` leaves that pane open.
+ * `costUsd`/`costAt`: the session cost last read from the pane's status line, and when (#3). `budgetAlert`: the
+ * budget level the lead was last told about; at "over" the duty loop stops nudging the lane.
  */
 export type Lane = {
   key: string;
@@ -24,8 +26,15 @@ export type Lane = {
   createdAt: number;
   lastActivityAt: number;
   nudges: number;
+  costUsd?: number;
+  costAt?: number;
+  budgetAlert?: "80" | "over";
   final?: { text: string; evidence: string[]; at: number };
-  log: { at: number; kind: "start" | "adopt" | "report" | "ready" | "nudge" | "done" | "lost"; text: string }[];
+  log: {
+    at: number;
+    kind: "start" | "adopt" | "report" | "ready" | "nudge" | "done" | "lost" | "budget";
+    text: string;
+  }[];
 };
 
 /** The sessions `dori up` opens; roles.json maps each to a ref string (a bare herdr pane id, or `hc:t7`). */
