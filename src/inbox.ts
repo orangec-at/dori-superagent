@@ -15,6 +15,13 @@ const READY_TO_READ: readonly AgentStatus[] = ["idle", "done"];
 export type SendResult = "DELIVERED" | "QUEUED" | "HELD";
 
 /**
+ * Held after an ambiguous delivery (#89). An entry held only because herdr answered agent_not_found (older dori held
+ * those) never reached the pane: herdr refuses before typing anything, so it is delivered like a queued one.
+ */
+export const isHeld = (m: QueuedMessage): boolean =>
+  m.attempt?.state === "ambiguous" && !/agent_not_found/.test(m.attempt.detail ?? "");
+
+/**
  * Delivers now when the pane can read; otherwise queues it for the duty loop (busy agents are never interrupted).
  * The command-line path: an uncertain delivery is a result, never an error (see settled).
  */
@@ -84,7 +91,7 @@ async function flushLocked(d: Deps, ref: SessionRef): Promise<"delivered" | "que
   // Re-read under the lock: the flush that held it may have delivered these meanwhile.
   const all = d.store.queued(ref);
   if (all.length === 0) return "delivered";
-  const queued = all.filter((m) => m.attempt?.state !== "ambiguous");
+  const queued = all.filter((m) => !isHeld(m));
   const rt = d.runtimes.for(ref);
   // The probe carries the #62 screen check on herdr: an omo with live monitors between turns reads idle; so does an omo
   // herdr sees no agent in (#5), asked for here only.
