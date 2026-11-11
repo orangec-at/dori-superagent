@@ -128,7 +128,9 @@ export async function probe(
   if (status === "gone") return { status, shellInFront: true };
   const front = await foreground(cli, paneId, onFail);
   const seen: AgentStatus =
-    screenCheck && screenMayShowIdle(status, front.shell, omoWithoutAgent) && (await screenShowsIdle(cli, paneId)) ? "idle" : status;
+    screenCheck && screenMayShowIdle(status, front.shell, omoWithoutAgent) && (await screenShowsIdle(cli, paneId))
+      ? "idle"
+      : status;
   return {
     status: seen,
     ...(agent !== undefined ? { agent } : {}),
