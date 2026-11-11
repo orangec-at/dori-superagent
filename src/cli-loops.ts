@@ -141,8 +141,10 @@ async function loopPasses(
       console.error(`LOOP ERROR ${e instanceof Error ? e.message : String(e)}`);
       if (one(a, "once")) return 1;
     }
-    // Only after a pass that ran: a stopped loop, one that lost the lock, and a one-off --once run start nothing.
-    if (ran && !one(a, "once")) {
+    // Only after a pass that ran: a stopped loop, one that lost the lock, and a one-off --once run start nothing. Nor
+    // does a loop that got SIGTERM: that is usually a self-update restarting it, which a new run would only race.
+    if (ran && !one(a, "once") && term.stopped()) console.log("SELF_UPDATE_OFF the loop got SIGTERM; it is exiting");
+    else if (ran && !one(a, "once")) {
       try {
         console.log(autoSelfUpdate(d, startSelfUpdate));
       } catch (e) {

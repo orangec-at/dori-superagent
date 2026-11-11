@@ -37,6 +37,7 @@ function io(checkout: string): SelfUpdateIo & { told: string[]; restarted: strin
     run: runnerIn(checkout),
     restart: async (t) => {
       restarted.push(`${t.kind}:${t.name}`);
+      return undefined;
     },
     tell: async (text) => {
       told.push(text);
@@ -226,7 +227,7 @@ describe("selfUpdate", () => {
     await sh(g.checkout, "git", "worktree", "remove", "--force", live);
   });
 
-  test("a restart that fails is reported in the line; the other restarts still run", async () => {
+  test("a failed restart and a SIGKILL note both reach the line; the other restarts still run", async () => {
     const g = await gitWorld();
     await g.push("a.txt");
     const x = io(g.checkout);
@@ -235,11 +236,13 @@ describe("selfUpdate", () => {
       restart: async (t) => {
         if (t.name === "duty-loop") throw new Error("no dori duty process");
         await x.restart(t);
+        return t.name === "hourly-loop" ? "dori loop in w1:p8 got SIGKILL" : undefined;
       },
     };
     const r = await selfUpdate(failing, { checks: [["true"]], restarts: ROLES, install: NO_INSTALL });
     expect(r).toMatchObject({ outcome: "updated", restartFailures: ["role duty-loop: no dori duty process"] });
     expect(x.restarted).toEqual(["service:dori-serve", "role:hourly-loop"]);
     expect(x.told[0]).toContain("restart failed: role duty-loop: no dori duty process");
+    expect(x.told[0]).toEndWith("(dori loop in w1:p8 got SIGKILL)");
   });
 });

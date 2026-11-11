@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { RESTART_WAIT_MS, restartCommand, restartRole } from "../src/self-update-run.ts";
+import { KILL_WAIT_MS, RESTART_WAIT_MS, restartCommand, restartRole } from "../src/self-update-restart.ts";
 import { href, World } from "./fake.ts";
 
 describe("restartRole", () => {
@@ -80,7 +80,43 @@ describe("restartRole", () => {
     expect(w.panes.get("w1:p8")!.ran).toEqual([`${d.doriCmd} loop`]);
   });
 
-  test("a pane running something else is not touched; a pass that outlasts the wait names the command to run", async () => {
+  test("a pass still running after RESTART_WAIT_MS gets SIGKILL; the loop is started again and the note says so", async () => {
+    const w = new World();
+    const d = w.deps();
+    w.addPane("w1:p8", "shell").foreground = [{ name: "bun", argv: loopArgv("loop") }];
+    d.store.setRole("hourly-loop", href("w1:p8"));
+    const signals: string[] = [];
+    let slept = 0;
+    const procs = {
+      kill: (pid: number, signal: "SIGTERM" | "SIGKILL" = "SIGTERM") => void signals.push(`${pid}:${signal}`),
+      alive: () => !signals.includes("101:SIGKILL"),
+      sleep: async (ms: number) => {
+        slept += ms;
+      },
+    };
+    const note = await restartRole(d, "hourly-loop", procs);
+    expect(signals).toEqual(["101:SIGTERM", "101:SIGKILL"]);
+    expect(slept).toBe(RESTART_WAIT_MS);
+    expect(note).toContain("got SIGKILL");
+    expect(w.panes.get("w1:p8")!.ran).toEqual([`${d.doriCmd} loop`]);
+  });
+
+  test("a loop that finishes after SIGTERM is not killed, and the restart has no note", async () => {
+    const w = new World();
+    const d = w.deps();
+    w.addPane("w1:p8", "shell").foreground = [{ name: "bun", argv: loopArgv("loop") }];
+    d.store.setRole("hourly-loop", href("w1:p8"));
+    const signals: string[] = [];
+    const procs = {
+      kill: (pid: number, signal: "SIGTERM" | "SIGKILL" = "SIGTERM") => void signals.push(`${pid}:${signal}`),
+      alive: () => false,
+      sleep: async () => {},
+    };
+    expect(await restartRole(d, "hourly-loop", procs)).toBeUndefined();
+    expect(signals).toEqual(["101:SIGTERM"]);
+  });
+
+  test("a pane running something else is not touched; a loop that survives SIGKILL names the command to run", async () => {
     const w = new World();
     const d = w.deps();
     w.addPane("w1:p7", "idle").foreground = [{ name: "vim", argv: ["vim", "notes"] }];
@@ -97,9 +133,9 @@ describe("restartRole", () => {
     };
     await expect(restartRole(d, "duty-loop", procs)).rejects.toThrow("no dori duty process in front of");
     const failed = restartRole(d, "hourly-loop", procs);
-    await expect(failed).rejects.toThrow("is still finishing its pass");
+    await expect(failed).rejects.toThrow("survived SIGTERM, 15 min, and SIGKILL");
     await expect(failed).rejects.toThrow(`start it again by hand with ${d.doriCmd} loop`);
-    expect(slept).toBe(RESTART_WAIT_MS);
+    expect(slept).toBe(RESTART_WAIT_MS + KILL_WAIT_MS);
     expect(w.panes.get("w1:p7")!.ran).toEqual([]);
     expect(w.panes.get("w1:p8")!.ran).toEqual([]);
   });

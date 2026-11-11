@@ -49,6 +49,15 @@ describe("onTerm", () => {
 /** A Term whose stop request is already in: the loop finishes the pass it is in and leaves, never waiting. */
 const stopAfterPass = (): Term => ({ stopped: () => true, wait: async () => {}, off: () => {} });
 
+/** A Term whose stop request arrives while the loop sleeps between passes. */
+const stopWhileWaiting = (): Term => {
+  let stop = false;
+  const wait = async (): Promise<void> => {
+    stop = true;
+  };
+  return { stopped: () => stop, wait, off: () => {} };
+};
+
 async function captured<T>(body: () => Promise<T>): Promise<{ value: T; lines: string[] }> {
   const lines: string[] = [];
   const log = spyOn(console, "log").mockImplementation((...a: unknown[]) => void lines.push(a.join(" ")));
@@ -59,16 +68,20 @@ async function captured<T>(body: () => Promise<T>): Promise<{ value: T; lines: s
   }
 }
 
-async function oneLoopPass(d: Deps, argv: string[]): Promise<{ code: number; started: number; lines: string[] }> {
+async function oneLoopPass(
+  d: Deps,
+  argv: string[],
+  newTerm: () => Term = stopAfterPass,
+): Promise<{ code: number; started: number; lines: string[] }> {
   let started = 0;
   const start = () => void started++;
-  const r = await captured(() => runLoop(d, parse(["loop", ...argv]), undefined, start, stopAfterPass));
+  const r = await captured(() => runLoop(d, parse(["loop", ...argv]), undefined, start, newTerm));
   return { code: r.value, started, lines: r.lines };
 }
 
 describe("dori loop", () => {
   test("with auto off (the default) a pass that ran starts no self-update", async () => {
-    const r = await oneLoopPass(new World().deps(), ["--interval", "1000000"]);
+    const r = await oneLoopPass(new World().deps(), ["--interval", "1000000"], stopWhileWaiting);
     expect(r.code).toBe(0);
     expect(r.started).toBe(0);
     expect(r.lines.join("\n")).toContain("SELF_UPDATE_OFF automatic runs are opt-in");
@@ -77,9 +90,18 @@ describe("dori loop", () => {
   test("opted in, a pass that ran starts the self-update trigger, then a stop request ends the loop", async () => {
     const d = new World().deps();
     writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ selfUpdate: { auto: true } }));
-    const r = await oneLoopPass(d, ["--interval", "1000000"]);
+    const r = await oneLoopPass(d, ["--interval", "1000000"], stopWhileWaiting);
     expect(r.code).toBe(0);
     expect(r.started).toBe(1);
+    expect(r.lines.join("\n")).toContain("LOOP STOPPED by SIGTERM between passes");
+  });
+
+  test("opted in, a pass during which SIGTERM arrived starts no self-update: the restart is already under way", async () => {
+    const d = new World().deps();
+    writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ selfUpdate: { auto: true } }));
+    const r = await oneLoopPass(d, ["--interval", "1000000"]);
+    expect(r.started).toBe(0);
+    expect(r.lines.join("\n")).toContain("SELF_UPDATE_OFF the loop got SIGTERM");
     expect(r.lines.join("\n")).toContain("LOOP STOPPED by SIGTERM after this pass");
   });
 
@@ -98,6 +120,36 @@ describe("dori loop", () => {
     const r = await oneLoopPass(d, ["--once"]);
     expect(r.code).toBe(0);
     expect(r.started).toBe(0);
+  });
+});
+
+describe("a real SIGTERM", () => {
+  test("a process sleeping between passes leaves its loop and exits 0 instead of being killed", async () => {
+    const termTs = join(import.meta.dir, "..", "src", "loop-term.ts");
+    const script = `import { onTerm } from ${JSON.stringify(termTs)};
+const t = onTerm();
+console.log("READY");
+await t.wait(1_000_000);
+console.log(t.stopped() ? "STOPPED" : "TIMEOUT");
+t.off();`;
+    const child = Bun.spawn([process.execPath, "-e", script], { stdout: "pipe", stderr: "inherit" });
+    const reader = child.stdout.getReader();
+    let out = "";
+    // Signal only once the handler is registered: READY is printed after onTerm().
+    while (!out.includes("READY")) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      out += new TextDecoder().decode(value);
+    }
+    child.kill("SIGTERM");
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      out += new TextDecoder().decode(value);
+    }
+    expect(await child.exited).toBe(0);
+    expect(child.signalCode).toBeNull();
+    expect(out).toContain("STOPPED");
   });
 });
 
