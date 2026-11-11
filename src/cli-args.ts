@@ -40,6 +40,11 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
   dori migrate [--to hc|herdr] (--lane K | --role lead|duty|duty-loop|hourly-loop | --all) [--dry-run]
                [--wait-minutes N] [--resume]  hand sessions over to another runtime; MIGRATED, SKIP, DEFERRED,
                                               or MIGRATE_ROLLBACK (exit 3) per session
+  dori lead rotate --now                      ask the lead for a handoff (DORI_HOME/handoff/<time>.md), then start a new
+                                              lead session in the same pane with it; the duty loop does this by itself
+                                              past leadRotation.maxTokens (300000) or maxHours (24) in config.json
+                                              ("auto": false or DORI_LEAD_ROTATION=off turns that off); every
+                                              [LEAD ROTATED] line goes to DORI_HOME/lead/rotations.log and hooks.onLeadRotation
   dori status
   dori serve [--port N] [--host H]            read-only dashboard: / (HTML, refreshes every 30s) and /api/state (JSON);
                                               default 127.0.0.1:8787

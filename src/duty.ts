@@ -2,6 +2,7 @@ import { DeliveryUncertain, failureDetail } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
 import { runHook } from "./hooks.ts";
 import { flushInbox, sendOrThrow, tellLead } from "./inbox.ts";
+import { leadRotationTick } from "./lead-rotate.ts";
 import { Refusal } from "./refusal.ts";
 import { refText } from "./refs.ts";
 import { nudgeText } from "./remote.ts";
@@ -21,6 +22,12 @@ export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
   const stop = d.store.stop("duty");
   if (stop) return [{ action: "stopped", detail: stop.reason }];
   const events: DutyEvent[] = [];
+  // The lead's rotation first (#8): a pass that asks for a handoff holds the lead's inbox before it is flushed below.
+  try {
+    events.push(...(await leadRotationTick(d)));
+  } catch (e) {
+    events.push({ pane: "lead", action: "lead-rotate-failed", detail: failureDetail(e) });
+  }
   for (const ref of d.store.inboxPanes()) {
     const paneId = refText(ref);
     try {

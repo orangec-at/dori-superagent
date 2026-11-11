@@ -9,6 +9,8 @@ export type Hooks = {
   readonly onReady?: ArgvTemplate;
   readonly onReport?: ArgvTemplate;
   readonly onLost?: ArgvTemplate;
+  /** Every `[LEAD ROTATED]`, `[LEAD ROTATE TIMEOUT]` and `[LEAD ROTATE FAILED]` line, as `{text}` (#8). */
+  readonly onLeadRotation?: ArgvTemplate;
   readonly reviewCommand?: ArgvTemplate;
 };
 
@@ -18,7 +20,7 @@ export type HookVars = Partial<Record<"key" | "text" | "evidence" | "pr" | "repo
 /** `$DORI_HOME/config.json` is present but its `hooks` value is not the documented shape. */
 export class ConfigError extends Error {}
 
-const NAMES: readonly HookName[] = ["onReady", "onReport", "onLost", "reviewCommand"];
+const NAMES: readonly HookName[] = ["onReady", "onReport", "onLost", "onLeadRotation", "reviewCommand"];
 
 function template(name: string, value: unknown): ArgvTemplate {
   if (!Array.isArray(value) || value.length === 0)

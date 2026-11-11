@@ -4,6 +4,7 @@ import { Refusal } from "./refusal.ts";
 import { resolveTarget } from "./target.ts";
 import { refText } from "./refs.ts";
 import type { AgentStatus, SessionRef } from "./runtime/types.ts";
+import { rotating } from "./lead-rotate-state.ts";
 import { migrating } from "./store-journal.ts";
 import type { DeliveryAttempt, QueuedMessage } from "./store-types.ts";
 
@@ -66,6 +67,8 @@ export async function tellLead(d: Deps, text: string, from: string): Promise<"DE
 export async function flushInbox(d: Deps, from: SessionRef): Promise<"delivered" | "queued" | "no-agent" | "held"> {
   const ref = d.store.forwardOf(from) ?? from;
   if (migrating(d.store.root, from) || migrating(d.store.root, ref)) return "queued";
+  // A lead writing its handoff (#8) gets nothing: a message it read now would end with the old session.
+  if (rotating(d.store.root, ref)) return "queued";
   if (d.store.queued(ref).length === 0 && !d.store.forwardPending(ref)) return "delivered";
   const release = d.store.lockInbox(ref, d.now());
   if (!release) return "queued";
