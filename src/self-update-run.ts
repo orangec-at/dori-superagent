@@ -80,7 +80,7 @@ export type Procs = {
   readonly sleep: (ms: number) => Promise<void>;
 };
 
-const realProcs: Procs = {
+export const realProcs: Procs = {
   kill: (pid) => process.kill(pid, "SIGTERM"),
   alive: (pid) => {
     try {
