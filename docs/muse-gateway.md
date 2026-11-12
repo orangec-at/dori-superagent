@@ -12,6 +12,11 @@ Muse (an outside assistant) reaches this machine over SSH with a key that can ru
 | `~/.dori/muse/inbox.seen` | how many inbox lines Muse has already read |
 | `~/.dori/muse/.lock` | `muse-gw` holds this flock while it runs a command |
 
+`inbox --wait N` (N is 1-55 seconds) checks `inbox.jsonl` every 0.5s without taking `.lock`, so `send` and
+`dori-muse-reply` never wait on it. It takes the lock only to print the new replies and update `inbox.seen`, and
+records the wait in the audit log (`read 1 waited 12s`). Muse can call `inbox --wait 50` once a minute, and a reply
+reaches it within seconds.
+
 ## Install
 
 The running copies live in `~/.dori/bin/` (that path is what `authorized_keys` names). Install or update them by
