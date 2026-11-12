@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""muse-gw: the only command Muse's SSH key may run on this machine (authorized_keys command=..., restrict).
+
+Muse calls `ssh brady@fedora <command>`; sshd hands that string over as SSH_ORIGINAL_COMMAND and runs this instead.
+Nothing is passed to a shell: the string is split with shlex and only these commands exist:
+  state                 lanes, open backlog items and open questions (read-only)
+  send <text>           hand a request to dori's lead, marked [Muse]; the lead answers into the inbox
+  ask <bot> <text>      ask one hermes bot from ~/.dori/agents.json (dori delegate) and print its answer
+  inbox [--all]         print replies the lead left for Muse since the last read (--all: every reply)
+  inbox --wait <secs>   same, but if nothing is new yet, wait up to <secs> (1-55) and return as soon as a reply lands
+  help
+Every call is appended to ~/.dori/muse/audit.jsonl.
+"""
+import fcntl, json, os, shlex, subprocess, sys, time
+
+HOME = os.path.expanduser("~")
+DORI_HOME = os.path.join(HOME, ".dori")
+BOX = os.path.join(DORI_HOME, "muse")
+ENV = {"HOME": HOME, "LANG": "C.UTF-8", "DORI_HOME": DORI_HOME, "DORI_TELEMETRY": "0",
+       "PATH": f"{HOME}/.bun/bin:{HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin"}
+MAX_TEXT = 4000
+SENDS_PER_HOUR = 20
+ASK_TIMEOUT = 300
+WAIT_MAX = 55  # under the SSH and Muse tool timeouts
+WAIT_POLL = 0.5
+
+
+class Refused(Exception):
+    pass
+
+
+def audit(argv, outcome):
+    os.makedirs(BOX, exist_ok=True)
+    with open(os.path.join(BOX, "audit.jsonl"), "a") as f:
+        f.write(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "cmd": argv[:1],
+                            "chars": sum(len(a) for a in argv[1:]), "outcome": outcome}, ensure_ascii=False) + "\n")
+
+
+def dori(args, timeout=120):
+    r = subprocess.run(["dori", *args], env=ENV, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+def text_of(parts):
+    text = " ".join(parts).strip()
+    if not text:
+        raise Refused("empty text")
+    if len(text) > MAX_TEXT:
+        raise Refused(f"text is {len(text)} chars; the limit is {MAX_TEXT}")
+    return text
+
+
+def state():
+    _, status = dori(["status"])
+    _, backlog = dori(["backlog", "list"])
+    lanes = [l for l in status.splitlines()[2:] if l.split()[1:2] != ["done"]]
+    items = [l for l in backlog.splitlines() if (l.split()[1:2] or [""])[0] in ("open", "running")]
+    print("== open lanes (key status runtime pane activity last-note)")
+    print("\n".join(lanes) or "(none)")
+    print("\n== backlog: open and running items")
+    print("\n".join(items) or "(none)")
+    return "ok"
+
+
+def send(parts):
+    text = text_of(parts)
+    log = os.path.join(BOX, "audit.jsonl")
+    hour_ago = time.time() - 3600
+    recent = 0
+    if os.path.exists(log):
+        for line in open(log):
+            e = json.loads(line)
+            if e["cmd"] == ["send"] and e["outcome"].startswith("sent") and \
+                    time.mktime(time.strptime(e["at"][:19], "%Y-%m-%dT%H:%M:%S")) > hour_ago:
+                recent += 1
+    if recent >= SENDS_PER_HOUR:
+        raise Refused(f"{SENDS_PER_HOUR} requests in the last hour; try later")
+    code, out = dori(["send", "lead", "--text", f"[Muse] {text}"])
+    if code not in (0, 3):
+        raise Refused(f"dori send failed: {out[-300:]}")
+    print(f"{out.splitlines()[-1] if out else 'SENT'}: the lead will answer into `inbox`")
+    return f"sent {out.split()[0] if out else ''}"
+
+
+def ask(parts):
+    if len(parts) < 2:
+        raise Refused("usage: ask <bot> <text>")
+    bot, text = parts[0], text_of(parts[1:])
+    names = [a["name"] for a in json.load(open(os.path.join(DORI_HOME, "agents.json")))]
+    if bot not in names:
+        raise Refused(f"unknown bot {bot}; one of: {', '.join(names)}")
+    code, out = dori(["delegate", bot, "--text", f"[Muse 질문] {text}", "--timeout", str(ASK_TIMEOUT)], ASK_TIMEOUT + 30)
+    print(out)
+    return f"asked {bot} exit {code}"
+
+
+def read_seen():
+    seen_path = os.path.join(BOX, "inbox.seen")
+    return int(open(seen_path).read() or 0) if os.path.exists(seen_path) else 0
+
+
+def inbox_lines():
+    path = os.path.join(BOX, "inbox.jsonl")
+    return open(path, "rb").read().count(b"\n") if os.path.exists(path) else 0
+
+
+def wait_for_reply(parts):
+    """For `inbox --wait N`: poll the inbox without the lock until it has an unread line or N seconds pass.
+    Returns the seconds waited, or None when --wait was not given."""
+    if "--wait" not in parts:
+        return None
+    if "--all" in parts:
+        raise Refused("--wait cannot be combined with --all")
+    if len(parts) != 2 or parts[0] != "--wait" or not parts[1].isdigit() or not 1 <= int(parts[1]) <= WAIT_MAX:
+        raise Refused(f"usage: inbox --wait <seconds 1-{WAIT_MAX}>")
+    start = time.monotonic()
+    deadline = start + int(parts[1])
+    announced = False
+    while inbox_lines() <= read_seen():
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        if not announced:
+            print(f"(waiting up to {parts[1]}s for a reply)", file=sys.stderr, flush=True)
+            announced = True
+        time.sleep(min(WAIT_POLL, left))
+    return round(time.monotonic() - start)
+
+
+def inbox(parts, waited=None):
+    path = os.path.join(BOX, "inbox.jsonl")
+    seen_path = os.path.join(BOX, "inbox.seen")
+    entries = [json.loads(l) for l in open(path)] if os.path.exists(path) else []
+    seen = read_seen()
+    show = entries if parts == ["--all"] else entries[seen:]
+    for e in show:
+        print(f"--- {e['at']}\n{e['text']}\n")
+    if not show:
+        print("(no new replies)")
+    with open(seen_path, "w") as f:
+        f.write(str(len(entries)))
+    return f"read {len(show)}" + (f" waited {waited}s" if waited is not None else "")
+
+
+def main():
+    raw = os.environ.get("SSH_ORIGINAL_COMMAND")
+    try:
+        argv = shlex.split(raw) if raw is not None else sys.argv[1:]
+    except ValueError as e:
+        print(f"REFUSED: cannot parse the command ({e})"); return 2
+    cmd, rest = (argv[0], argv[1:]) if argv else ("help", [])
+    # `inbox --wait` waits before taking the lock, so send and dori-muse-reply are never blocked by a waiting reader.
+    waited, refused = None, None
+    if cmd == "inbox":
+        try:
+            waited = wait_for_reply(rest)
+        except Refused as e:
+            refused = e
+    with open(os.path.join(BOX, ".lock"), "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            if refused: raise refused
+            if cmd == "state": outcome = state()
+            elif cmd == "send": outcome = send(rest)
+            elif cmd == "ask": outcome = ask(rest)
+            elif cmd == "inbox": outcome = inbox(rest, waited)
+            elif cmd in ("help", "-h", "--help"): print(__doc__); outcome = "help"
+            else: raise Refused(f"unknown command {cmd!r}; run help")
+        except Refused as e:
+            audit(argv, f"refused: {e}"); print(f"REFUSED: {e}"); return 2
+        except subprocess.TimeoutExpired:
+            audit(argv, "timeout"); print("REFUSED: timed out"); return 124
+        audit(argv, outcome)
+    return 0
+
+
+if __name__ == "__main__":
+    os.makedirs(BOX, exist_ok=True)
+    sys.exit(main())
