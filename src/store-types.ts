@@ -105,6 +105,8 @@ export type LoopRun = {
   started: string[];
   held: string[];
   asked: string[];
+  /** `board: ...` lines from the team-board check; absent in runs recorded before it existed. */
+  board?: string[];
 };
 
 export const KEEP_RUNS = 168;
