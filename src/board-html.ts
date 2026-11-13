@@ -122,7 +122,9 @@ export function boardHtml(s: BoardState, o: { token: string | null; flash?: stri
   const now = s.generatedAt;
   const flash =
     o.flash && FLASH[o.flash] ? `<p class="flash${o.flash === "held" ? " bad" : ""}">${FLASH[o.flash]}</p>` : "";
-  const readOnly = o.token ? "" : `<p class="meta">읽기 전용: 테일넷 로그인(허용된 계정)으로 열어야 버튼이 켜져요.</p>`;
+  const readOnly = o.token
+    ? ""
+    : `<p class="meta">읽기 전용: 허용된 계정과 기기(board.json allowNodes)에서 열어야 버튼이 켜져요.</p>`;
   const attention = s.attention.length
     ? `<h3>확인할 lane</h3><ul class="rows card">${s.attention.map((l) => laneRow(l, now)).join("")}</ul>`
     : "";

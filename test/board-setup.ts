@@ -10,7 +10,9 @@ import { Store } from "../src/store.ts";
 export const NOW = Date.UTC(2026, 10, 13, 1, 0, 0);
 export const LOGIN = "operator@example.com";
 export const HOST = "board.example.ts.net:8446";
-export const CONFIG: BoardConfig = { allow: [LOGIN], replyTo: "discord:100200300", hosts: [] };
+export const PHONE = "100.64.0.10";
+export const BOT_MACHINE = "100.64.0.20";
+export const CONFIG: BoardConfig = { allow: [LOGIN], allowNodes: [PHONE], replyTo: "discord:100200300", hosts: [] };
 const servers: Server<undefined>[] = [];
 const roots: string[] = [];
 
@@ -52,11 +54,12 @@ export function start(o: { toLead?: (text: string) => Promise<string>; config?: 
   return { url: server.url.href.replace(/\/$/, ""), sent, logs, home: root, store };
 }
 
-/** The headers tailscale serve forwards for the allowed operator on the tailnet address. */
+/** The headers tailscale serve forwards for the allowed operator on their phone, at the tailnet address. */
 export const tailnet = (over: Record<string, string> = {}): Record<string, string> => ({
   host: HOST,
   origin: `https://${HOST}`,
   "tailscale-user-login": LOGIN,
+  "x-forwarded-for": PHONE,
   ...over,
 });
 

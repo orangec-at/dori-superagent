@@ -9,12 +9,13 @@ import { Refusal } from "./refusal.ts";
 import type { Store } from "./store.ts";
 
 /**
- * DORI_HOME/board.json: `allow`, the tailnet logins that may write; `replyTo`, the address the lead answers a board
+ * DORI_HOME/board.json: `allow`, the tailnet logins that may write; `allowNodes`, the tailnet IPs of the devices they
+ * may write from (a bot on the operator's own machine carries the operator's login, so the login alone is not enough); `replyTo`, the address the lead answers a board
  * request on (discord:<channel>); `hosts`, Host names served besides loopback and *.ts.net. Without the file nobody
  * can write: the defaults carry no person's account.
  */
-export type BoardConfig = { allow: string[]; replyTo: string; hosts: string[] };
-export const DEFAULT_BOARD: BoardConfig = { allow: [], replyTo: "", hosts: [] };
+export type BoardConfig = { allow: string[]; allowNodes: string[]; replyTo: string; hosts: string[] };
+export const DEFAULT_BOARD: BoardConfig = { allow: [], allowNodes: [], replyTo: "", hosts: [] };
 
 const strings = (v: unknown): string[] | undefined =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
@@ -26,6 +27,7 @@ export function loadBoardConfig(home: string): BoardConfig {
   const replyTo = raw["replyTo"];
   return {
     allow: strings(raw["allow"]) ?? DEFAULT_BOARD.allow,
+    allowNodes: strings(raw["allowNodes"]) ?? DEFAULT_BOARD.allowNodes,
     replyTo: typeof replyTo === "string" && /^[a-z]+:[\w:./-]+$/.test(replyTo) ? replyTo : DEFAULT_BOARD.replyTo,
     hosts: strings(raw["hosts"]) ?? DEFAULT_BOARD.hosts,
   };
@@ -38,6 +40,11 @@ export const requestEnvelope = (replyTo: string, text: string): string => `[repl
 export const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 const BODY_MAX = 8 * 1024;
 const LOGIN_HEADER = "tailscale-user-login";
+/**
+ * The requesting device: tailscale serve replaces X-Forwarded-For with the tailnet source IP (a value the client sent is
+ * dropped; X-Real-IP is passed through as sent, so it is never read).
+ */
+const NODE_HEADER = "x-forwarded-for";
 
 export type BoardOptions = {
   host: string;
@@ -101,6 +108,11 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     const login = req.headers.get(LOGIN_HEADER)?.trim() ?? "";
     return login !== "" && o.config.allow.includes(login) ? login : null;
   };
+  // A single IP on the allowNodes list; a missing or chained X-Forwarded-For identifies no device.
+  const allowedNode = (req: Request): boolean => {
+    const node = req.headers.get(NODE_HEADER)?.trim() ?? "";
+    return node !== "" && !node.includes(",") && o.config.allowNodes.includes(node);
+  };
   // A Host that is neither loopback nor a tailnet name is a DNS-rebinding page in some browser: it gets nothing.
   const hostnameOf = (req: Request): string =>
     (req.headers.get("host") ?? "")
@@ -117,6 +129,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
   async function write(req: Request, kind: "decide" | "request"): Promise<Response> {
     const login = allowedLogin(req);
     if (!login) return reject(kind, "login", "forbidden: not an allowed tailnet login", 403);
+    if (!allowedNode(req)) return reject(kind, "node", "forbidden: this device may not write to the board", 403);
     const host = req.headers.get("host") ?? "";
     const hostname = hostnameOf(req);
     if (host === "" || LOOPBACK_HOSTS.has(hostname) || !knownHost(hostname))
@@ -204,7 +217,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
         const login = allowedLogin(req);
         const flash = url.searchParams.get("sent") ?? undefined;
         const html = boardHtml(boardState(store, o.now()), {
-          token: login ? tokenFor(login) : null,
+          token: login && allowedNode(req) ? tokenFor(login) : null,
           ...(flash ? { flash } : {}),
         });
         return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", ...SECURITY_HEADERS } });

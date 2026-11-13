@@ -49,6 +49,8 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
     config,
     toLead: (text) => send(d, "lead", text, "board"),
   });
-  console.log(`BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length}`);
+  console.log(
+    `BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length} devices=${config.allowNodes.length}`,
+  );
   return new Promise<number>(() => {});
 }

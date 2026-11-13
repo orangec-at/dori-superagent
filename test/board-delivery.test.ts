@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { askClose, readAsk } from "../src/asks.ts";
 import { boardState } from "../src/board-state.ts";
 import { DEFAULT_BOARD, loadBoardConfig } from "../src/board.ts";
-import { CONFIG, NOW, post, start, tailnet, tokenOf } from "./board-setup.ts";
+import { BOT_MACHINE, CONFIG, NOW, post, start, tailnet, tokenOf } from "./board-setup.ts";
 
 const decide = (choice: string, csrf: string) => ({ csrf, id: "vg-analytics", choice });
 
@@ -55,7 +55,7 @@ test("an ask the lead closes while the answer is on its way still answers 303", 
 });
 
 test("without board.json nobody can write and requests have no reply address", async () => {
-  expect(DEFAULT_BOARD).toEqual({ allow: [], replyTo: "", hosts: [] });
+  expect(DEFAULT_BOARD).toEqual({ allow: [], allowNodes: [], replyTo: "", hosts: [] });
   const closed = start({ config: DEFAULT_BOARD });
   expect(await tokenOf(closed.url)).toBe("");
   expect((await post(closed.url, "/request", { csrf: "", text: "x" }, tailnet())).status).toBe(403);
@@ -69,9 +69,19 @@ test("board.json is read with its allow list, reply address and extra hosts; bad
   const { home } = start();
   writeFileSync(
     join(home, "board.json"),
-    JSON.stringify({ allow: ["a@example.com", 3], replyTo: "discord:42", hosts: ["board.lan"] }),
+    JSON.stringify({
+      allow: ["a@example.com", 3],
+      allowNodes: ["100.64.0.10"],
+      replyTo: "discord:42",
+      hosts: ["board.lan"],
+    }),
   );
-  expect(loadBoardConfig(home)).toEqual({ allow: ["a@example.com"], replyTo: "discord:42", hosts: ["board.lan"] });
+  expect(loadBoardConfig(home)).toEqual({
+    allow: ["a@example.com"],
+    allowNodes: ["100.64.0.10"],
+    replyTo: "discord:42",
+    hosts: ["board.lan"],
+  });
   writeFileSync(join(home, "board.json"), JSON.stringify({ allow: "x", replyTo: "rm -rf /" }));
   expect(loadBoardConfig(home)).toEqual(DEFAULT_BOARD);
 });
@@ -94,4 +104,24 @@ test("a broken projects setting or a corrupt ask file does not take the board do
   expect(s.asks.map((a) => a.id)).toEqual(["vg-analytics"]);
   writeFileSync(join(home, "board.json"), "{not json");
   expect(boardState(store, NOW).asks).toHaveLength(1);
+});
+
+test("the operator's login from a device not on allowNodes cannot write: a bot machine gets 403 and no token", async () => {
+  const { url, sent, logs } = start();
+  const csrf = await tokenOf(url);
+  const fromBot = tailnet({ "x-forwarded-for": BOT_MACHINE });
+  const page = await (await fetch(`${url}/`, { headers: fromBot })).text();
+  expect(page).toContain("<fieldset disabled>");
+  expect(page).not.toMatch(/name="csrf" value="[0-9a-f]+"/);
+  const cases: [string, Record<string, string>][] = [
+    ["bot machine", fromBot],
+    ["no device", tailnet({ "x-forwarded-for": "" })],
+    ["chained", tailnet({ "x-forwarded-for": `${BOT_MACHINE}, 100.64.0.10` })],
+  ];
+  for (const [why, headers] of cases) {
+    expect([why, (await post(url, "/decide", decide("A", csrf), headers)).status]).toEqual([why, 403]);
+    expect([why, (await post(url, "/request", { csrf, text: "x" }, headers)).status]).toEqual([why, 403]);
+  }
+  expect(sent).toEqual([]);
+  expect(logs.every((l) => l.endsWith(" 403 node"))).toBe(true);
 });
