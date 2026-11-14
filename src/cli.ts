@@ -16,6 +16,7 @@ import { inboxList, releaseHeld, sendToShell } from "./inbox-held.ts";
 import { Refusal } from "./refusal.ts";
 import { runMigrate } from "./migrate.ts";
 import { serveDashboard } from "./serve.ts";
+import { runAsk, runBoard } from "./cli-board.ts";
 import { rotateNow } from "./lead-rotate.ts";
 import { ReplyError, reply } from "./reply.ts";
 import { refText } from "./refs.ts";
@@ -24,31 +25,11 @@ import { ConfigError as RuntimeConfigError, RuntimeChoiceError } from "./runtime
 import { parseRef } from "./runtime/types.ts";
 import type { Role } from "./store-types.ts";
 
-const COMMANDS = new Set([
-  "up",
-  "role",
-  "start",
-  "adopt",
-  "report",
-  "ready",
-  "send",
-  "inbox",
-  "duty",
-  "review",
-  "merge",
-  "done",
-  "status",
-  "loop",
-  "backlog",
-  "budget",
-  "migrate",
-  "serve",
-  "reply",
-  "agents",
-  "delegate",
-  "self-update",
-  "lead",
-]);
+const COMMANDS = new Set(
+  "up role start adopt report ready send inbox duty review merge done status loop backlog budget migrate serve reply agents delegate self-update lead ask board".split(
+    " ",
+  ),
+);
 
 /** Prints the line for a delivery that did not land now and returns the exit code: HELD 3, everything else 0. */
 function deliveryOutcome(result: SendResult | undefined, target: string): number {
@@ -188,6 +169,10 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       console.log(`SERVING ${server.url.href} home=${d.store.root} (read-only)`);
       return new Promise<number>(() => {});
     }
+    case "ask":
+      return runAsk(d, a, x);
+    case "board":
+      return runBoard(d, a);
     case "reply": {
       const address = need(x, "reply address");
       const files = a.flags.get("file") ?? [];
