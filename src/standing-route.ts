@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { failureDetail } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
 import { sendOrThrow, tellLead } from "./inbox.ts";
@@ -20,14 +22,33 @@ function dropFromInbox(d: Deps, ref: SessionRef, batch: readonly QueuedMessage[]
   }
 }
 
+/** Claims the retire of one standing-lead session: a marker named after its start, created exclusively. */
+function claimRetire(home: string, state: LeadState, reason: string): boolean {
+  mkdirSync(join(home, "leads"), { recursive: true });
+  try {
+    writeFileSync(join(home, "leads", `${state.domain}.retired-${state.startedAt}`), reason, { flag: "wx" });
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw e;
+  }
+}
+
 /**
- * Marks the standing lead stopped and hands everything queued for it to the lead, so nothing is lost. Never throws on
- * the delivery: an uncertain one is already kept in the lead's inbox. With no lead registered the messages stay in the
- * standing lead's inbox (`dori inbox list <ref>`), with one stderr line.
+ * Marks the standing lead stopped and hands everything queued for it to the lead, so nothing is lost; only the first
+ * of concurrent callers does it. `close`: its pane is still there and is closed, so a stuck agent that wakes up later
+ * cannot keep working beside the lead. Never throws on the delivery: an uncertain one is already kept in the lead's
+ * inbox. With no lead registered the messages stay in the standing lead's inbox, with one stderr line.
  */
-export async function retire(d: Deps, state: LeadState, reason: string): Promise<void> {
+export async function retire(d: Deps, state: LeadState, reason: string, opts: { close?: boolean } = {}): Promise<void> {
+  if (!claimRetire(d.store.root, state, reason)) return;
   saveLeadState(d.store.root, { ...state, stoppedAt: d.now(), stopReason: reason });
   const ref = state.sessionRef;
+  if (opts.close)
+    await d.runtimes
+      .for(ref)
+      .close(ref)
+      .catch((e: unknown) => process.stderr.write(`dori: could not close ${formatRef(ref)}: ${failureDetail(e)}\n`));
   const left = d.store.queued(ref);
   if (!d.store.roles().lead) {
     process.stderr.write(
@@ -66,7 +87,7 @@ export async function alive(d: Deps, state: LeadState): Promise<boolean> {
           ? undefined
           : `agent ${status} with a message unread for ${Math.floor((d.now() - oldest.at) / 60_000)} min`;
   if (reason === undefined) return true;
-  await retire(d, state, reason);
+  await retire(d, state, reason, { close: status !== "gone" });
   return false;
 }
 
@@ -94,7 +115,10 @@ export async function tellOwner(
   from: string,
   lead: "none" | "full" | "summary" = "none",
 ): Promise<"DELIVERED" | "QUEUED" | undefined> {
-  const owner = await ownerOf(d, key);
+  const owner = await ownerOf(d, key).catch((e: unknown) => {
+    process.stderr.write(`dori: standing lead of ${key} unknown (${failureDetail(e)}); telling the lead\n`);
+    return undefined;
+  });
   if (!owner) return tellLead(d, text, from);
   const summary = `${(text.split("\n")[0] ?? "").slice(0, 200)} (sent to standing lead ${owner.domain})`;
   let toLead: "DELIVERED" | "QUEUED" | undefined;

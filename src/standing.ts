@@ -38,6 +38,8 @@ export type LeadState = {
   domain: string;
   sessionRef: SessionRef;
   startedAt: number;
+  /** When the current trial began; a restart before its end keeps it (absent in states written before it existed). */
+  trialStartedAt?: number;
   trialEndsAt: number;
   trialAskedAt?: number;
   stoppedAt?: number;

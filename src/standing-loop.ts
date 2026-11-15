@@ -51,7 +51,7 @@ export async function routeStanding(d: Deps, run: LoopRun): Promise<void> {
   for (const def of await routingLeads(d)) {
     const state = leadState(d.store.root, def.domain);
     if (!isOn(state) || run.at < state.trialEndsAt || state.trialAskedAt !== undefined) continue;
-    const days = Math.round((run.at - state.startedAt) / DAY);
+    const days = Math.round((run.at - (state.trialStartedAt ?? state.startedAt)) / DAY);
     run.asked.push(
       `[DECIDE lead-${def.domain}] standing lead ${def.domain} trial ended after ${days} day(s): keep or stop? -> dori lead extend ${def.domain} --days ${def.trialDays} | dori lead stop ${def.domain}`,
     );

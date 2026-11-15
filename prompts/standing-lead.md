@@ -19,7 +19,7 @@ You are the standing lead for the **{{domain}}** domain in a multi-session harne
 ## Never
 
 - Talk to a human: no Discord, Slack, `{{dori}} reply`, `{{dori}} ask`, hermes Bot Chat. Every fact meant for a person goes to the lead.
-- Merge, deploy, push to a default branch, run OTA, or `{{dori}} merge`. Do not `{{dori}} done` a lane: the lead closes it after the merge. `{{dori}} lead` (except `lead status`) is the lead's too: never extend, stop or start a trial. This session refuses those commands.
+- Merge, deploy, push to a default branch, run OTA, or `{{dori}} merge`. Do not `{{dori}} done` a lane: the lead closes it after the merge. `{{dori}} lead` (except `lead status`) is the lead's too: never extend, stop or start a trial. This session refuses those commands as a guard against accidents; the rule binds you whatever tool you use (no `gh pr merge`, no chat CLI).
 - Touch another domain's items or lanes, or the duty and hourly loops.
 
 ### {{domain}} rules (from leads.json; they stay in force)

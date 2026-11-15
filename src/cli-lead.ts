@@ -77,8 +77,9 @@ export async function startStanding(d: Deps, domain: string, opts: { group?: str
   const old = leadState(d.store.root, domain);
   if (isOn(old)) throw new Refusal(`standing lead ${domain} is already running in ${refText(old.sessionRef)}`);
   const now = d.now();
-  const trialEndsAt =
-    old && old.trialAskedAt === undefined && old.trialEndsAt > now ? old.trialEndsAt : now + def.trialDays * DAY;
+  const keep = old !== undefined && old.trialAskedAt === undefined && old.trialEndsAt > now;
+  const trialEndsAt = keep ? old.trialEndsAt : now + def.trialDays * DAY;
+  const trialStartedAt = keep ? (old.trialStartedAt ?? old.startedAt) : now;
   const rt = d.runtimes.default;
   const cwd = resolve(def.cwd ?? process.cwd());
   const self = d.runtimes.selfAny(process.env);
@@ -99,7 +100,7 @@ export async function startStanding(d: Deps, domain: string, opts: { group?: str
     },
     `${d.agentCmd} --append-system-prompt ${shq(renderPrompt(d, def, trialEndsAt))} ${shq(kickoff)}`,
   );
-  const state: LeadState = { domain, sessionRef, startedAt: now, trialEndsAt };
+  const state: LeadState = { domain, sessionRef, startedAt: now, trialStartedAt, trialEndsAt };
   saveLeadState(d.store.root, state);
   return state;
 }
@@ -115,7 +116,7 @@ export async function stopStanding(d: Deps, domain: string, reason: string): Pro
 export function extendStanding(d: Deps, domain: string, days: number): LeadState {
   if (!(days > 0)) throw new Refusal("--days must be a positive number");
   const { trialAskedAt: _, ...rest } = runningState(d, domain);
-  const state = { ...rest, trialEndsAt: d.now() + days * DAY };
+  const state = { ...rest, trialStartedAt: d.now(), trialEndsAt: d.now() + days * DAY };
   saveLeadState(d.store.root, state);
   return state;
 }

@@ -1,16 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { startStanding, stopStanding } from "../src/cli-lead.ts";
 import { report, startLane } from "../src/lanes.ts";
-import { leadState, loadLeads, routingLeads } from "../src/standing.ts";
+import { DAY, leadState, loadLeads, routingLeads } from "../src/standing.ts";
 import { routeStanding } from "../src/standing-loop.ts";
-import { STUCK_MS } from "../src/standing-route.ts";
+import { retire, STUCK_MS } from "../src/standing-route.ts";
 import { emptyRun, world } from "./standing-setup.ts";
 
 describe("a standing lead that cannot read is retired", () => {
   test("its agent exited (a bare shell): the next message retires it and goes to the lead", async () => {
-    const { d, lead, brief, on } = world();
-    const { pane } = await on();
+    const { w, d, lead, brief, on } = world();
+    const { state, pane } = await on();
     await startLane(d, "vg-issue-20", brief, { group: "w1" });
     pane.status = "shell";
     await report(d, "vg-issue-20", "after the crash");
@@ -19,11 +20,12 @@ describe("a standing lead that cannot read is retired", () => {
       "[REPORT vg-issue-20] after the crash",
     ]);
     expect(leadState(d.store.root, "vibeguard")?.stopReason).toBe("agent exited");
+    expect(w.panes.has(state.sessionRef.id)).toBe(false);
   });
 
   test("blocked with a message unread for STUCK_MS: the hourly pass retires it and hands the message over", async () => {
     const { w, d, lead, brief, on } = world();
-    const { pane } = await on();
+    const { state, pane } = await on();
     await startLane(d, "vg-issue-21", brief, { group: "w1" });
     pane.status = "blocked";
     await report(d, "vg-issue-21", "waiting for you");
@@ -40,6 +42,42 @@ describe("a standing lead that cannot read is retired", () => {
     expect(lead.received[0]).toContain(
       "1 unread message(s):\n\nfrom vg-issue-21: [REPORT vg-issue-21] waiting for you",
     );
+    expect(w.panes.has(state.sessionRef.id)).toBe(false);
+  });
+
+  test("a probe that throws falls back to the lead instead of failing the lane", async () => {
+    const { w, d, lead, brief, on } = world();
+    const { state } = await on();
+    await startLane(d, "vg-issue-22", brief, { group: "w1" });
+    w.getHook.set(state.sessionRef.id, () => {
+      throw new Error("herdr socket closed");
+    });
+    await report(d, "vg-issue-22", "still arrives");
+    expect(lead.received.at(-1)).toBe("[REPORT vg-issue-22] still arrives");
+  });
+
+  test("concurrent retires of one session hand its unread messages to the lead once", async () => {
+    const { d, lead, brief, on } = world();
+    const { state, pane } = await on();
+    await startLane(d, "vg-issue-23", brief, { group: "w1" });
+    pane.status = "working";
+    await report(d, "vg-issue-23", "once");
+    await Promise.all([retire(d, state, "pane gone"), retire(d, state, "pane gone")]);
+    expect(lead.received.filter((t) => t.includes("[REPORT vg-issue-23] once"))).toHaveLength(1);
+  });
+
+  test("a restart before the trial's end keeps its start, so the trial question counts the whole trial", async () => {
+    const { w, d, on } = world();
+    await on();
+    w.clock += 3 * DAY;
+    await stopStanding(d, "vibeguard", "restart");
+    w.clock += 1;
+    const again = await startStanding(d, "vibeguard", { group: "w1" });
+    w.panes.get(again.sessionRef.id)!.status = "idle";
+    w.clock = again.trialEndsAt;
+    const run = emptyRun(w.clock);
+    await routeStanding(d, run);
+    expect(run.asked[0]).toContain("trial ended after 7 day(s)");
   });
 });
 
