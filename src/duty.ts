@@ -7,6 +7,7 @@ import { leadRotationTick } from "./lead-rotate.ts";
 import { Refusal } from "./refusal.ts";
 import { refText } from "./refs.ts";
 import { nudgeText } from "./remote.ts";
+import { tellOwner } from "./standing.ts";
 import type { SessionRef } from "./runtime/types.ts";
 import type { Lane } from "./store-types.ts";
 
@@ -77,7 +78,12 @@ export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
         lane.log.push({ at: now, kind: "lost", text: "pane disappeared without READY" });
         d.store.saveLane(lane);
         void runHook(d, "onLost", { key: lane.key, text: "pane disappeared without READY", evidence: "" });
-        await tellLead(d, `[LOST ${lane.key}] pane ${refText(lane.sessionRef)} closed without a final answer`, "duty");
+        await tellOwner(
+          d,
+          lane.key,
+          `[LOST ${lane.key}] pane ${refText(lane.sessionRef)} closed without a final answer`,
+          "duty",
+        );
         events.push({ lane: lane.key, action: "lost" });
         continue;
       }
@@ -104,11 +110,13 @@ export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
         await sendOrThrow(d, lane.key, nudgeText(d, lane.key, Math.floor(idleMin), lane.sessionRef.machine), "duty");
         events.push({ lane: lane.key, action: `nudge-${lane.nudges}` });
       } else {
-        await tellLead(
+        await tellOwner(
           d,
+          lane.key,
           `[ESCALATE ${lane.key}] idle ${Math.floor(idleMin)} min with no READY after ${lane.nudges - 1} nudges` +
             (lane.sessionRef.machine ? ` (remote lane: its ssh report command may be failing)` : ""),
           "duty",
+          "summary",
         );
         events.push({ lane: lane.key, action: "escalated" });
       }

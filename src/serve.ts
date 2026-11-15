@@ -52,6 +52,13 @@ function renderHtml(s: DashboardState): string {
     ["PR", "sha", "verdict", "at"],
     s.receipts.map((r) => [esc(r.pr), esc(r.sha.slice(0, 12)), r.verdict, time(r.at)]),
   );
+  const leads = s.leads
+    .map((l) =>
+      l.on
+        ? `${esc(l.domain)}: <span class="ok">on</span> ${esc(l.pane ?? "")} &middot; trial ${l.trialDaysLeft}d left &middot; ${l.lanes} lane(s)`
+        : `${esc(l.domain)}: <span class="none">off</span> &middot; ${l.lanes} lane(s)`,
+    )
+    .join("<br>");
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -68,6 +75,7 @@ th{background:#eee}.none{color:#888}.stopped{color:#b00}.ok{color:#070}
 <h1>dori</h1>
 <p>${esc(s.home)} &middot; ${time(s.generatedAt)} UTC &middot; refreshes every ${REFRESH_SECONDS}s &middot; <a href="/api/state">/api/state</a></p>
 <h2>Kill switches</h2><p>duty: ${stopText(s.stops.duty)}<br>loop: ${stopText(s.stops.loop)}</p>
+${leads ? `<h2>Standing leads</h2><p>${leads}</p>` : ""}
 <h2>Lanes</h2>${lanes}
 <h2>Backlog</h2>${backlog}
 <h2>Roles</h2>${roles}

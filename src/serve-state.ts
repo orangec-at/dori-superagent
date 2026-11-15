@@ -2,6 +2,7 @@ import { limitFor, loadBudgets } from "./budget.ts";
 import { inboxRefs } from "./inbox-files.ts";
 import { refText, sameSession } from "./refs.ts";
 import type { SessionRef } from "./runtime/types.ts";
+import { DAY, isOn, leadState, loadLeads, ownedLanes } from "./standing.ts";
 import type { Store } from "./store.ts";
 import type { ItemStatus, LaneStatus, Role } from "./store-types.ts";
 
@@ -28,6 +29,8 @@ export type DashboardState = {
   inboxes: { pane: string; owner: string | null; queued: number; typed: number; held: number }[];
   receipts: { pr: string; sha: string; verdict: "CLEAR" | "BLOCK"; at: number }[];
   stops: { duty: { at: number; reason: string } | null; loop: { at: number; reason: string } | null };
+  /** Standing leads from leads.json: running or not, whole trial days left (null when off), open lanes it owns. */
+  leads: { domain: string; on: boolean; pane: string | null; trialDaysLeft: number | null; lanes: number }[];
 };
 
 const LOG_LINES = 5;
@@ -76,5 +79,16 @@ export function dashboardState(store: Store, now: number): DashboardState {
     }),
     receipts: store.receipts().map((r) => ({ pr: r.pr, sha: r.sha, verdict: r.verdict, at: r.at })),
     stops: { duty: store.stop("duty") ?? null, loop: store.stop("loop") ?? null },
+    leads: loadLeads(store.root).map((def) => {
+      const s = leadState(store.root, def.domain);
+      const on = isOn(s);
+      return {
+        domain: def.domain,
+        on,
+        pane: on ? refText(s.sessionRef) : null,
+        trialDaysLeft: on ? Math.max(0, Math.ceil((s.trialEndsAt - now) / DAY)) : null,
+        lanes: ownedLanes(store, def),
+      };
+    }),
   };
 }

@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { shq } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
-import { settled, tellLead, type SendResult } from "./inbox.ts";
+import { settled, type SendResult } from "./inbox.ts";
+import { tellOwner } from "./standing.ts";
 import { Refusal } from "./refusal.ts";
 import { runHook } from "./hooks.ts";
 import { refText } from "./refs.ts";
@@ -76,7 +77,7 @@ export async function startLane(
     log: [{ at: now, kind: "start", text: briefFile }],
   };
   d.store.saveLane(lane);
-  await tellLead(d, `[START ${key}] lane opened in ${refText(ref)}`, key);
+  await tellOwner(d, key, `[START ${key}] lane opened in ${refText(ref)}`, key);
   const open = d.store.lanes().filter((l) => l.status === "working" || l.status === "waiting").length;
   d.usage.record({ name: "dori.lane_started", open_lanes: Math.min(open, 1000) });
   return lane;
@@ -103,7 +104,7 @@ export async function report(
   if (status) lane.status = status;
   d.store.saveLane(lane);
   void runHook(d, "onReport", { key, text, evidence: "" });
-  return settled(tellLead(d, `[REPORT ${key}${status === "waiting" ? " WAITING" : ""}] ${text}`, key));
+  return settled(tellOwner(d, key, `[REPORT ${key}${status === "waiting" ? " WAITING" : ""}] ${text}`, key));
 }
 
 export async function ready(
@@ -121,7 +122,7 @@ export async function ready(
   lane.lastActivityAt = now;
   lane.log.push({ at: now, kind: "ready", text });
   d.store.saveLane(lane);
-  const sent = await settled(tellLead(d, `[READY ${key}] ${text}\nevidence: ${evidence.join(" ")}`, key));
+  const sent = await settled(tellOwner(d, key, `[READY ${key}] ${text}\nevidence: ${evidence.join(" ")}`, key, "full"));
   void runHook(d, "onReady", { key, text, evidence: evidence.join(" ") });
   d.usage.record({
     name: "dori.lane_ready",

@@ -1,0 +1,15 @@
+[
+  {
+    "domain": "vibeguard",
+    "repos": ["vibeguard-run/web", "vibeguard-run/mcp", "orangec-at/vibeguard-mcp"],
+    "keyPrefixes": ["vg-issue-", "vibeguard", "fmv-"],
+    "cwds": [
+      "/home/brady/workspace/personal/vibeguard.run",
+      "/home/brady/workspace/personal/vibeguard.run-worktrees",
+      "/home/brady/workspace/vibe-hardening"
+    ],
+    "bots": ["panbungi", "endo", "yeondo"],
+    "trialDays": 7,
+    "cwd": "/home/brady/workspace/personal/vibeguard.run"
+  }
+]

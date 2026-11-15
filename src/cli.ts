@@ -17,7 +17,7 @@ import { Refusal } from "./refusal.ts";
 import { runMigrate } from "./migrate.ts";
 import { serveDashboard } from "./serve.ts";
 import { runAsk, runBoard } from "./cli-board.ts";
-import { rotateNow } from "./lead-rotate.ts";
+import { runLead } from "./cli-lead.ts";
 import { ReplyError, reply } from "./reply.ts";
 import { refText } from "./refs.ts";
 import { agentLine, agentsPath, DELEGATE_EXIT, delegate, loadAgents } from "./agents.ts";
@@ -147,12 +147,8 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
     }
     case "self-update":
       return runSelfUpdate(d, a);
-    case "lead": {
-      if (x !== "rotate" || one(a, "now") !== "true") throw new Refusal(`usage: dori lead rotate --now\n\n${USAGE}`);
-      const line = await rotateNow(d);
-      console.log(line);
-      return line.startsWith("LEAD_ROTATE_REFUSED") ? 2 : 0;
-    }
+    case "lead":
+      return runLead(d, a, x);
     case "done":
       await done(d, need(x, "lane key"));
       console.log(`DONE ${x}`);
