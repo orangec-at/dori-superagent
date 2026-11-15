@@ -15,13 +15,22 @@ import {
   leadState,
   loadLeads,
   ownedLanes,
-  retire,
   saveLeadState,
   type LeadState,
   type StandingLead,
 } from "./standing.ts";
+import { retire } from "./standing-route.ts";
 
 const day = (at: number): string => new Date(at).toISOString().slice(0, 10);
+
+/** A standing lead never merges, closes lanes or talks to a human: its session (DORI_STANDING_LEAD) is refused these. */
+const STANDING_FORBIDDEN = new Set(["merge", "done", "reply", "ask", "self-update"]);
+
+export function refuseForStanding(cmd: string | undefined, env: Record<string, string | undefined>): void {
+  const domain = env["DORI_STANDING_LEAD"];
+  if (domain && cmd !== undefined && STANDING_FORBIDDEN.has(cmd))
+    throw new Refusal(`dori ${cmd} is the lead's: standing lead ${domain} sends it up instead ([UP ${domain}] ...)`);
+}
 
 function runningState(d: Deps, domain: string): LeadState {
   leadDef(d.store.root, domain);
@@ -79,7 +88,7 @@ export async function startStanding(d: Deps, domain: string, opts: { group?: str
       role: "lane",
       container: "tab",
       cwd,
-      env: { DORI_HOME: d.store.root, DORI_LANE: `lead-${domain}` },
+      env: { DORI_HOME: d.store.root, DORI_LANE: `lead-${domain}`, DORI_STANDING_LEAD: domain },
       ...(group !== undefined ? { group } : {}),
     },
     `${d.agentCmd} --append-system-prompt ${shq(renderPrompt(d, def, trialEndsAt))} ${shq(kickoff)}`,

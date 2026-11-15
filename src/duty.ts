@@ -7,7 +7,7 @@ import { leadRotationTick } from "./lead-rotate.ts";
 import { Refusal } from "./refusal.ts";
 import { refText } from "./refs.ts";
 import { nudgeText } from "./remote.ts";
-import { tellOwner } from "./standing.ts";
+import { tellOwner } from "./standing-route.ts";
 import type { SessionRef } from "./runtime/types.ts";
 import type { Lane } from "./store-types.ts";
 

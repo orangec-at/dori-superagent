@@ -6,9 +6,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { join } from "node:path";
 import { failureDetail } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
-import { sendOrThrow, tellLead } from "./inbox.ts";
+import { tellLead } from "./inbox.ts";
 import { Refusal } from "./refusal.ts";
-import { formatRef, type SessionRef } from "./runtime/types.ts";
+import type { SessionRef } from "./runtime/types.ts";
 import type { Store } from "./store.ts";
 import { KEY_RE } from "./store-types.ts";
 
@@ -155,76 +155,3 @@ export function owns(store: Store, def: StandingLead, key: string): boolean {
 /** Open lanes of the domain, for the board and `dori lead status`. */
 export const ownedLanes = (store: Store, def: StandingLead): number =>
   store.lanes().filter((l) => l.status !== "done" && l.status !== "lost" && owns(store, def, l.key)).length;
-
-/**
- * Marks the standing lead stopped and hands everything still queued for it to the lead, so nothing is lost. With no
- * lead registered the messages stay in its inbox (`dori inbox list <ref>`), with one stderr line.
- */
-export async function retire(d: Deps, state: LeadState, reason: string): Promise<void> {
-  saveLeadState(d.store.root, { ...state, stoppedAt: d.now(), stopReason: reason });
-  const ref = state.sessionRef;
-  const left = d.store.queued(ref);
-  if (!d.store.roles().lead) {
-    process.stderr.write(
-      `dori: no lead registered; ${left.length} message(s) kept in the inbox of ${formatRef(ref)}\n`,
-    );
-    return;
-  }
-  const head = `[STANDING ${state.domain}] ${reason}; its lanes report to the lead again (dori lead start ${state.domain} to reopen)`;
-  const unread = left.map((m) => `from ${m.from}: ${m.text}`).join("\n\n");
-  try {
-    await tellLead(d, left.length ? `${head}\n\n${left.length} unread message(s):\n\n${unread}` : head, "duty");
-  } finally {
-    d.store.saveInbox(ref, []);
-  }
-}
-
-/** The running standing lead that owns `key`, or undefined. One whose pane is gone is retired here. */
-export async function ownerOf(d: Deps, key: string): Promise<{ domain: string; ref: SessionRef } | undefined> {
-  for (const def of await routingLeads(d)) {
-    const state = leadState(d.store.root, def.domain);
-    if (!isOn(state) || !owns(d.store, def, key)) continue;
-    const { status } = await d.runtimes.for(state.sessionRef).probe(state.sessionRef);
-    if (status !== "gone") return { domain: def.domain, ref: state.sessionRef };
-    await retire(d, state, "pane gone");
-  }
-  return undefined;
-}
-
-/**
- * Sends a lane's message to its standing lead when one owns the lane, else to the lead. `lead`: what the lead still
- * gets of an owned lane's message: "full" (READY: it merges) or "summary" (ESCALATE: the first line, marked as routed).
- * The lead is told first. A standing lead whose pane closed meanwhile is retired, which hands the message to the lead;
- * any other failure to reach it is the caller's (like tellLead) unless the lead already has its copy.
- */
-export async function tellOwner(
-  d: Deps,
-  key: string,
-  text: string,
-  from: string,
-  lead: "none" | "full" | "summary" = "none",
-): Promise<"DELIVERED" | "QUEUED" | undefined> {
-  const owner = await ownerOf(d, key);
-  if (!owner) return tellLead(d, text, from);
-  const summary = `${(text.split("\n")[0] ?? "").slice(0, 200)} (sent to standing lead ${owner.domain})`;
-  const toLead = lead === "none" ? undefined : await tellLead(d, lead === "full" ? text : summary, from);
-  try {
-    const sent = await sendOrThrow(d, formatRef(owner.ref), text, from);
-    return lead === "none" ? sent : toLead;
-  } catch (e) {
-    if (e instanceof Refusal) {
-      // The lead already has this one: drop it from the dead inbox so retire does not hand it over twice.
-      if (lead !== "none")
-        d.store.saveInbox(
-          owner.ref,
-          d.store.queued(owner.ref).filter((m) => m.from !== from || m.text !== text),
-        );
-      const state = leadState(d.store.root, owner.domain);
-      if (isOn(state)) await retire(d, state, "pane gone");
-      return toLead;
-    }
-    if (lead === "none") throw e;
-    process.stderr.write(`dori: standing lead ${owner.domain} did not get ${key}'s message: ${failureDetail(e)}\n`);
-    return toLead;
-  }
-}

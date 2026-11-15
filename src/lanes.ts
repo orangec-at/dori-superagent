@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { shq } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
 import { settled, type SendResult } from "./inbox.ts";
-import { tellOwner } from "./standing.ts";
+import { tellOwner } from "./standing-route.ts";
 import { Refusal } from "./refusal.ts";
 import { runHook } from "./hooks.ts";
 import { refText } from "./refs.ts";

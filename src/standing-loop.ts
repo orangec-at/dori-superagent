@@ -2,7 +2,8 @@ import { failureDetail } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
 import { sendOrThrow } from "./inbox.ts";
 import { formatRef, type SessionRef } from "./runtime/types.ts";
-import { DAY, isOn, leadState, ownerOf, routingLeads, saveLeadState } from "./standing.ts";
+import { DAY, isOn, leadState, routingLeads, saveLeadState } from "./standing.ts";
+import { ownerOf } from "./standing-route.ts";
 import type { LoopRun } from "./store-types.ts";
 
 const TRIAL_RE = /^\[DECIDE lead-([a-z][a-z0-9-]*)\]/;
@@ -17,7 +18,13 @@ export async function routeStanding(d: Deps, run: LoopRun): Promise<void> {
   const routed = new Map<string, { ref: SessionRef; lines: string[] }>();
   for (const line of run.asked) {
     const key = /\[DECIDE ([a-z][a-z0-9-]*)\]/.exec(line)?.[1];
-    const owner = key === undefined ? undefined : await ownerOf(d, key);
+    const owner =
+      key === undefined
+        ? undefined
+        : await ownerOf(d, key).catch((e: unknown) => {
+            run.findings.push(`standing lead of ${key} unknown (${failureDetail(e)}); asked the lead`);
+            return undefined;
+          });
     if (!owner) keep.push(line);
     else routed.set(owner.domain, { ref: owner.ref, lines: [...(routed.get(owner.domain)?.lines ?? []), line] });
   }

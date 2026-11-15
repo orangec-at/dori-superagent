@@ -6,7 +6,8 @@ import { main } from "../src/cli.ts";
 import { startStanding, stopStanding } from "../src/cli-lead.ts";
 import { dutyTick } from "../src/duty.ts";
 import { ready, report, startLane } from "../src/lanes.ts";
-import { DAY, leadState, tellOwner } from "../src/standing.ts";
+import { DAY, leadState } from "../src/standing.ts";
+import { tellOwner } from "../src/standing-route.ts";
 import { cli, world } from "./standing-setup.ts";
 
 describe("standing lead routing", () => {

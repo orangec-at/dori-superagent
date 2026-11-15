@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { backlogAdd } from "../src/backlog.ts";
-import { extendStanding } from "../src/cli-lead.ts";
+import { extendStanding, refuseForStanding } from "../src/cli-lead.ts";
 import { dutyTick } from "../src/duty.ts";
 import { ready, report, startLane } from "../src/lanes.ts";
 import { loopTick } from "../src/loop.ts";
 import { dashboardState } from "../src/serve-state.ts";
 import { DAY, leadState } from "../src/standing.ts";
 import { markTrialsAsked, routeStanding } from "../src/standing-loop.ts";
+import { tellOwner } from "../src/standing-route.ts";
+import { href } from "./fake.ts";
 import { emptyRun, world } from "./standing-setup.ts";
 
 const TRIAL_LINE =
@@ -122,5 +124,36 @@ describe("standing lead failures fall back to the lead", () => {
     ]);
     expect(leadState(d.store.root, "vibeguard")?.stopReason).toBe("pane gone");
     expect(d.store.queued(state.sessionRef)).toEqual([]);
+  });
+
+  test("an ESCALATE whose standing lead closes before delivery: the lead gets the summary, then the full text", async () => {
+    const { w, d, lead, brief, on } = world();
+    const { state } = await on();
+    await startLane(d, "vg-issue-13", brief, { group: "w1" });
+    w.getHook.set(state.sessionRef.id, () => w.panes.delete(state.sessionRef.id));
+    await tellOwner(d, "vg-issue-13", "[ESCALATE vg-issue-13] idle 80 min\ndetails", "duty", "summary");
+    expect(lead.received[0]).toBe("[ESCALATE vg-issue-13] idle 80 min (sent to standing lead vibeguard)");
+    expect(lead.received[1]).toContain(
+      "1 unread message(s):\n\nfrom duty: [ESCALATE vg-issue-13] idle 80 min\ndetails",
+    );
+  });
+
+  test("an uncertain lead delivery while retiring a gone pane never loses the lane's message", async () => {
+    const { w, d, brief, on } = world();
+    const { state } = await on();
+    await startLane(d, "vg-issue-12", brief, { group: "w1" });
+    w.panes.delete(state.sessionRef.id);
+    w.promptFails.set("w1:p1", "connection reset by peer");
+    expect(await report(d, "vg-issue-12", "must arrive")).toBe("HELD");
+    expect(leadState(d.store.root, "vibeguard")?.stopReason).toBe("pane gone");
+    expect(d.store.queued(href("w1:p1")).map((m) => m.text)).toContain("[REPORT vg-issue-12] must arrive");
+  });
+
+  test("a standing lead's session is refused the lead's commands", () => {
+    const env = { DORI_STANDING_LEAD: "vibeguard" };
+    for (const cmd of ["merge", "done", "reply", "ask", "self-update"])
+      expect(() => refuseForStanding(cmd, env)).toThrow(`dori ${cmd} is the lead's`);
+    expect(() => refuseForStanding("report", env)).not.toThrow();
+    expect(() => refuseForStanding("merge", {})).not.toThrow();
   });
 });

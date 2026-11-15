@@ -17,7 +17,7 @@ import { Refusal } from "./refusal.ts";
 import { runMigrate } from "./migrate.ts";
 import { serveDashboard } from "./serve.ts";
 import { runAsk, runBoard } from "./cli-board.ts";
-import { runLead } from "./cli-lead.ts";
+import { refuseForStanding, runLead } from "./cli-lead.ts";
 import { ReplyError, reply } from "./reply.ts";
 import { refText } from "./refs.ts";
 import { agentLine, agentsPath, DELEGATE_EXIT, delegate, loadAgents } from "./agents.ts";
@@ -50,6 +50,7 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
   }
   const [cmd, x] = a.pos;
   if (cmd !== undefined && COMMANDS.has(cmd)) d.usage.touch();
+  refuseForStanding(cmd, process.env);
   switch (cmd) {
     case "up":
       await up(d, resolve(one(a, "cwd") ?? process.cwd()));
