@@ -3,7 +3,6 @@ import { join, resolve } from "node:path";
 import { type Args, need, one, USAGE } from "./cli-args.ts";
 import { shq } from "./delivery.ts";
 import { prompt, type Deps } from "./harness.ts";
-import { tellLead } from "./inbox.ts";
 import { rotateNow } from "./lead-rotate.ts";
 import { Refusal } from "./refusal.ts";
 import { refText } from "./refs.ts";
@@ -16,6 +15,7 @@ import {
   leadState,
   loadLeads,
   ownedLanes,
+  retire,
   saveLeadState,
   type LeadState,
   type StandingLead,
@@ -43,6 +43,7 @@ function renderPrompt(d: Deps, def: StandingLead, trialEndsAt: number): string {
       keyPrefixes: list(def.keyPrefixes),
       cwds: list(def.cwds),
       bots: list(def.bots),
+      rules: def.rules.length ? def.rules.map((r) => `- ${r}`).join("\n") : "- (no domain rules in leads.json)",
       trialEnds: day(trialEndsAt),
     },
     d.store.root,
@@ -88,20 +89,12 @@ export async function startStanding(d: Deps, domain: string, opts: { group?: str
   return state;
 }
 
-/** Closes the session and marks it stopped; anything still queued for it goes to the lead, so nothing is lost. */
+/** Closes the session and retires it: anything still queued for it goes to the lead (see retire). */
 export async function stopStanding(d: Deps, domain: string, reason: string): Promise<void> {
   const state = runningState(d, domain);
   const rt = d.runtimes.for(state.sessionRef);
   if ((await rt.probe(state.sessionRef)).status !== "gone") await rt.close(state.sessionRef);
-  saveLeadState(d.store.root, { ...state, stoppedAt: d.now(), stopReason: reason });
-  const left = d.store.queued(state.sessionRef);
-  d.store.saveInbox(state.sessionRef, []);
-  if (left.length > 0)
-    await tellLead(
-      d,
-      `[STANDING ${domain}] stopped with ${left.length} unread message(s):\n\n${left.map((m) => `from ${m.from}: ${m.text}`).join("\n\n")}`,
-      "duty",
-    );
+  await retire(d, state, reason);
 }
 
 export function extendStanding(d: Deps, domain: string, days: number): LeadState {

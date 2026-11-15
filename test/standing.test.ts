@@ -3,30 +3,11 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { backlogAdd } from "../src/backlog.ts";
 import { main } from "../src/cli.ts";
-import { extendStanding, startStanding, stopStanding } from "../src/cli-lead.ts";
+import { startStanding, stopStanding } from "../src/cli-lead.ts";
 import { dutyTick } from "../src/duty.ts";
 import { ready, report, startLane } from "../src/lanes.ts";
-import { loopTick } from "../src/loop.ts";
-import { dashboardState } from "../src/serve-state.ts";
-import { DAY, leadState, routeStanding, tellOwner } from "../src/standing.ts";
-import type { LoopRun } from "../src/store-types.ts";
-import { setup } from "./harness-setup.ts";
-
-const LEADS = [{ domain: "vibeguard", keyPrefixes: ["vg-"], repos: ["vibeguard-run/web"], bots: ["endo"] }];
-
-function world(opts: { leads?: unknown } = {}) {
-  const s = setup();
-  writeFileSync(join(s.d.store.root, "leads.json"), JSON.stringify(opts.leads ?? LEADS));
-  const on = async () => {
-    const state = await startStanding(s.d, "vibeguard", { group: "w1" });
-    const pane = s.w.panes.get(state.sessionRef.id)!;
-    pane.status = "idle";
-    return { state, pane };
-  };
-  return { ...s, on };
-}
-
-const emptyRun = (at: number): LoopRun => ({ at, synced: [], findings: [], started: [], held: [], asked: [] });
+import { DAY, leadState, tellOwner } from "../src/standing.ts";
+import { cli, world } from "./standing-setup.ts";
 
 describe("standing lead routing", () => {
   test("on: an owned lane's START and REPORT go only to the standing lead; READY goes to both; other lanes to the lead", async () => {
@@ -81,14 +62,14 @@ describe("standing lead routing", () => {
     expect(pane.received).toEqual([]);
   });
 
-  test("a standing lead whose pane is gone is marked stopped once and its lanes report to the lead", async () => {
+  test("a standing lead whose pane is gone is retired once and its lanes report to the lead", async () => {
     const { w, d, lead, brief, on } = world();
     const { state } = await on();
     await startLane(d, "vg-issue-4", brief, { group: "w1" });
     w.panes.delete(state.sessionRef.id);
     await report(d, "vg-issue-4", "halfway");
     expect(lead.received).toEqual([
-      expect.stringContaining("[STANDING vibeguard] pane herdr:"),
+      "[STANDING vibeguard] pane gone; its lanes report to the lead again (dori lead start vibeguard to reopen)",
       "[REPORT vg-issue-4] halfway",
     ]);
     expect(leadState(d.store.root, "vibeguard")?.stopReason).toBe("pane gone");
@@ -106,6 +87,7 @@ describe("standing lead start and stop", () => {
     const rendered = readFileSync(join(d.store.root, "prompts", "standing-lead-vibeguard.md"), "utf8");
     expect(rendered).toContain("standing lead for the **vibeguard** domain");
     expect(rendered).toContain("lane keys starting with vg-");
+    expect(rendered).toContain("- Never merge a site PR before makun approves it.");
     expect(rendered).not.toMatch(/\{\{\w+\}\}/);
     expect(state.trialEndsAt - state.startedAt).toBe(7 * DAY);
     await expect(startStanding(d, "vibeguard", { group: "w1" })).rejects.toThrow("already running");
@@ -120,81 +102,35 @@ describe("standing lead start and stop", () => {
     await report(d, "vg-issue-5", "queued for the busy standing lead");
     await stopStanding(d, "vibeguard", "by hand");
     expect(w.panes.has(state.sessionRef.id)).toBe(false);
-    expect(lead.received.at(-1)).toContain("[STANDING vibeguard] stopped with 1 unread message(s)");
-    expect(lead.received.at(-1)).toContain("[REPORT vg-issue-5] queued for the busy standing lead");
+    expect(lead.received.at(-1)).toStartWith("[STANDING vibeguard] by hand;");
+    expect(lead.received.at(-1)).toContain("1 unread message(s):\n\nfrom vg-issue-5: [REPORT vg-issue-5] queued");
     expect(d.store.queued(state.sessionRef)).toEqual([]);
     await expect(stopStanding(d, "vibeguard", "again")).rejects.toThrow("is not running");
   });
 
-  test("dori lead start | status | stop on the command line", async () => {
+  test("stop with no lead registered keeps the unread messages in the standing lead's inbox", async () => {
+    const { d, brief, on } = world();
+    const { state, pane } = await on();
+    await startLane(d, "vg-issue-8", brief, { group: "w1" });
+    pane.status = "working";
+    await report(d, "vg-issue-8", "kept");
+    writeFileSync(join(d.store.root, "roles.json"), "{}\n");
+    await stopStanding(d, "vibeguard", "by hand");
+    expect(d.store.queued(state.sessionRef).map((m) => m.text)).toEqual(["[REPORT vg-issue-8] kept"]);
+  });
+
+  test("dori lead start | status | extend | stop on the command line", async () => {
     const { w, d } = world();
-    const out: string[] = [];
-    const log = console.log;
-    console.log = (line: string) => out.push(line);
-    try {
-      expect(await main(["lead", "start", "vibeguard"], d)).toBe(0);
-      expect(await main(["lead", "status"], d)).toBe(0);
-      expect(await main(["lead", "stop", "vibeguard"], d)).toBe(0);
-    } finally {
-      console.log = log;
-    }
-    expect(out[0]).toMatch(/^LEAD_STARTED vibeguard pane=w1:p\d+ trial-ends=\d{4}-\d{2}-\d{2}$/);
-    expect(out[1]).toMatch(/^vibeguard on pane=w1:p\d+ trial 7d left/);
-    expect(out[2]).toBe("LEAD_STOPPED vibeguard");
-    const started = /pane=(\S+)/.exec(out[0]!)![1]!;
-    expect(w.panes.has(started)).toBe(false);
-  });
-});
-
-describe("standing lead in the hourly loop and on the board", () => {
-  test("an owned item's DECIDE goes to the standing lead, not the lead's summary", async () => {
-    const { d, lead, brief, on } = world();
-    const { pane } = await on();
-    backlogAdd(d, "vg-issue-6", brief, { cwd: d.store.root, decision: "which plan?" });
-    backlogAdd(d, "other-1", brief, { cwd: d.store.root, decision: "which color?" });
-    await loopTick(d, { force: true });
-    expect(pane.received.at(-1)).toStartWith("[DECIDE vg-issue-6] which plan?");
-    const summary = lead.received.at(-1)!;
-    expect(summary).toContain("[DECIDE other-1] which color?");
-    expect(summary).not.toContain("[DECIDE vg-issue-6]");
-    expect(summary).toContain("1 decision(s) sent to standing lead vibeguard");
-  });
-
-  test("a trial past its end asks the lead once; extend starts a new trial", async () => {
-    const { w, d, on } = world();
-    await on();
-    w.clock += 7 * DAY - 1;
-    const early = emptyRun(w.clock);
-    await routeStanding(d, early);
-    expect(early.asked).toEqual([]);
-    w.clock += 1;
-    const due = emptyRun(w.clock);
-    await routeStanding(d, due);
-    expect(due.asked).toEqual([
-      "[DECIDE lead-vibeguard] standing lead vibeguard trial ended after 7 day(s): keep or stop? -> dori lead extend vibeguard --days 7 | dori lead stop vibeguard",
+    const run = (argv: string[]) => main(argv, d);
+    const started = await cli(run, ["lead", "start", "vibeguard"]);
+    expect(started.out[0]).toMatch(/^LEAD_STARTED vibeguard pane=w1:p\d+ trial-ends=\d{4}-\d{2}-\d{2}$/);
+    expect((await cli(run, ["lead", "status"])).out[0]).toMatch(/^vibeguard on pane=w1:p\d+ trial 7d left/);
+    await expect(run(["lead", "extend", "vibeguard", "--days", "abc"])).rejects.toThrow("--days must be a positive");
+    const extended = await cli(run, ["lead", "extend", "vibeguard", "--days", "3"]);
+    expect(extended.out).toEqual([
+      `LEAD_EXTENDED vibeguard trial-ends=${new Date(w.clock + 3 * DAY).toISOString().slice(0, 10)}`,
     ]);
-    const again = emptyRun(w.clock);
-    await routeStanding(d, again);
-    expect(again.asked).toEqual([]);
-    expect(extendStanding(d, "vibeguard", 3).trialEndsAt).toBe(w.clock + 3 * DAY);
-    expect(leadState(d.store.root, "vibeguard")?.trialAskedAt).toBeUndefined();
-  });
-
-  test("the board shows each standing lead: on or off, trial days left, lanes it owns", async () => {
-    const { w, d, brief, on } = world();
-    expect(dashboardState(d.store, w.clock).leads).toEqual([
-      { domain: "vibeguard", on: false, pane: null, trialDaysLeft: null, lanes: 0 },
-    ]);
-    const { state } = await on();
-    await startLane(d, "vg-issue-7", brief, { group: "w1" });
-    await startLane(d, "fix-login", brief, { group: "w1" });
-    expect(dashboardState(d.store, w.clock + 2 * DAY).leads).toEqual([
-      { domain: "vibeguard", on: true, pane: state.sessionRef.id, trialDaysLeft: 5, lanes: 1 },
-    ]);
-  });
-
-  test("a malformed leads.json is refused with what is wrong", async () => {
-    const { d } = world({ leads: [{ domain: "Bad Domain" }] });
-    await expect(startStanding(d, "vibeguard")).rejects.toThrow("domain must match");
+    expect((await cli(run, ["lead", "stop", "vibeguard"])).out).toEqual(["LEAD_STOPPED vibeguard"]);
+    expect(w.panes.has(/pane=(\S+)/.exec(started.out[0]!)![1]!)).toBe(false);
   });
 });

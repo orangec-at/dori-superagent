@@ -9,7 +9,7 @@ import { audit, HOUR } from "./loop-audit.ts";
 import { checkBoard } from "./loop-board.ts";
 import { acquire, holds, release } from "./loop-lock.ts";
 import { refText } from "./refs.ts";
-import { routeStanding } from "./standing.ts";
+import { markTrialsAsked, routeStanding } from "./standing-loop.ts";
 import type { LoopRun } from "./store-types.ts";
 
 export { HOUR };
@@ -214,7 +214,7 @@ export async function loopTick(d: Deps, opts: LoopOpts = {}): Promise<LoopRun> {
     };
     const record = d.store.saveRun(run);
     try {
-      await tellLead(d, summary(run), "loop");
+      if (await tellLead(d, summary(run), "loop")) markTrialsAsked(d, run);
     } catch (e) {
       run.findings.push(`report to the lead failed: ${e instanceof Error ? e.message : String(e)}`);
       d.store.saveRun(run, record);

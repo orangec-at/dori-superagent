@@ -59,6 +59,7 @@ function renderHtml(s: DashboardState): string {
         : `${esc(l.domain)}: <span class="none">off</span> &middot; ${l.lanes} lane(s)`,
     )
     .join("<br>");
+  const leadsLine = s.leadsError ? `<b class="stopped">leads.json invalid</b> ${esc(s.leadsError)}` : leads;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -75,7 +76,7 @@ th{background:#eee}.none{color:#888}.stopped{color:#b00}.ok{color:#070}
 <h1>dori</h1>
 <p>${esc(s.home)} &middot; ${time(s.generatedAt)} UTC &middot; refreshes every ${REFRESH_SECONDS}s &middot; <a href="/api/state">/api/state</a></p>
 <h2>Kill switches</h2><p>duty: ${stopText(s.stops.duty)}<br>loop: ${stopText(s.stops.loop)}</p>
-${leads ? `<h2>Standing leads</h2><p>${leads}</p>` : ""}
+${leadsLine ? `<h2>Standing leads</h2><p>${leadsLine}</p>` : ""}
 <h2>Lanes</h2>${lanes}
 <h2>Backlog</h2>${backlog}
 <h2>Roles</h2>${roles}

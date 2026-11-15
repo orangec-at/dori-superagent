@@ -1,22 +1,24 @@
-// Standing leads: one long-lived session per domain (#vg-lead trial) that owns that domain's backlog items and lanes.
-// The lead stays the only session that talks to the human and merges; lane messages of an owned lane go to the
-// standing lead, and the lead gets only READY and an ESCALATE summary. A standing lead that is off (never started,
-// stopped, or its pane gone) owns nothing, so every message goes to the lead as before.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+// Standing leads: one long-lived session per domain that owns that domain's backlog items and lanes. The lead stays the
+// only session that talks to the human and merges; lane messages of an owned lane go to the standing lead, and the
+// lead gets only READY and an ESCALATE summary. A standing lead that is off (never started, stopped, its pane gone, or
+// leads.json unreadable) owns nothing, so every message goes to the lead as before.
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { failureDetail } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
 import { sendOrThrow, tellLead } from "./inbox.ts";
 import { Refusal } from "./refusal.ts";
 import { formatRef, type SessionRef } from "./runtime/types.ts";
 import type { Store } from "./store.ts";
-import { KEY_RE, type LoopRun } from "./store-types.ts";
+import { KEY_RE } from "./store-types.ts";
 
 export const DAY = 86_400_000;
 
 /**
  * One entry of `DORI_HOME/leads.json`. A lane or backlog item belongs to the domain when its key starts with one of
  * `keyPrefixes`, its item's `source` is an issue of one of `repos`, or its cwd is one of `cwds` or below it. `bots`:
- * the agents (agents.json names) it may hand work to. `cwd`: where its session opens.
+ * the agents (agents.json names) it may hand work to. `rules`: the domain's own prohibitions, added to its prompt.
+ * `cwd`: where its session opens.
  */
 export type StandingLead = {
   readonly domain: string;
@@ -24,6 +26,7 @@ export type StandingLead = {
   readonly keyPrefixes: readonly string[];
   readonly cwds: readonly string[];
   readonly bots: readonly string[];
+  readonly rules: readonly string[];
   readonly trialDays: number;
   readonly cwd?: string;
 };
@@ -41,6 +44,7 @@ export type LeadState = {
 
 export const leadsPath = (home: string): string => join(home, "leads.json");
 const statePath = (home: string, domain: string): string => join(home, "leads", `${domain}.json`);
+const invalidMarker = (home: string): string => join(home, "leads", "invalid.txt");
 
 const strings = (v: unknown, what: string): string[] => {
   if (v === undefined) return [];
@@ -74,10 +78,34 @@ export function loadLeads(home: string): StandingLead[] {
       keyPrefixes: strings(e["keyPrefixes"], `${at}: keyPrefixes`),
       cwds: strings(e["cwds"], `${at}: cwds`),
       bots: strings(e["bots"], `${at}: bots`),
+      rules: strings(e["rules"], `${at}: rules`),
       trialDays,
       ...(typeof e["cwd"] === "string" ? { cwd: e["cwd"] } : {}),
     };
   });
+}
+
+/**
+ * loadLeads for the message paths: a malformed leads.json means no standing lead, so lanes, duty and the hourly loop
+ * keep working, and the lead is told once per distinct error. Only `dori lead` refuses it.
+ */
+export async function routingLeads(d: Deps): Promise<StandingLead[]> {
+  const marker = invalidMarker(d.store.root);
+  try {
+    const leads = loadLeads(d.store.root);
+    if (existsSync(marker)) rmSync(marker, { force: true });
+    return leads;
+  } catch (e) {
+    if (!(e instanceof Refusal)) throw e;
+    if (existsSync(marker) && readFileSync(marker, "utf8") === e.message) return [];
+    mkdirSync(join(d.store.root, "leads"), { recursive: true });
+    writeFileSync(marker, e.message);
+    await tellLead(d, `[STANDING] ${e.message}; every lane reports to the lead until it is fixed`, "duty").catch(
+      (err: unknown) =>
+        process.stderr.write(`dori: could not tell the lead leads.json is invalid: ${failureDetail(err)}\n`),
+    );
+    return [];
+  }
 }
 
 export function leadDef(home: string, domain: string): StandingLead {
@@ -90,9 +118,16 @@ export function leadDef(home: string, domain: string): StandingLead {
   return def;
 }
 
+/** The domain's state, or undefined when there is none; an unreadable file reads as off, with one stderr line. */
 export function leadState(home: string, domain: string): LeadState | undefined {
   const path = statePath(home, domain);
-  return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as LeadState) : undefined;
+  if (!existsSync(path)) return undefined;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as LeadState;
+  } catch (e) {
+    process.stderr.write(`dori: ${path} is unreadable (${failureDetail(e)}); standing lead ${domain} counts as off\n`);
+    return undefined;
+  }
 }
 
 export function saveLeadState(home: string, state: LeadState): void {
@@ -122,21 +157,36 @@ export const ownedLanes = (store: Store, def: StandingLead): number =>
   store.lanes().filter((l) => l.status !== "done" && l.status !== "lost" && owns(store, def, l.key)).length;
 
 /**
- * The running standing lead that owns `key`, or undefined. A lead whose pane is gone is marked stopped here, and the
- * lead is told once, so routing falls back to the lead from then on.
+ * Marks the standing lead stopped and hands everything still queued for it to the lead, so nothing is lost. With no
+ * lead registered the messages stay in its inbox (`dori inbox list <ref>`), with one stderr line.
  */
+export async function retire(d: Deps, state: LeadState, reason: string): Promise<void> {
+  saveLeadState(d.store.root, { ...state, stoppedAt: d.now(), stopReason: reason });
+  const ref = state.sessionRef;
+  const left = d.store.queued(ref);
+  if (!d.store.roles().lead) {
+    process.stderr.write(
+      `dori: no lead registered; ${left.length} message(s) kept in the inbox of ${formatRef(ref)}\n`,
+    );
+    return;
+  }
+  const head = `[STANDING ${state.domain}] ${reason}; its lanes report to the lead again (dori lead start ${state.domain} to reopen)`;
+  const unread = left.map((m) => `from ${m.from}: ${m.text}`).join("\n\n");
+  try {
+    await tellLead(d, left.length ? `${head}\n\n${left.length} unread message(s):\n\n${unread}` : head, "duty");
+  } finally {
+    d.store.saveInbox(ref, []);
+  }
+}
+
+/** The running standing lead that owns `key`, or undefined. One whose pane is gone is retired here. */
 export async function ownerOf(d: Deps, key: string): Promise<{ domain: string; ref: SessionRef } | undefined> {
-  for (const def of loadLeads(d.store.root)) {
+  for (const def of await routingLeads(d)) {
     const state = leadState(d.store.root, def.domain);
     if (!isOn(state) || !owns(d.store, def, key)) continue;
     const { status } = await d.runtimes.for(state.sessionRef).probe(state.sessionRef);
     if (status !== "gone") return { domain: def.domain, ref: state.sessionRef };
-    saveLeadState(d.store.root, { ...state, stoppedAt: d.now(), stopReason: "pane gone" });
-    await tellLead(
-      d,
-      `[STANDING ${def.domain}] pane ${formatRef(state.sessionRef)} is gone; its lanes report to the lead again (dori lead start ${def.domain} to reopen)`,
-      "duty",
-    );
+    await retire(d, state, "pane gone");
   }
   return undefined;
 }
@@ -144,7 +194,8 @@ export async function ownerOf(d: Deps, key: string): Promise<{ domain: string; r
 /**
  * Sends a lane's message to its standing lead when one owns the lane, else to the lead. `lead`: what the lead still
  * gets of an owned lane's message: "full" (READY: it merges) or "summary" (ESCALATE: the first line, marked as routed).
- * The lead is told first, so a failed standing-lead delivery never costs the lead its copy.
+ * The lead is told first. A standing lead whose pane closed meanwhile is retired, which hands the message to the lead;
+ * any other failure to reach it is the caller's (like tellLead) unless the lead already has its copy.
  */
 export async function tellOwner(
   d: Deps,
@@ -157,41 +208,23 @@ export async function tellOwner(
   if (!owner) return tellLead(d, text, from);
   const summary = `${(text.split("\n")[0] ?? "").slice(0, 200)} (sent to standing lead ${owner.domain})`;
   const toLead = lead === "none" ? undefined : await tellLead(d, lead === "full" ? text : summary, from);
-  const sent = await sendOrThrow(d, formatRef(owner.ref), text, from);
-  return lead === "none" ? sent : toLead;
-}
-
-/**
- * The hourly pass's standing-lead part: the [DECIDE] lines of owned items go to their standing lead instead of the
- * lead's summary (a failed delivery keeps them in it), and a trial past its end asks the lead to keep or stop it, once.
- */
-export async function routeStanding(d: Deps, run: LoopRun): Promise<void> {
-  const keep: string[] = [];
-  const routed = new Map<string, { ref: SessionRef; lines: string[] }>();
-  for (const line of run.asked) {
-    const key = /\[DECIDE ([a-z][a-z0-9-]*)\]/.exec(line)?.[1];
-    const owner = key === undefined ? undefined : await ownerOf(d, key);
-    if (!owner) keep.push(line);
-    else routed.set(owner.domain, { ref: owner.ref, lines: [...(routed.get(owner.domain)?.lines ?? []), line] });
-  }
-  for (const [domain, { ref, lines }] of routed) {
-    try {
-      await sendOrThrow(d, formatRef(ref), lines.join("\n"), "loop");
-      run.findings.push(`${lines.length} decision(s) sent to standing lead ${domain}`);
-    } catch (e) {
-      keep.push(...lines);
-      run.findings.push(`standing lead ${domain} unreachable (${e instanceof Error ? e.message : String(e)})`);
+  try {
+    const sent = await sendOrThrow(d, formatRef(owner.ref), text, from);
+    return lead === "none" ? sent : toLead;
+  } catch (e) {
+    if (e instanceof Refusal) {
+      // The lead already has this one: drop it from the dead inbox so retire does not hand it over twice.
+      if (lead !== "none")
+        d.store.saveInbox(
+          owner.ref,
+          d.store.queued(owner.ref).filter((m) => m.from !== from || m.text !== text),
+        );
+      const state = leadState(d.store.root, owner.domain);
+      if (isOn(state)) await retire(d, state, "pane gone");
+      return toLead;
     }
-  }
-  run.asked = keep;
-  const now = d.now();
-  for (const def of loadLeads(d.store.root)) {
-    const state = leadState(d.store.root, def.domain);
-    if (!isOn(state) || now < state.trialEndsAt || state.trialAskedAt !== undefined) continue;
-    saveLeadState(d.store.root, { ...state, trialAskedAt: now });
-    const days = Math.round((now - state.startedAt) / DAY);
-    run.asked.push(
-      `[DECIDE lead-${def.domain}] standing lead ${def.domain} trial ended after ${days} day(s): keep or stop? -> dori lead extend ${def.domain} --days ${def.trialDays} | dori lead stop ${def.domain}`,
-    );
+    if (lead === "none") throw e;
+    process.stderr.write(`dori: standing lead ${owner.domain} did not get ${key}'s message: ${failureDetail(e)}\n`);
+    return toLead;
   }
 }
