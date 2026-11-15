@@ -3,7 +3,7 @@ import type { Deps } from "./harness.ts";
 import { sendOrThrow } from "./inbox.ts";
 import { formatRef, type SessionRef } from "./runtime/types.ts";
 import { DAY, isOn, leadState, routingLeads, saveLeadState } from "./standing.ts";
-import { ownerOf } from "./standing-route.ts";
+import { alive, ownerOf } from "./standing-route.ts";
 import type { LoopRun } from "./store-types.ts";
 
 const TRIAL_RE = /^\[DECIDE lead-([a-z][a-z0-9-]*)\]/;
@@ -14,6 +14,16 @@ const TRIAL_RE = /^\[DECIDE lead-([a-z][a-z0-9-]*)\]/;
  * That line is asked until markTrialsAsked records it, after the summary reached the lead.
  */
 export async function routeStanding(d: Deps, run: LoopRun): Promise<void> {
+  for (const def of await routingLeads(d)) {
+    const state = leadState(d.store.root, def.domain);
+    if (!isOn(state)) continue;
+    try {
+      if (!(await alive(d, state)))
+        run.findings.push(`standing lead ${def.domain} retired: ${leadState(d.store.root, def.domain)?.stopReason}`);
+    } catch (e) {
+      run.findings.push(`standing lead ${def.domain} could not be checked: ${failureDetail(e)}`);
+    }
+  }
   const keep: string[] = [];
   const routed = new Map<string, { ref: SessionRef; lines: string[] }>();
   for (const line of run.asked) {

@@ -46,14 +46,36 @@ export async function retire(d: Deps, state: LeadState, reason: string): Promise
   }
 }
 
-/** The running standing lead that owns `key`, or undefined. One whose pane is gone is retired here. */
+/** A standing lead with unread messages this old and an agent that cannot read them is retired. */
+export const STUCK_MS = 30 * 60_000;
+
+/**
+ * True when the standing lead can read its inbox. Retired otherwise: its pane is gone, its agent exited (a bare
+ * shell), or it has been blocked, errored or unknown with a message unread for STUCK_MS.
+ */
+export async function alive(d: Deps, state: LeadState): Promise<boolean> {
+  const { status } = await d.runtimes.for(state.sessionRef).probe(state.sessionRef, { omoWithoutAgent: true });
+  const oldest = d.store.queued(state.sessionRef)[0];
+  const stuck = oldest !== undefined && d.now() - oldest.at >= STUCK_MS;
+  const reason =
+    status === "gone"
+      ? "pane gone"
+      : status === "shell"
+        ? "agent exited"
+        : ["idle", "working", "done"].includes(status) || !stuck
+          ? undefined
+          : `agent ${status} with a message unread for ${Math.floor((d.now() - oldest.at) / 60_000)} min`;
+  if (reason === undefined) return true;
+  await retire(d, state, reason);
+  return false;
+}
+
+/** The running standing lead that owns `key`, or undefined; one that cannot read is retired here (see alive). */
 export async function ownerOf(d: Deps, key: string): Promise<{ domain: string; ref: SessionRef } | undefined> {
   for (const def of await routingLeads(d)) {
     const state = leadState(d.store.root, def.domain);
     if (!isOn(state) || !owns(d.store, def, key)) continue;
-    const { status } = await d.runtimes.for(state.sessionRef).probe(state.sessionRef);
-    if (status !== "gone") return { domain: def.domain, ref: state.sessionRef };
-    await retire(d, state, "pane gone");
+    if (await alive(d, state)) return { domain: def.domain, ref: state.sessionRef };
   }
   return undefined;
 }
@@ -99,11 +121,11 @@ export async function tellOwner(
     }
     const state = leadState(d.store.root, owner.domain);
     const mine = d.store.queued(owner.ref).filter((m) => m.from === from && m.text === text);
-    // retire hands the dead inbox to the lead: this message goes with it unless the lead already has it in full or
-    // another caller retired the lead first (then it is handed over here).
+    // The lead already has a READY in full; any other message goes to it once: in retire's batch, or here when another
+    // caller retired the standing lead after this message was queued (it is still in the dead inbox then).
     if (lead === "full" || !isOn(state)) dropFromInbox(d, owner.ref, mine);
     if (isOn(state)) await retire(d, state, "pane gone");
-    else if (lead !== "full") return done(await tellLead(d, text, from));
+    else if (lead !== "full" && mine.length > 0) return done(await tellLead(d, text, from));
     return done(undefined);
   }
 }

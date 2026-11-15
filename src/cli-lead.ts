@@ -23,13 +23,19 @@ import { retire } from "./standing-route.ts";
 
 const day = (at: number): string => new Date(at).toISOString().slice(0, 10);
 
-/** A standing lead never merges, closes lanes or talks to a human: its session (DORI_STANDING_LEAD) is refused these. */
-const STANDING_FORBIDDEN = new Set(["merge", "done", "reply", "ask", "self-update"]);
+/**
+ * A standing lead never merges, closes lanes, talks to a human or runs its own trial: its session (DORI_STANDING_LEAD)
+ * is refused these. `dori lead status` stays allowed.
+ */
+const STANDING_FORBIDDEN = new Set(["merge", "done", "reply", "ask", "self-update", "lead"]);
 
-export function refuseForStanding(cmd: string | undefined, env: Record<string, string | undefined>): void {
+export function refuseForStanding(pos: readonly string[], env: Record<string, string | undefined>): void {
+  const [cmd, sub] = pos;
   const domain = env["DORI_STANDING_LEAD"];
-  if (domain && cmd !== undefined && STANDING_FORBIDDEN.has(cmd))
-    throw new Refusal(`dori ${cmd} is the lead's: standing lead ${domain} sends it up instead ([UP ${domain}] ...)`);
+  if (!domain || cmd === undefined || !STANDING_FORBIDDEN.has(cmd) || (cmd === "lead" && sub === "status")) return;
+  throw new Refusal(
+    `dori ${cmd}${cmd === "lead" ? ` ${sub ?? ""}` : ""} is the lead's: standing lead ${domain} sends it up instead ([UP ${domain}] ...)`,
+  );
 }
 
 function runningState(d: Deps, domain: string): LeadState {

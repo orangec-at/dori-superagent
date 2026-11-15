@@ -1,18 +1,14 @@
 [
   {
     "domain": "vibeguard",
-    "repos": ["vibeguard-run/web", "vibeguard-run/mcp", "orangec-at/vibeguard-mcp"],
+    "repos": ["vibeguard-run/web", "vibeguard-run/mcp"],
     "keyPrefixes": ["vg-issue-", "vibeguard", "fmv-"],
-    "cwds": [
-      "/home/brady/workspace/personal/vibeguard.run",
-      "/home/brady/workspace/personal/vibeguard.run-worktrees",
-      "/home/brady/workspace/vibe-hardening"
-    ],
+    "cwds": ["~/workspace/vibeguard.run", "~/workspace/vibeguard.run-worktrees"],
     "bots": ["panbungi", "endo", "yeondo"],
     "rules": [
-      "Never merge a vibeguard site PR, or ask the lead to, before endo has reviewed it and makun has approved it in the #fmv thread 1569971812354359407; put \"needs makun approval in #fmv 1569971812354359407\" on its MERGE line."
+      "Never merge a vibeguard site PR, or ask the lead to, before endo has reviewed it and the site owner has approved it in the #fmv approval thread <thread-id>; put \"needs site-owner approval in #fmv <thread-id>\" on its MERGE line."
     ],
     "trialDays": 7,
-    "cwd": "/home/brady/workspace/personal/vibeguard.run"
+    "cwd": "~/workspace/vibeguard.run"
   }
 ]

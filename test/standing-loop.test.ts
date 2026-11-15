@@ -152,8 +152,11 @@ describe("standing lead failures fall back to the lead", () => {
   test("a standing lead's session is refused the lead's commands", () => {
     const env = { DORI_STANDING_LEAD: "vibeguard" };
     for (const cmd of ["merge", "done", "reply", "ask", "self-update"])
-      expect(() => refuseForStanding(cmd, env)).toThrow(`dori ${cmd} is the lead's`);
-    expect(() => refuseForStanding("report", env)).not.toThrow();
-    expect(() => refuseForStanding("merge", {})).not.toThrow();
+      expect(() => refuseForStanding([cmd], env)).toThrow(`dori ${cmd} is the lead's`);
+    for (const sub of ["extend", "stop", "start", "rotate"])
+      expect(() => refuseForStanding(["lead", sub, "vibeguard"], env)).toThrow(`dori lead ${sub} is the lead's`);
+    expect(() => refuseForStanding(["lead", "status"], env)).not.toThrow();
+    expect(() => refuseForStanding(["report", "vg-1"], env)).not.toThrow();
+    expect(() => refuseForStanding(["merge"], {})).not.toThrow();
   });
 });

@@ -2,7 +2,9 @@
 // only session that talks to the human and merges; lane messages of an owned lane go to the standing lead, and the
 // lead gets only READY and an ESCALATE summary. A standing lead that is off (never started, stopped, its pane gone, or
 // leads.json unreadable) owns nothing, so every message goes to the lead as before.
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { failureDetail } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
@@ -44,7 +46,7 @@ export type LeadState = {
 
 export const leadsPath = (home: string): string => join(home, "leads.json");
 const statePath = (home: string, domain: string): string => join(home, "leads", `${domain}.json`);
-const invalidMarker = (home: string): string => join(home, "leads", "invalid.txt");
+const tilde = (p: string): string => (p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
 
 const strings = (v: unknown, what: string): string[] => {
   if (v === undefined) return [];
@@ -76,11 +78,11 @@ export function loadLeads(home: string): StandingLead[] {
       domain: e["domain"],
       repos: strings(e["repos"], `${at}: repos`),
       keyPrefixes: strings(e["keyPrefixes"], `${at}: keyPrefixes`),
-      cwds: strings(e["cwds"], `${at}: cwds`),
+      cwds: strings(e["cwds"], `${at}: cwds`).map(tilde),
       bots: strings(e["bots"], `${at}: bots`),
       rules: strings(e["rules"], `${at}: rules`),
       trialDays,
-      ...(typeof e["cwd"] === "string" ? { cwd: e["cwd"] } : {}),
+      ...(typeof e["cwd"] === "string" ? { cwd: tilde(e["cwd"]) } : {}),
     };
   });
 }
@@ -90,16 +92,23 @@ export function loadLeads(home: string): StandingLead[] {
  * keep working, and the lead is told once per distinct error. Only `dori lead` refuses it.
  */
 export async function routingLeads(d: Deps): Promise<StandingLead[]> {
-  const marker = invalidMarker(d.store.root);
+  const dir = join(d.store.root, "leads");
   try {
     const leads = loadLeads(d.store.root);
-    if (existsSync(marker)) rmSync(marker, { force: true });
+    if (existsSync(dir))
+      for (const f of readdirSync(dir)) if (f.startsWith("invalid-")) rmSync(join(dir, f), { force: true });
     return leads;
   } catch (e) {
     if (!(e instanceof Refusal)) throw e;
-    if (existsSync(marker) && readFileSync(marker, "utf8") === e.message) return [];
-    mkdirSync(join(d.store.root, "leads"), { recursive: true });
-    writeFileSync(marker, e.message);
+    mkdirSync(dir, { recursive: true });
+    // One marker per distinct error, created exclusively: concurrent processes warn the lead once between them.
+    const marker = join(dir, `invalid-${createHash("sha256").update(e.message).digest("hex").slice(0, 12)}.txt`);
+    try {
+      writeFileSync(marker, e.message, { flag: "wx" });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") return [];
+      throw err;
+    }
     await tellLead(d, `[STANDING] ${e.message}; every lane reports to the lead until it is fixed`, "duty").catch(
       (err: unknown) =>
         process.stderr.write(`dori: could not tell the lead leads.json is invalid: ${failureDetail(err)}\n`),

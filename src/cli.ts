@@ -50,7 +50,7 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
   }
   const [cmd, x] = a.pos;
   if (cmd !== undefined && COMMANDS.has(cmd)) d.usage.touch();
-  refuseForStanding(cmd, process.env);
+  refuseForStanding(a.pos, process.env);
   switch (cmd) {
     case "up":
       await up(d, resolve(one(a, "cwd") ?? process.cwd()));
