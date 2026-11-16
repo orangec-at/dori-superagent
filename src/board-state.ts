@@ -133,14 +133,27 @@ export function boardState(store: Store, now: number): BoardState {
     if (!repoHome.has(r)) repoHome.set(r, projectOf({ key: "", cwd: "", repos: [r] }));
     return repoHome.get(r)!;
   };
-  /** A PR in a repo of another project that is on the board (a seed or where some work sits) is that project's. */
+  /** A repo of another project that is on the board (a seed or where some work sits): not this project's repo. */
   const foreign = (repo: string, name: string): boolean => {
     const h = homeOf(repo);
     return h !== name && h !== OTHER && places.has(h);
   };
+  const shownLanes = lanes.filter((l) => l.status !== "done" || now - l.lastActivityAt < WEEK_MS);
+  const nameOf = new Map(shownLanes.map((l) => [l.key, projectOf(laneSubject(l))]));
+  const prId = (p: Pr): string => `${p.repo?.toLowerCase()}#${p.num}`;
+  /** The PRs each project's shown lanes name. */
+  const cited = new Map<string, Set<string>>();
+  for (const l of shownLanes)
+    for (const p of lanePrs(l)) {
+      const n = nameOf.get(l.key)!;
+      cited.set(n, (cited.get(n) ?? new Set()).add(prId(p)));
+    }
+  /** A PR in another project's repo that a lane of that project also names shows there only (yogaday.love#87). */
+  const elsewhere = (p: Pr, name: string): boolean =>
+    p.repo !== null && foreign(p.repo, name) && (cited.get(homeOf(p.repo))?.has(prId(p)) ?? false);
   const attention: ProjectLane[] = [];
   for (const l of lanes) {
-    const name = projectOf(laneSubject(l));
+    const name = nameOf.get(l.key) ?? projectOf(laneSubject(l));
     const entry = l.log.at(-1);
     const latest = entry?.kind === "start" || entry?.kind === "adopt" ? "시작함" : entry?.text;
     const last = l.status === "ready" || l.status === "done" ? (l.final?.text ?? latest) : latest;
@@ -150,15 +163,17 @@ export function boardState(store: Store, now: number): BoardState {
       at: l.lastActivityAt,
       first: firstLine(last ?? ""),
       full: last ?? "",
-      // A PR in another project's repo (a dori lane citing yogaday.love#87) is that project's, not this one's.
-      prs: lanePrs(l).filter((p) => !p.repo || !foreign(p.repo, name)),
+      prs: lanePrs(l).filter((p) => !elsewhere(p, name)),
       escalated: l.status === "working" && l.nudges >= NUDGE_MINUTES.length,
     };
     if (l.status === "done" && now - l.lastActivityAt >= WEEK_MS) continue;
     const g = group(name);
     g.at = Math.max(g.at, l.lastActivityAt);
     g.events.push(...laneEvents(l, now));
-    for (const p of pl.prs) if (p.repo && !g.repos.includes(p.repo.toLowerCase())) g.repos.push(p.repo.toLowerCase());
+    for (const p of pl.prs) {
+      const r = p.repo?.toLowerCase();
+      if (r && !foreign(r, name) && !g.repos.includes(r)) g.repos.push(r);
+    }
     if (l.status === "done") {
       g.recent.push(pl);
       if (now - l.lastActivityAt < DAY_MS) g.done.push(pl);

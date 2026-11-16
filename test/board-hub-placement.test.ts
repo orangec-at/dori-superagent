@@ -37,12 +37,13 @@ test("a talk row in the timeline links to its Discord channel", () => {
   expect(html).not.toContain('<span class="tx" title="마쿤');
 });
 
-test("a PR in another project's repo stays with that project, not the lane's; a repo of no project stays", () => {
+test("a PR another project's lane also names shows there only; no PR is lost, and only own repos are listed", () => {
   const store = coupas();
   const yd = "https://github.com/orangec-at/yogaday.love/pull/87";
   const lib = "https://github.com/orangec-at/shared-lib/pull/4";
+  const lone = "https://github.com/orangec-at/yogaday.love/pull/90";
   store.saveLane(
-    lane("coupas-growth", "done", NOW - DAY, [{ at: NOW - DAY, kind: "done", text: `참고 ${yd} ${lib}` }]),
+    lane("coupas-growth", "done", NOW - DAY, [{ at: NOW - DAY, kind: "done", text: `참고 ${yd} ${lib} ${lone}` }]),
   );
   store.saveLane({
     ...lane("yd-info", "done", NOW - DAY, [{ at: NOW - DAY, kind: "done", text: `안내 페이지 ${yd}` }]),
@@ -53,11 +54,13 @@ test("a PR in another project's repo stays with that project, not the lane's; a 
   expect(c.repos).toEqual(["orangec-at/coupas", "orangec-at/shared-lib"]);
   expect(c.recent.find((l) => l.key === "coupas-growth")!.prs.map((p) => `${p.repo}#${p.num}`)).toEqual([
     "orangec-at/shared-lib#4",
+    "orangec-at/yogaday.love#90",
   ]);
-  // Only the lane's own report still quotes the URL; the PR list and the repo links do not carry it.
+  // #87 is yd-info's, so only the lane's own report quotes it; #90 no yogaday lane names, so it stays here.
   const html = page(store);
   expect(html).not.toContain('href="https://github.com/orangec-at/yogaday.love"');
-  expect(html).not.toMatch(/<li><span class="st [^"]+">[^<]+<\/span><a class="pr" href="[^"]+yogaday\.love/);
+  expect(html).not.toMatch(/<li><span class="st [^"]+">[^<]+<\/span><a class="pr" href="[^"]+yogaday\.love\/pull\/87"/);
+  expect(html).toMatch(/<li><span class="st [^"]+">[^<]+<\/span><a class="pr" href="[^"]+yogaday\.love\/pull\/90"/);
   const y = s.projects.find((g) => g.name === "yogaday")!;
   expect(y.repos).toEqual(["orangec-at/yogaday.love"]);
   expect(y.recent[0]!.prs.map((p) => p.num)).toEqual([87]);

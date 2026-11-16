@@ -53,9 +53,10 @@ Below the card: the open lanes, the PRs, **진행 흐름 · 7일** (lane starts,
 additions, PRs merged and the project's Discord talk of the last week, oldest first, one icon per kind; a talk row
 opens its channel), the backlog, missions and the week's finished lanes. PRs show their state (`열림`, `병합`, `닫힘`;
 `확인 전` before the first collection); open ones, ones merged this week and unread ones of an open lane are listed,
-the rest fold under `지난 PR n개`. A PR in a repo that belongs to another project on the board (a seed, or where some
-lane or item sits; a dori-superagent lane citing `orangec-at/yogaday.love#87`) is left out of this project's PRs and
-repos and shows under its own project; a PR in a repo of no project stays with the lane.
+the rest fold under `지난 PR n개`. A repo that belongs to another project on the board (a seed, or where some lane or
+item sits) is not listed among this project's repos. A PR in such a repo that a lane of that project also names (a
+dori-superagent lane citing yogaday's `orangec-at/yogaday.love#87`) shows under that project only; one no lane there
+names stays with the lane that names it, so no PR drops off the board.
 
 ### PR states and metrics are cached
 
