@@ -1,14 +1,13 @@
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { extname, isAbsolute, join } from "node:path";
+import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { type Agent, loadAgents } from "./agents.ts";
 import type { Exec } from "./runtime/exec.ts";
 
 /**
- * Bot pictures on the board. The board shows agents.json `avatar` (a path: absolute, `~/…` or relative to DORI_HOME),
- * else DORI_HOME/avatars/<name>.<png|jpg|jpeg|webp>; `lead` is the lead's own picture. Without one a row keeps its
- * letter circle. `dori agents avatars` fills DORI_HOME/avatars: the bot's Discord account picture, else its hermes
- * profile's assets/avatar.png.
+ * Bot pictures on the board. The board shows agents.json `avatar` (a path inside DORI_HOME, relative to it or absolute),
+ * else DORI_HOME/avatars/<name>.<png|jpg|jpeg|webp>; `lead` is the lead's own picture. A file that resolves outside
+ * DORI_HOME (`..`, a symlink out) is never served. Without one a row keeps its letter circle. `dori agents avatars`
+ * fills DORI_HOME/avatars: the bot's Discord account picture, else its hermes profile's assets/avatar.png.
  */
 
 const TYPES: Record<string, string> = {
@@ -21,20 +20,24 @@ const MAX_BYTES = 2 * 1024 * 1024;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const dir = (home: string): string => join(home, "avatars");
-const resolved = (home: string, p: string): string =>
-  p.startsWith("~/") ? join(homedir(), p.slice(2)) : isAbsolute(p) ? p : join(home, p);
+/** The real path of an existing file is inside `realHome` (DORI_HOME's real path); `..foo.png` is a name inside. */
+const inHome = (realHome: string, file: string): boolean => {
+  const rel = relative(realHome, realpathSync(file));
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+};
 
 /** The picture file of a bot (or `lead`), or null: only an existing image file under 2 MB counts. */
 export function avatarFile(home: string, name: string, agents: Agent[]): string | null {
   if (!NAME.test(name)) return null;
   const given = agents.find((a) => a.name === name)?.avatar;
   const candidates = [
-    ...(given ? [resolved(home, given)] : []),
+    ...(given ? [resolve(home, given)] : []),
     ...Object.keys(TYPES).map((ext) => join(dir(home), `${name}${ext}`)),
   ];
+  const realHome = realpathSync(home);
   return (
     candidates.find((p) => {
-      if (!TYPES[extname(p).toLowerCase()] || !existsSync(p)) return false;
+      if (!TYPES[extname(p).toLowerCase()] || !existsSync(p) || !inHome(realHome, p)) return false;
       const st = statSync(p);
       return st.isFile() && st.size > 0 && st.size <= MAX_BYTES;
     }) ?? null
@@ -81,12 +84,13 @@ const onHost = (exec: Exec, a: Agent, cmd: string) =>
   a.host === "" ? exec("sh", ["-c", cmd]) : exec("ssh", [a.host, cmd]);
 
 /**
- * The bot's Discord account picture. The token is read and used on the bot's own machine (GET /users/@me only); only
- * the public picture id comes back, and the picture itself is a public CDN file.
+ * The bot's Discord account picture. The token is read and used on the bot's own machine (GET /users/@me only) and
+ * reaches curl on stdin (`-H @-`), never its argv; only the public picture id comes back, and the picture itself is a
+ * public CDN file.
  */
 async function discordPicture(exec: Exec, a: Agent, get: typeof fetch): Promise<Uint8Array | null> {
   const env = `$HOME/.hermes/profiles/${a.profile}/.env`;
-  const cmd = `t=$(grep -m1 '^DISCORD_BOT_TOKEN=' "${env}" 2>/dev/null | cut -d= -f2- | tr -d "\\"'"); [ -n "$t" ] && curl -fsS -m 10 -H "Authorization: Bot $t" https://discord.com/api/v10/users/@me`;
+  const cmd = `t=$(grep -m1 '^DISCORD_BOT_TOKEN=' "${env}" 2>/dev/null | cut -d= -f2- | tr -d "\\"'"); [ -n "$t" ] && printf 'Authorization: Bot %s\\n' "$t" | curl -fsS -m 10 -H @- https://discord.com/api/v10/users/@me`;
   const r = await onHost(exec, a, cmd).catch(() => null);
   if (!r || r.code !== 0) return null;
   let me: { id?: unknown; avatar?: unknown };

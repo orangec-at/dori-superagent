@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
 import { loadAgents } from "../src/agents.ts";
 import { avatarFile, syncAvatars } from "../src/board-avatars.ts";
 import type { Exec } from "../src/runtime/exec.ts";
@@ -46,6 +47,21 @@ test("agents.json avatar comes first, then DORI_HOME/avatars/<name>.<image>; any
     JSON.stringify([{ name: "x", host: "", profile: "x", role: "r", description: "d", avatar: 3 }]),
   );
   expect(() => loadAgents(h)).toThrow("avatar must be a string");
+});
+
+test("a picture outside DORI_HOME is never used: an absolute path, a `..` path or a symlink out", () => {
+  const { home: h } = home();
+  const out = join(mkdtempSync(join(tmpdir(), "dori-out-")), "x.png");
+  writeFileSync(out, PNG);
+  symlinkSync(out, join(h, "avatars", "lead.png"));
+  writeFileSync(join(h, "..yoridori.png"), PNG);
+  const avatar: Record<string, string> = { endo: out, panbungi: relative(h, out), yoridori: "..yoridori.png" };
+  const agents = loadAgents(h).map((a) => ({ ...a, avatar: avatar[a.name]! }));
+  expect(avatarFile(h, "endo", agents)).toBe(join(h, "avatars", "endo.png"));
+  expect(avatarFile(h, "panbungi", agents)).toBe(join(h, "avatars", "panbungi.png"));
+  expect(avatarFile(h, "lead", agents)).toBeNull();
+  // A name that merely starts with `..` is still inside DORI_HOME.
+  expect(avatarFile(h, "yoridori", agents)).toBe(join(h, "..yoridori.png"));
 });
 
 test("the board serves the pictures and shows them in the list, the phone strip, the detail pane and the mission map", async () => {
@@ -94,6 +110,9 @@ test("dori agents avatars takes the Discord account picture, else the hermes pro
   expect(lines).toEqual(["AVATAR panbungi discord", "AVATAR endo profile", "NO_AVATAR yoridori"]);
   expect(fetched).toEqual(["https://cdn.discordapp.com/avatars/123/abc.png?size=256"]);
   expect(calls[0]?.slice(0, 2)).toEqual(["ssh", "ubuntu"]);
+  // The token reaches curl on stdin, never its argv.
+  expect(calls[0]?.at(-1)).toContain("printf 'Authorization: Bot %s\\n' \"$t\" | curl -fsS -m 10 -H @- ");
+  expect(calls[0]?.at(-1)).not.toContain('-H "Authorization');
   expect(calls[2]?.slice(0, 2)).toEqual(["sh", "-c"]);
   expect(new Uint8Array(readFileSync(join(h, "avatars", "endo.png")))).toEqual(PNG);
 });
