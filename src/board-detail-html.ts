@@ -23,7 +23,7 @@ export const DETAIL_STYLE = `.av.lg{width:52px;height:52px;font-size:20px}.av.xl
 @media (min-width:768px){.tab{white-space:nowrap}.list .row{border-radius:12px;padding:10px 12px}.list .strip{padding:4px 8px 14px}
 .rec-h{padding:12px 20px}.rec-h>.ic{display:none}.hav{display:block;flex:none}.title b{font-size:16px}
 .thread{padding:20px 24px 8px;gap:12px}.mcard.inline{display:none}.lf{display:none}.ls{display:inline}.lt{border-bottom:1px dotted var(--idle);cursor:help}
-.msg.them{flex-direction:row;gap:10px;align-items:flex-start}.mav{display:block;flex:none;margin-top:2px}
+.msg.them{flex-direction:row;gap:10px;align-items:flex-start}.mav{display:block;flex:none;margin-top:2px}.mav:empty{width:26px}
 .mb{min-width:0;max-width:85%;display:flex;flex-direction:column;align-items:flex-start}.mb>.text{background:var(--bubble);border-radius:6px 18px 18px 18px;padding:9px 14px}
 .mb>.ev,.mb>.meta{margin-left:6px}.thread>.work{margin-left:36px;align-self:flex-start;max-width:calc(100% - 36px)}
 .thread>.work summary{display:inline-block;padding:3px 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:12.5px}
@@ -34,6 +34,7 @@ background:var(--panel);border:1px solid var(--line);font-size:13.5px;font-weigh
 .rec-h{padding-right:96px}.detail{display:block;position:fixed;top:0;right:0;bottom:0;z-index:9;width:min(340px,88vw);border-left:1px solid var(--line);
 transform:translateX(100%);visibility:hidden;transition:transform .2s,visibility .2s}.dt:checked~.detail{transform:none;visibility:visible}
 .dt:checked~.dts{display:block;position:fixed;inset:0;z-index:8;background:rgb(0 0 0/.35)}}
+body.copying .lf{display:inline}body.copying .ls{display:none}
 @media (min-width:1024px){.app{grid-template-columns:320px minmax(0,1fr) 300px}.detail{display:block;position:sticky;top:0;align-self:start;height:100dvh;
 border-left:1px solid var(--line)}}`;
 

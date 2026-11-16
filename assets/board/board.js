@@ -55,6 +55,32 @@
     if (e.key === "Escape" && panel?.checked) panel.checked = false;
   });
 
+  // A wide screen shows a long path or id short (.lt: its full form in title, .lf full, .ls short). Copying a selection
+  // that touches one copies the full form: the selection is widened to whole folds and read while body.copying shows
+  // the full forms, then put back. A selection without a fold is left to the browser.
+  document.addEventListener("copy", (e) => {
+    const sel = getSelection();
+    if (!e.clipboardData || !sel || sel.rangeCount !== 1 || sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    const foldOf = (n) => (n instanceof Element ? n : n?.parentElement)?.closest(".lt") ?? null;
+    const first = foldOf(range.startContainer);
+    const last = foldOf(range.endContainer);
+    if (!first && !last && !range.cloneContents().querySelector(".lt")) return;
+    const kept = range.cloneRange();
+    const whole = range.cloneRange();
+    if (first) whole.setStartBefore(first);
+    if (last) whole.setEndAfter(last);
+    sel.removeAllRanges();
+    sel.addRange(whole);
+    document.body.classList.add("copying");
+    const text = sel.toString();
+    document.body.classList.remove("copying");
+    sel.removeAllRanges();
+    sel.addRange(kept);
+    e.clipboardData.setData("text/plain", text);
+    e.preventDefault();
+  });
+
   box?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) box.form?.requestSubmit();
   });
