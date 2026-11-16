@@ -1,4 +1,4 @@
-import type { LinkSnapshot } from "./board-links.ts";
+import type { LinksRead } from "./board-links-file.ts";
 import { LINKS_STYLE, linksPane } from "./board-links-html.ts";
 import { hrefOf, listPane, type View } from "./board-list-html.ts";
 import { DETAIL_STYLE, detailPane, missionDetail, rowFace } from "./board-detail-html.ts";
@@ -80,7 +80,7 @@ export type PageOptions = {
   version: string;
   view: View;
   flash?: string;
-  links?: LinkSnapshot | null;
+  links?: LinksRead;
   /** The Discord copy; "locked" when the viewer may not write (a DM or channel is shown only to a writer). */
   discord?: DiscordView | "locked" | null;
 };

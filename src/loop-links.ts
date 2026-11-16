@@ -1,5 +1,6 @@
 // The hourly loop's 연결 map refresh: collects board-links.json each run, bounded so a hung machine never holds it up.
-import { collectLinks, saveLinks } from "./board-links.ts";
+import { collectLinks } from "./board-links.ts";
+import { saveLinks } from "./board-links-file.ts";
 import type { Deps } from "./harness.ts";
 
 /** The hourly loop's bound on one whole collection: every machine, local and over ssh. */

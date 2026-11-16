@@ -22,6 +22,8 @@ export type Agent = {
 const WORD = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 // An ssh destination: [user@]host. It never starts with "-", so ssh cannot read it as an option.
 const HOST = /^(?:[A-Za-z0-9][A-Za-z0-9._-]*@)?[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** True for a `[user@]host` ssh may be given; anything else (an option, a space, a quote) must never reach ssh. */
+export const isSshHost = (host: string): boolean => HOST.test(host);
 
 export const agentsPath = (home: string): string => join(home, "agents.json");
 
