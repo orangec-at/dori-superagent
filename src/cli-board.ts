@@ -4,12 +4,15 @@ import { loadBoardConfig } from "./board-config.ts";
 import { HUB_EVERY_MS, refreshHub } from "./board-hub.ts";
 import { collectLinks } from "./board-links.ts";
 import { saveLinks } from "./board-links-file.ts";
+import type { ChannelSource } from "./channel-source.ts";
 import { type Args, need, one } from "./cli-args.ts";
 import { discordCall, loadDiscordEnv } from "./discord-api.ts";
 import { discordSync, TICK_MS } from "./discord-sync.ts";
 import type { Deps } from "./harness.ts";
 import { send } from "./inbox.ts";
 import { Refusal } from "./refusal.ts";
+import { slackCall, slackReply, slackReplyPath } from "./slack-api.ts";
+import { slackSync } from "./slack-sync.ts";
 
 /** `dori ask <id> --question Q --option A=.. [--recommend A] [--link URL]`, `dori ask close <id>`, `dori ask list`. */
 export function runAsk(d: Deps, a: Args, x: string | undefined): number {
@@ -57,19 +60,29 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Refusal("--port must be 0-65535");
   const config = loadBoardConfig(d.store.root);
   const env = loadDiscordEnv(d.store.root);
+  const log = (l: string): void => console.log(l);
   const discord = env
-    ? discordSync(d.store.root, discordCall(env.token), { now: d.now, users: env.users, log: (l) => console.log(l) })
+    ? discordSync(d.store.root, discordCall(env.token), { now: d.now, users: env.users, log })
     : undefined;
-  if (discord) {
-    void discord.tick();
-    setInterval(() => void discord.tick(), TICK_MS);
+  // Slack goes through dori-slack-reply's ssh host, where the bot token stays.
+  const reply = slackReplyPath(d.store.root);
+  const slack = reply ? slackSync(d.store.root, slackCall(), slackReply(reply), { now: d.now, log }) : undefined;
+  const sources: ChannelSource[] = [];
+  for (const [id, label, s] of [
+    ["discord", "Discord", discord],
+    ["slack", "Slack", slack],
+  ] as const) {
+    if (!s) continue;
+    sources.push({ id, label, ...s });
+    void s.tick();
+    setInterval(() => void s.tick(), TICK_MS);
   }
   // PR states and project numbers are collected here, never on a page load or a poll.
   const hub = (): void => void refreshHub(d.exec, d.store, d.now()).then((l) => l && console.log(l));
   hub();
   setInterval(hub, HUB_EVERY_MS);
   const server = serveBoard(d.store, {
-    ...(discord ? { discord } : {}),
+    sources,
     host: one(a, "host") ?? "127.0.0.1",
     port,
     now: d.now,
@@ -77,7 +90,7 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
     toLead: (text) => send(d, "lead", text, "board"),
   });
   console.log(
-    `BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length} devices=${config.allowNodes.length} access=${config.access ? config.access.allowEmails.length : "off"} copy=${config.copyTo || "off"} discord=${discord ? "on" : "off"}`,
+    `BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length} devices=${config.allowNodes.length} access=${config.access ? config.access.allowEmails.length : "off"} copy=${config.copyTo || "off"} discord=${discord ? "on" : "off"} slack=${slack ? "on" : "off"}`,
   );
   return new Promise<number>(() => {});
 }

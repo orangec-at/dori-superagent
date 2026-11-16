@@ -33,7 +33,7 @@ test("a talk row in the timeline links to its Discord channel", () => {
   };
   const html = projectPane(s.projects.find((g) => g.name === "coupas")!, s, d, V, NOW, "/");
   const row = html.match(/<li class="k-talk">.*?<\/li>/)?.[0] ?? "";
-  expect(row).toMatch(/<a class="tx" href="\/\?tab=proj&amp;d=g1%3Ac1#end" title="마쿤 · #coupas: 가격 올려요">/);
+  expect(row).toMatch(/<a class="tx" href="\/\?tab=chan&amp;d=g1%3Ac1#end" title="마쿤 · #coupas: 가격 올려요">/);
   expect(html).not.toContain('<span class="tx" title="마쿤');
 });
 

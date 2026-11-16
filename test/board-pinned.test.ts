@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { viewOf } from "../src/board-list-html.ts";
 import { projectSeeds } from "../src/board-projects.ts";
-import { projectPane, projectsList, unreadAts } from "../src/board-projects-html.ts";
+import { channelsList, unreadAts } from "../src/board-channels-html.ts";
+import { projectPane, projectsList } from "../src/board-projects-html.ts";
 import { boardState } from "../src/board-state.ts";
 import { Store } from "../src/store.ts";
-import type { DiscordChannel, DiscordView } from "../src/discord-sync.ts";
+import type { Channel, ChannelView } from "../src/channel-source.ts";
 
 const NOW = Date.UTC(2026, 10, 16, 9, 0, 0);
 const PROJECTS = {
@@ -65,7 +66,7 @@ test("a seeded project with no work is listed after the active ones, its page sh
   const s = boardState(store, NOW);
   expect(s.projects.map((g) => g.name)).toEqual(["drawhatha", "토스인앱", "corpus", "Supabase 지원", "old"]);
   const v = viewOf(new URLSearchParams("tab=proj"));
-  const list = projectsList(s, null, v, NOW);
+  const list = projectsList(s, v, NOW);
   expect(list).toContain("앱인토스 미니앱 — 영어 말하기·영단어(단어펫 word-pet) · 진행 중인 일 없음");
   const supa = projectPane(s.projects.find((g) => g.name === "Supabase 지원")!, s, null, v, NOW, "/");
   expect(supa).toContain('href="https://jobs.ashbyhq.com/supabase/f048dd68-63f8-4f98-9860-3d5a43c09a01"');
@@ -76,7 +77,7 @@ test("a seeded project with no work is listed after the active ones, its page sh
   expect(projectPane(s.projects[0]!, s, null, v, NOW, "/")).not.toContain("진행 중인 일 없음");
 });
 
-const chan = (key: string, mine: boolean[]): DiscordChannel => ({
+const chan = (key: string, mine: boolean[]): Channel => ({
   key,
   name: key,
   kind: "channel",
@@ -95,19 +96,23 @@ test("a channel's new messages are the others' after the operator last wrote the
   expect(unreadAts(chan("c", [false, true]))).toEqual([]);
 });
 
-test("the 프로젝트 tab lists the channels, with their new-message count, above the projects", () => {
+test("the 채널 tab lists each source's channels with their new-message count; the 프로젝트 tab lists none", () => {
   const s = boardState(new Store(home({ corpus: ["corpus"] })), NOW);
-  const d: DiscordView = {
+  const d: ChannelView = {
     channels: [chan("dori", [false, false, false]), chan("fmv", [false, true])],
     syncedAt: NOW,
     error: null,
     skipped: [],
   };
-  const list = projectsList(s, d, viewOf(new URLSearchParams("tab=proj")), NOW);
-  expect(list.indexOf("#dori")).toBeLessThan(list.indexOf("corpus"));
+  const v = viewOf(new URLSearchParams("tab=chan"));
+  const list = channelsList([{ id: "discord", label: "Discord", view: d }], s, v, NOW);
+  expect(list.indexOf("Discord")).toBeLessThan(list.indexOf("#dori"));
   expect(list).toContain('data-d="dori" data-ats="');
   expect(list).toMatch(/data-d="dori"[^>]*>3</);
   expect(list).toMatch(/data-d="fmv"[^>]*hidden>0</);
-  const locked = projectsList(s, "locked", viewOf(new URLSearchParams("tab=proj")), NOW);
-  expect(locked.indexOf("허용된 계정·기기로")).toBeLessThan(locked.indexOf("corpus"));
+  expect(channelsList("locked", s, v, NOW)).toContain("허용된 계정·기기로");
+  const projects = projectsList(s, viewOf(new URLSearchParams("tab=proj")), NOW);
+  expect(projects).toContain("corpus");
+  expect(projects).not.toContain("#dori");
+  expect(projects).not.toContain("채널");
 });

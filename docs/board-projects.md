@@ -1,16 +1,6 @@
 # Board: the 프로젝트 tab
 
-The 프로젝트 tab lists the Discord channels and DMs first (each with its count of new messages), then every project.
-
-## Channels and new messages
-
-Every channel and DM of the board's Discord copy is listed at the top of the tab, before the projects, on the phone
-and the desktop alike. When the copy cannot be shown (no Discord on the board, or a viewer who may not write), the
-reason is shown there instead.
-
-A channel's red badge counts the others' messages since the operator last wrote in that channel. On a device that
-has opened the channel before, it counts only those that arrived after it was last opened there (kept in the
-browser's `localStorage`, key `dori-board-seen`).
+The 프로젝트 tab lists every project. Messenger channels have their own tab: see [board-channels.md](board-channels.md).
 
 ## Projects
 
@@ -70,8 +60,8 @@ project's key prefix or word and the item takes the cwd of the project's newest 
 placed in the project is refused), and on an open item **우선순위 변경** (`dori backlog priority`), **결정 답하기**
 and **드롭**. A lane or running item is not edited here. A reader sees the same columns without the forms.
 
-Then the PRs, **진행 흐름 · 7일** (lane starts, READYs, finishes and losses, backlog additions and decisions, PRs merged and the project's Discord talk of the last week, oldest first, one icon per kind; a talk row
-opens its channel) and missions. PRs show their state (`열림`, `병합`, `닫힘`;
+Then the PRs, **진행 흐름 · 7일** (lane starts, READYs, finishes and losses, backlog additions and decisions, PRs merged and the project's Discord and Slack talk of the last week, oldest first, one icon per kind; a talk row
+opens its channel on the 채널 tab) and missions. PRs show their state (`열림`, `병합`, `닫힘`;
 `확인 전` before the first collection); open ones, ones merged this week and unread ones of an open lane are listed,
 the rest fold under `지난 PR n개`. A repo that belongs to another project on the board (a seed, or where some lane or
 item sits) is not listed among this project's repos. A PR in such a repo that a lane of that project also names (a
