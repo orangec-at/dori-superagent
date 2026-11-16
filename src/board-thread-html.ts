@@ -29,13 +29,17 @@ export const prLabel = (p: Pr): string =>
     : `<span class="pr">⑂ #${p.num}</span>`;
 
 // A path of three or more parts, or an id ending in 24+ hex digits (a session_id). Every quantifier is bounded, so a
-// long word costs linear time.
-const LONG_TOKEN = /(?<![:/\w.@~-])(?:[~.\w@-]{0,80}\/){2,16}[\w.@-]{1,80}|(?<![\w/.-])[\w-]{0,40}[0-9a-f]{24,128}\b/g;
+// match from one position costs a bounded number of steps and a long word costs linear time.
+export const LONG_TOKEN =
+  /(?<![:/\w.@~-])(?:[~.\w@-]{0,80}\/){2,16}[\w.@-]{1,80}|(?<![\w/.-])[\w-]{0,40}[0-9a-f]{24,128}\b/g;
 const TOKEN_MIN = 28;
+// A commit SHA (7 to 40 hex digits alone) stays whole: it is short enough to read and is what one copies to git.
+const SHA = /^[0-9a-f]{7,40}$/;
 
 /**
  * Escaped text whose long paths and ids carry a short form beside the full one: a wide screen shows the short form
- * (the full one on hover), a phone keeps the full text. A word holding a URL (`://`) is never folded.
+ * (the full one on hover), a phone keeps the full text; copying copies the full one (board.js). A word holding a URL
+ * (`://`) and a commit SHA are never folded.
  */
 export const fold = (s: string): string =>
   s
@@ -48,7 +52,7 @@ function foldWord(s: string): string {
   let i = 0;
   for (const m of s.matchAll(LONG_TOKEN)) {
     const t = m[0];
-    if (t.length < TOKEN_MIN) continue;
+    if (t.length < TOKEN_MIN || SHA.test(t)) continue;
     const short = t.includes("/") ? `…/${t.split("/").at(-1)}` : `${t.slice(0, 14)}…`;
     out += `${esc(s.slice(i, m.index))}<span class="lt" title="${esc(t)}"><span class="lf">${esc(t)}</span><span class="ls">${esc(short)}</span></span>`;
     i = m.index + t.length;
@@ -89,7 +93,8 @@ function askCard(a: Ask, now: number, token: string | null): string {
 ${form("/decide", token, `<input type="hidden" name="id" value="${esc(a.id)}"><div class="buttons">${buttons}</div>`)}${sent}</article>`;
 }
 
-function item(i: ThreadItem, now: number, token: string | null, face: string): string {
+/** `face` is the avatar beside an answer; an answer right after another keeps only its empty place (`.mav:empty`). */
+function item(i: ThreadItem, now: number, token: string | null, face: string, again: boolean): string {
   const when = (at: number | null): string => (at ? `<span class="meta">${ago(now, at)}</span>` : "");
   switch (i.t) {
     case "me": {
@@ -97,7 +102,7 @@ function item(i: ThreadItem, now: number, token: string | null, face: string): s
       return `<div class="msg me"><div class="bubble">${body(i.text)}</div><div class="meta${cls}">${ago(now, i.at)}${label ? ` · ${label}` : ""}</div></div>`;
     }
     case "them":
-      return `<div class="msg them">${face ? `<span class="mav" aria-hidden="true">${face}</span>` : ""}<div class="mb"><div class="text">${body(i.text)}</div>${(i.links ?? []).map((u) => `<p class="ev">${link(u)}</p>`).join("")}${when(i.at)}</div></div>`;
+      return `<div class="msg them">${face ? `<span class="mav" aria-hidden="true">${again ? "" : face}</span>` : ""}<div class="mb"><div class="text">${body(i.text)}</div>${(i.links ?? []).map((u) => `<p class="ev">${link(u)}</p>`).join("")}${when(i.at)}</div></div>`;
     case "work":
       return `<details class="work"><summary>${esc(i.title)} ${when(i.at)}</summary><pre>${esc(i.body)}</pre>${i.href ? `<a href="${esc(i.href)}">기록 열기 →</a>` : ""}</details>`;
     case "ask":
@@ -109,11 +114,12 @@ function item(i: ThreadItem, now: number, token: string | null, face: string): s
 
 /**
  * The record of the selected row: header, `top` (its mission card), what waits on the operator, its PRs, then its
- * timeline. `face` is the row's avatar, shown by a wide screen in the header and beside each answer.
+ * timeline. `face` is the row's avatar, shown by a wide screen in the header and beside the first of consecutive answers.
  */
 export function record(t: Thread, now: number, token: string | null, back: string, top = "", face = ""): string {
   const r = t.row;
-  const items = (list: ThreadItem[]): string => list.map((i) => item(i, now, token, face)).join("\n");
+  const items = (list: ThreadItem[]): string =>
+    list.map((i, n) => item(i, now, token, face, list[n - 1]?.t === "them")).join("\n");
   const waiting = t.waiting.length
     ? `<h3 class="needs">재일 님 차례 <span>${t.waiting.length}</span></h3>${items(t.waiting)}`
     : "";

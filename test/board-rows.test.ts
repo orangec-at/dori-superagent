@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { lanePrs } from "../src/board-prs.ts";
 import { boardState } from "../src/board-state.ts";
 import { rows } from "../src/board-status.ts";
-import { fold } from "../src/board-thread-html.ts";
+import type { ThreadItem } from "../src/board-thread.ts";
+import { fold, LONG_TOKEN, record } from "../src/board-thread-html.ts";
 import type { Lane } from "../src/store-types.ts";
 import { NOW, start, tailnet } from "./board-setup.ts";
 
@@ -111,10 +112,30 @@ test("a wide screen folds long paths and session ids, never a URL", () => {
   expect(fold(query)).toBe(query.replaceAll("&", "&amp;"));
 });
 
-test("folding a long word without a boundary stays linear", () => {
-  const started = performance.now();
-  fold(`${"a".repeat(50_000)}g ${"a/".repeat(20_000)}`);
-  expect(performance.now() - started).toBeLessThan(1000);
+test("a commit SHA stays whole; a session id of more than 40 hex digits still folds", () => {
+  const sha = "c3c6ce4cc497190918ced2846be498ddd35940b2";
+  expect(fold(`head ${sha} (${sha.slice(0, 30)})`)).toBe(`head ${sha} (${sha.slice(0, 30)})`);
+  expect(fold("e5b6b143b1e465af7723fe381deb546fada4802edd8a")).toContain('<span class="ls">e5b6b143b1e465…</span>');
+});
+
+test("consecutive answers show the bot's avatar once; an answer after the operator's message shows it again", () => {
+  const { store } = seeded();
+  const row = rows(boardState(store, NOW), NOW).find((r) => r.id === "bot:panbungi")!;
+  const them = (text: string): ThreadItem => ({ t: "them", at: NOW, text });
+  const items = [them("1"), them("2"), { t: "me", at: NOW, text: "?" } as const, them("3")];
+  const html = record({ row, rows: [row], waiting: [], items, prs: [] }, NOW, null, "/", "", "<i>face</i>");
+  expect(html.match(/<span class="mav" aria-hidden="true"><i>face<\/i><\/span>/g)).toHaveLength(2);
+  expect(html.match(/<span class="mav" aria-hidden="true"><\/span>/g)).toHaveLength(1);
+});
+
+test("folding stays linear: every quantifier is bounded, so each start position costs a bounded number of steps", () => {
+  // Without escapes and character classes, the pattern may hold no unbounded quantifier (*, + or {n,}).
+  const shape = LONG_TOKEN.source.replace(/\\./g, "").replace(/\[[^\]]*\]/g, "");
+  expect(shape).not.toMatch(/[*+]|\{\d+,\}/);
+  expect(shape).toMatch(/\{\d+,\d+\}/);
+  const word = `${"a".repeat(50_000)}g`;
+  expect(fold(word)).toBe(word);
+  expect(fold("a/".repeat(20_000))).toStartWith(`<span class="lt" title="${"a/".repeat(16)}a">`);
 });
 
 test("My turn shows only the operator's rows; the PR tab lists lane PRs; a row opens its record", async () => {
