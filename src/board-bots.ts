@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { Agent } from "./agents.ts";
 
 const KST_MS = 9 * 3_600_000;
-const DELEGATION_TAIL_BYTES = 256 * 1024;
+export const DELEGATION_TAIL_BYTES = 256 * 1024;
 const CUT = 160;
 
 /** One bot from agents.json with what the day's assignment file and the delegation log say about it. */

@@ -133,6 +133,34 @@ test("dori delegate writes its start before the agent answers, so the board sees
   expect(runningDelegations(home).map((r) => r.agent)).toEqual(["endo", "yeondo"]);
 });
 
+test("a run that died without its end gives way to a later delegation that ended", () => {
+  const { store, home } = seeded();
+  writeFileSync(
+    join(home, "delegations.jsonl"),
+    jsonl([{ at: iso(NOW - 30 * MIN), agent: "yeondo", text: "다시 조사", outcome: "ok", output: "정리함" }]),
+  );
+  expect(boardState(store, NOW).agents.find((a) => a.id === "bot:yeondo")).toMatchObject({
+    state: "waiting",
+    line: "지시: 다시 조사 · 답함",
+    at: NOW - 30 * MIN,
+  });
+});
+
+test("starts whose ends were pushed out of the delegation log's tail by long outputs are not counted as running", () => {
+  const { home } = seeded();
+  const runs = Array.from({ length: 200 }, (_, i) => ({
+    at: iso(NOW - (200 - i) * MIN),
+    agent: "endo",
+    text: `#${i}`,
+  }));
+  writeFileSync(join(home, "delegate-runs.jsonl"), jsonl(runs.map((r) => ({ ...r, until: iso(NOW - HOUR) }))));
+  writeFileSync(
+    join(home, "delegations.jsonl"),
+    jsonl(runs.map((r) => ({ ...r, outcome: "ok", output: "x".repeat(2000) }))),
+  );
+  expect(runningDelegations(home)).toEqual([]);
+});
+
 test("the 에이전트 tab lists every agent with 기록 없음 for what nothing records and dims a day-old activity", async () => {
   const { url } = seeded();
   const html = await (await fetch(`${url}/?tab=agent`, { headers: tailnet() })).text();

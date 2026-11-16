@@ -1,6 +1,13 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { type BotCard, decodeEscapes, delegateSummary, delegations, firstLine } from "./board-bots.ts";
+import {
+  type BotCard,
+  DELEGATION_TAIL_BYTES,
+  decodeEscapes,
+  delegateSummary,
+  delegations,
+  firstLine,
+} from "./board-bots.ts";
 import type { ChatMessage } from "./board-chat.ts";
 import { briefTitle } from "./board-hub-state.ts";
 import { museInbox } from "./board-mission-sources.ts";
@@ -72,13 +79,23 @@ function tailJson(path: string): Record<string, unknown>[] {
 
 export type RunningDelegation = { at: string; agent: string; text: string; until: number };
 
-/** Delegations started (delegate-runs.jsonl) whose end (the delegations.jsonl line with the same at and agent) is not written. */
+/**
+ * Delegations started (delegate-runs.jsonl) whose end (the delegations.jsonl line with the same at and agent) is not
+ * written. The end lines carry the agent's output and so fill the tail read far sooner than the start lines: once
+ * delegations.jsonl is longer than its tail, a start older than the oldest end read is not counted, its end may simply
+ * be out of reach.
+ */
 export function runningDelegations(home: string): RunningDelegation[] {
-  const ended = new Set(delegations(home).map((d) => `${d.agent} ${d.at}`));
+  const ends = delegations(home);
+  const ended = new Set(ends.map((d) => `${d.agent} ${d.at}`));
+  const path = join(home, "delegations.jsonl");
+  const cut = existsSync(path) && statSync(path).size > DELEGATION_TAIL_BYTES && ends.length > 0;
+  const oldest = cut ? Math.min(...ends.map((d) => Date.parse(d.at))) : Number.NEGATIVE_INFINITY;
   return tailJson(join(home, "delegate-runs.jsonl")).flatMap((v) => {
     const [at, agent, until] = [v["at"], v["agent"], Date.parse(String(v["until"]))];
     if (typeof at !== "string" || typeof agent !== "string" || Number.isNaN(until) || ended.has(`${agent} ${at}`))
       return [];
+    if (!(Date.parse(at) >= oldest)) return [];
     return [{ at, agent, text: String(v["text"] ?? ""), until }];
   });
 }
@@ -143,8 +160,9 @@ function lanes(store: Store, now: number): AgentActivity[] {
 }
 
 function bot(b: BotCard, log: ReturnType<typeof delegations>, running: RunningDelegation[], now: number) {
-  const run = running.filter((r) => r.agent === b.name).at(-1);
   const last = log.filter((d) => d.agent === b.name).at(-1);
+  // A run that died without its end is forgotten once a later delegation to the same bot ends.
+  const run = running.filter((r) => r.agent === b.name && (!last || Date.parse(r.at) > Date.parse(last.at))).at(-1);
   const assigned = b.today !== null && !NO_ASSIGNMENT.test(b.today);
   const answered = last
     ? last.outcome === "ok"
