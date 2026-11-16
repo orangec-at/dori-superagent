@@ -17,7 +17,9 @@ export function loadDiscordEnv(home: string): { token: string; users: string[] }
   const path = join(home, "discord", "bot.env");
   if (!existsSync(path)) return null;
   const env = new Map<string, string>();
-  for (const line of readFileSync(path, "utf8").split("\n")) {
+  for (const raw of readFileSync(path, "utf8").split("\n")) {
+    const line = raw.trim().replace(/^export\s+/, "");
+    if (line.startsWith("#")) continue;
     const i = line.indexOf("=");
     if (i > 0)
       env.set(
@@ -33,9 +35,9 @@ export function loadDiscordEnv(home: string): { token: string; users: string[] }
   return token ? { token, users: users.map((u) => u.trim()) } : null;
 }
 
-export function discordCall(token: string): DiscordCall {
+export function discordCall(token: string, base = API): DiscordCall {
   return async (path, init) => {
-    const res = await fetch(`${API}${path}`, {
+    const res = await fetch(`${base}${path}`, {
       method: init?.method ?? "GET",
       headers: { authorization: `Bot ${token}`, "content-type": "application/json", "user-agent": "dori-board" },
       ...(init ? { body: JSON.stringify(init.body) } : {}),

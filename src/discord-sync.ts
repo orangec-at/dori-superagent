@@ -48,6 +48,18 @@ const TEXT_MAX = 4_000;
 export const SEND_MAX = 1_900;
 
 const later = (a: string, b: string): boolean => BigInt(a) > BigInt(b);
+type GuildChannel = {
+  id: string;
+  name: string;
+  type: number;
+  position?: number;
+  permission_overwrites?: { id: string; deny?: string }[];
+};
+const VIEW_CHANNEL = 1n << 10n;
+/** A private channel: @everyone (the role whose id is the guild's) is denied View Channel. It is not copied. */
+const hiddenFromEveryone = (c: GuildChannel, guild: string): boolean =>
+  (c.permission_overwrites ?? []).some((p) => p.id === guild && (BigInt(p.deny ?? "0") & VIEW_CHANNEL) !== 0n);
+const shape = (cs: Kept[]): string => JSON.stringify(cs.map((c) => [c.id, c.name, c.key, c.kind, c.denied]));
 const nameOf = (u: { username?: string; global_name?: string | null } | undefined): string =>
   u?.global_name || u?.username || "알 수 없음";
 
@@ -93,7 +105,7 @@ export function discordSync(
   const save = (): void => {
     version++;
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(`${path}.tmp`, JSON.stringify({ channels }));
+    writeFileSync(`${path}.tmp`, JSON.stringify({ channels }), { mode: 0o600 });
     renameSync(`${path}.tmp`, path);
   };
   const ok = (a: DiscordAnswer): boolean => {
@@ -133,8 +145,8 @@ export function discordSync(
     for (const g of guilds.body as { id: string }[]) {
       const list = await call(`/guilds/${g.id}/channels`);
       if (!ok(list)) return;
-      const text = (list.body as { id: string; name: string; type: number; position?: number }[])
-        .filter((c) => c.type === 0 || c.type === 5)
+      const text = (list.body as GuildChannel[])
+        .filter((c) => (c.type === 0 || c.type === 5) && !hiddenFromEveryone(c, g.id))
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
       for (const c of text) found.push({ id: c.id, name: c.name, kind: "channel" });
     }
@@ -145,6 +157,7 @@ export function discordSync(
       found.push({ id: b.id, name: nameOf(b.recipients?.[0]), kind: "dm" });
     }
     const keys = new Set<string>();
+    const before = shape(channels);
     channels = found.map((f) => {
       const old = channels.find((c) => c.id === f.id);
       let key = f.kind === "dm" ? `dm-${f.name}` : f.name;
@@ -153,7 +166,7 @@ export function discordSync(
       return { ...f, key, after: old?.after ?? null, denied: false, messages: old?.messages ?? [] };
     });
     error = null;
-    save();
+    if (shape(channels) !== before) save();
   }
 
   async function poll(ch: Kept): Promise<void> {
@@ -187,7 +200,7 @@ export function discordSync(
 
   async function send(key: string, text: string): Promise<SendResult> {
     const ch = channels.find((c) => c.key === key && !c.denied);
-    if (!ch) return "failed";
+    if (!ch || o.now() < pausedUntil) return "failed";
     try {
       const body = { content: `**재일 (보드)** ${text}`.slice(0, 2000), allowed_mentions: { parse: [] } };
       const a = await call(`/channels/${ch.id}/messages`, { method: "POST", body });

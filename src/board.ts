@@ -219,7 +219,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
           version: versionOf(state),
           view,
           links: view.tab === "map" ? readLinks(store.root) : null,
-          discord: o.discord?.view() ?? null,
+          discord: "code" in w ? (o.discord ? "locked" : null) : (o.discord?.view() ?? null),
           ...(flash ? { flash } : {}),
         });
         return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", ...SECURITY_HEADERS } });

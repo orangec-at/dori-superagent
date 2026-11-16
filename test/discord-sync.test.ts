@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DiscordAnswer, DiscordCall } from "../src/discord-api.ts";
@@ -149,4 +149,46 @@ test("a message sent from the board is posted without pings, shown at once, and 
   await s.tick();
   expect(s.view().channels[0]!.messages.map((m) => m.text)).toEqual(["하나", "그 사이 글", "**재일 (보드)** 안녕"]);
   expect(await s.send("nope", "x")).toBe("failed");
+});
+
+test("a private channel is not copied; a listing that changed nothing does not reload pages; the cache is owner-only", async () => {
+  const home = mkdtempSync(join(tmpdir(), "dori-discord-list-"));
+  let now = 0;
+  const d = fakeDiscord({
+    ...BASE,
+    [`GET /guilds/${GUILD}/channels`]: ok([
+      { id: DORI, name: "dori", type: 0, position: 1 },
+      { id: FMV, name: "secret", type: 0, position: 2, permission_overwrites: [{ id: GUILD, deny: "1024" }] },
+      {
+        id: "900000000000000014",
+        name: "open",
+        type: 0,
+        position: 3,
+        permission_overwrites: [{ id: GUILD, deny: "2048" }],
+      },
+    ]),
+  });
+  const s = discordSync(home, d.call, { now: () => now, users: [] });
+  await s.tick();
+  expect(s.view().channels.map((c) => c.key)).toEqual(["dori", "open"]);
+  expect(statSync(join(home, "board", "discord-cache.json")).mode & 0o777).toBe(0o600);
+  const stamp = s.stamp();
+  now = 11 * 60_000;
+  await s.tick();
+  expect(d.calls.filter((c) => c.path === "/users/@me/guilds").length).toBe(2);
+  expect(s.stamp()).toBe(stamp);
+});
+
+test("while a 429 pause lasts, a board message is refused without calling Discord", async () => {
+  const home = mkdtempSync(join(tmpdir(), "dori-discord-pause-"));
+  const d = fakeDiscord({
+    ...BASE,
+    [`GET /channels/${DORI}/messages?limit=50`]: { status: 429, body: { retry_after: 30 }, retryAfter: 30 },
+  });
+  const s = discordSync(home, d.call, { now: () => 1_000, users: [] });
+  await s.tick();
+  await s.tick();
+  const before = d.calls.length;
+  expect(await s.send("dori", "hi")).toBe("failed");
+  expect(d.calls.length).toBe(before);
 });

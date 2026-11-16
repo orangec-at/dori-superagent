@@ -116,3 +116,21 @@ test("without a Discord copy the tab says so and a post is refused", async () =>
   const res = await post(b.url, "/discord", { csrf: await tokenOf(b.url), d: "dori", text: "x" }, tailnet());
   expect(res.status).toBe(409);
 });
+
+test("a viewer who may not write sees no Discord channel or DM, only why", async () => {
+  const { discord } = fakeCopy();
+  const b = start({ discord });
+  for (const path of ["/?tab=proj", "/?tab=proj&d=fmv", "/?tab=proj&p=vibeguard"]) {
+    const html = await (
+      await fetch(`${b.url}${path}`, { headers: tailnet({ "x-forwarded-for": BOT_MACHINE }) })
+    ).text();
+    expect(html).not.toContain("vg-umami 올렸어요");
+    expect(html).not.toContain("보드 확인");
+    expect(html).not.toContain("DM · Jaeil Lee");
+    expect(html).not.toContain('action="/discord"');
+  }
+  const list = await (
+    await fetch(`${b.url}/?tab=proj`, { headers: tailnet({ "x-forwarded-for": BOT_MACHINE }) })
+  ).text();
+  expect(list).toContain("Discord 채널·DM은 허용된 계정·기기로 열어야 보여요");
+});

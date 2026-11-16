@@ -81,7 +81,8 @@ export type PageOptions = {
   view: View;
   flash?: string;
   links?: LinkSnapshot | null;
-  discord?: DiscordView | null;
+  /** The Discord copy; "locked" when the viewer may not write (a DM or channel is shown only to a writer). */
+  discord?: DiscordView | "locked" | null;
 };
 
 /**
@@ -91,7 +92,7 @@ export type PageOptions = {
 export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions): string {
   const r = t.row;
   const mission = o.view.m ? s.missions.find((m) => m.id === o.view.m) : undefined;
-  const d = o.discord ?? null;
+  const d = o.discord === "locked" ? null : (o.discord ?? null);
   const projView = o.view.tab === "proj" && !mission && !o.view.c;
   const chan = projView && o.view.d ? d?.channels.find((c) => c.key === o.view.d) : undefined;
   const proj = projView && !chan ? s.projects.find((g) => g.name === o.view.p) : undefined;
@@ -131,7 +132,7 @@ export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions)
 <script src="/board.js" defer></script></head><body${open ? ' class="has-c"' : ""}>
 <div class="app${linksView ? " lk" : projView ? " pj" : ""}">${bare ? "" : `<input class="dt" id="dt" type="checkbox" aria-label="${mission ? "참여" : "미션"} 패널"><label class="dtb" for="dt">${mission ? "참여" : "미션"}</label>`}
 <aside class="list" aria-label="작업 목록"><header class="lh"><b>도리 보드</b><a class="meta" href="${esc(hrefOf(o.view))}">${kst} KST</a></header>
-${open ? "" : flash}${readOnly}${listPane(t.rows, { ...s, links: o.links ?? null, ...(o.view.tab === "proj" ? { proj: projectsList(s, d, o.view, now) } : {}) }, o.view, now, mission || bare ? null : (o.view.c ?? "lead"))}</aside>
+${open ? "" : flash}${readOnly}${listPane(t.rows, { ...s, links: o.links ?? null, ...(o.view.tab === "proj" ? { proj: projectsList(s, o.discord ?? null, o.view, now) } : {}) }, o.view, now, mission || bare ? null : (o.view.c ?? "lead"))}</aside>
 <main class="pane">${
     linksView
       ? linksPane(o.links ?? null, s.avatars)
