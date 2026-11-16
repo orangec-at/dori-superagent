@@ -20,7 +20,13 @@ test("a board request and the lead's `dori reply board` answer meet in the lead'
   const csrf = await tokenOf(url);
   const res = await post(url, "/request", { csrf, text: "오늘 coupas 판매액?" }, tailnet());
   expect(res.headers.get("location")).toBe("/?c=lead&sent=request#end");
-  const before = (await (await fetch(`${url}/api/version`, { headers: tailnet() })).json()) as { v: string };
+  const pageVersion = async () =>
+    /name="board-version" content="([0-9a-f]+)"/.exec(
+      await (await fetch(`${url}/`, { headers: tailnet() })).text(),
+    )?.[1];
+  const before = await pageVersion();
+  const polled = (await (await fetch(`${url}/api/version`, { headers: tailnet() })).json()) as { v: string };
+  expect(polled.v).toBe(before!);
 
   expect(parseAddress("board")).toEqual({ kind: "board" });
   const { calls, exec } = recorder();
@@ -31,8 +37,7 @@ test("a board request and the lead's `dori reply board` answer meet in the lead'
     { at: NOW + 60_000, from: "lead", text: "어제 12건, 3.4만원이에요." },
   ]);
 
-  const after = (await (await fetch(`${url}/api/version`, { headers: tailnet() })).json()) as { v: string };
-  expect(after.v).not.toBe(before.v);
+  expect(await pageVersion()).not.toBe(before);
   const html = await (await fetch(`${url}/?c=lead`, { headers: tailnet() })).text();
   const me = html.indexOf('<div class="bubble">오늘 coupas 판매액?</div>');
   const them = html.indexOf('<div class="text">어제 12건, 3.4만원이에요.</div>');

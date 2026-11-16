@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { readAsk } from "../src/asks.ts";
 import { serveBoard } from "../src/board.ts";
 import { Refusal } from "../src/refusal.ts";
@@ -38,7 +40,11 @@ test("a decision button sends the decide envelope to the lead and marks the card
 });
 
 test("a request goes to the lead with the board as its reply address; text is capped and only lengths are logged", async () => {
-  const { url, sent, logs } = start();
+  const { url, sent, logs, home } = start();
+  writeFileSync(
+    join(home, "agents.json"),
+    JSON.stringify([{ name: "panbungi", host: "", profile: "p", role: "sales", description: "판붕이(x): y" }]),
+  );
   const csrf = await tokenOf(url);
   const res = await post(url, "/request", { csrf, text: "  coupas 오늘 판매액 알려줘  " }, tailnet());
   expect(res.status).toBe(303);
@@ -50,9 +56,11 @@ test("a request goes to the lead with the board as its reply address; text is ca
   expect(sent).toHaveLength(1);
   expect(logs.join("\n")).not.toContain("coupas");
   await post(url, "/request", { csrf, c: "bot:panbungi", text: "오늘 건 다시" }, tailnet());
+  await post(url, "/request", { csrf, c: "bot:nobody", text: "unknown row" }, tailnet());
   await post(url, "/request", { csrf, c: "x y", text: "bad context" }, tailnet());
   expect(sent.slice(1)).toEqual([
     "[reply=board from=재일-board] (bot:panbungi) 오늘 건 다시",
+    "[reply=board from=재일-board] unknown row",
     "[reply=board from=재일-board] bad context",
   ]);
 });

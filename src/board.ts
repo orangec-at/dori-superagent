@@ -8,12 +8,14 @@ import { appendChat } from "./board-chat.ts";
 import { type BoardConfig, decideEnvelope, requestEnvelope } from "./board-config.ts";
 import { boardHtml, REQUEST_MAX } from "./board-html.ts";
 import { viewOf } from "./board-list-html.ts";
-import { boardState } from "./board-state.ts";
+import { type BoardState, boardState } from "./board-state.ts";
+import { rows } from "./board-status.ts";
 import { threadOf } from "./board-thread.ts";
 import { Refusal } from "./refusal.ts";
 import type { Store } from "./store.ts";
 
 const BODY_MAX = 8 * 1024;
+const VERSION_REUSE_MS = 2_000;
 
 export type BoardOptions = {
   host: string;
@@ -134,7 +136,8 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
         return reject(kind, "length", `request longer than ${REQUEST_MAX} characters`, 413);
       // A message written in a bot or lane conversation says which one it is about; the answer still comes to the lead's.
       const about = form.get("c") ?? "lead";
-      envelope = requestEnvelope(/^[a-z]+:[\w.-]+$/.test(about) ? `(${about}) ${said}` : said);
+      const known = about !== "lead" && rows(boardState(store, o.now()), o.now()).some((r) => r.id === about);
+      envelope = requestEnvelope(known ? `(${about}) ${said}` : said);
     }
     let result: string;
     try {
@@ -160,12 +163,17 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
   }
 
   /** What the page shows, without the clock: the page polls it and reloads when it changes. */
-  const version = (): string => {
-    const s = boardState(store, o.now());
-    return createHash("sha256")
+  const versionOf = (s: BoardState): string =>
+    createHash("sha256")
       .update(JSON.stringify({ ...s, generatedAt: 0 }))
       .digest("hex")
       .slice(0, 16);
+  // Every open tab polls /api/version; the answer is reused for a moment so polling cannot make the board re-read its files.
+  let polled = { at: Number.NEGATIVE_INFINITY, v: "" };
+  const polledVersion = (): string => {
+    const now = o.now();
+    if (now - polled.at >= VERSION_REUSE_MS) polled = { at: now, v: versionOf(boardState(store, now)) };
+    return polled.v;
   };
 
   return Bun.serve({
@@ -189,13 +197,13 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
         const state = boardState(store, now);
         const html = boardHtml(threadOf(store, state, view.c ?? "lead"), state.projects, now, {
           token: "code" in w ? null : tokenFor(w.id),
-          version: version(),
+          version: versionOf(state),
           view,
           ...(flash ? { flash } : {}),
         });
         return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", ...SECURITY_HEADERS } });
       }
-      if (url.pathname === "/api/version") return Response.json({ v: version() }, { headers: SECURITY_HEADERS });
+      if (url.pathname === "/api/version") return Response.json({ v: polledVersion() }, { headers: SECURITY_HEADERS });
       if (url.pathname === "/api/board") {
         const w = await auth.writer(req);
         return "code" in w

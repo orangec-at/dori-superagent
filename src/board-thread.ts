@@ -29,7 +29,13 @@ function lead(s: BoardState, all: Row[]): Omit<Thread, "row" | "rows"> {
   const waiting: ThreadItem[] = s.asks.filter((a) => !a.sent).map((ask) => ({ t: "ask", ask }));
   for (const r of all)
     if (r.kind === "lane" && r.section === "needs")
-      waiting.push({ t: "work", at: r.at, title: `${r.title} · ${r.word}`, body: r.line, href: `/?c=${r.id}` });
+      waiting.push({
+        t: "work",
+        at: r.at,
+        title: `${r.title} · ${r.word}`,
+        body: r.line,
+        href: `/?c=${encodeURIComponent(r.id)}`,
+      });
   const items: ThreadItem[] = s.chat.map((m) =>
     m.from === "operator"
       ? { t: "me", at: m.at, text: m.text, ...(m.delivery ? { delivery: m.delivery } : {}) }
@@ -84,7 +90,13 @@ function standing(s: BoardState, all: Row[], domain: string): ThreadItem[] {
   const items: ThreadItem[] = [{ t: "them", at: c.since, text }];
   for (const r of all)
     if (r.kind === "lane" && r.project === domain && r.section !== "unread")
-      items.push({ t: "work", at: r.at, title: `${r.title} · ${r.word}`, body: r.line, href: `/?c=${r.id}` });
+      items.push({
+        t: "work",
+        at: r.at,
+        title: `${r.title} · ${r.word}`,
+        body: r.line,
+        href: `/?c=${encodeURIComponent(r.id)}`,
+      });
   return items;
 }
 

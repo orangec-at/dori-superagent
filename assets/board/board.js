@@ -7,7 +7,8 @@
   const box = document.querySelector(".composer textarea");
   const writing = () => box !== null && (box.value.trim() !== "" || document.activeElement === box);
 
-  if (!location.search.includes("sent=decide")) window.scrollTo(0, document.body.scrollHeight);
+  // Only a record opens at its newest message; the list stays at its top, and a #anchor (an ask card) is left to the browser.
+  if (document.body.classList.contains("has-c") && !location.hash) window.scrollTo(0, document.body.scrollHeight);
 
   box?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) box.form?.requestSubmit();
@@ -28,7 +29,9 @@
       version = next;
       return;
     }
-    location.reload();
+    const url = new URL(location.href);
+    url.searchParams.delete("sent");
+    location.replace(url.pathname + url.search);
   }
   setInterval(poll, POLL_MS);
   document.addEventListener("visibilitychange", poll);
