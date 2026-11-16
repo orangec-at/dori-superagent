@@ -33,10 +33,11 @@ function fakeCopy(result: "sent" | "failed" = "sent") {
         name: "vibeguard 승인",
         kind: "thread",
         parent: "fmv",
-        private: true,
         archived: false,
+        locked: false,
         messages: [{ at: Date.UTC(2026, 10, 13, 0, 45), author: "엔도", mine: false, bot: true, text: "승인 요청" }],
       },
+      { key: "t-old", name: "지난 승인", kind: "thread", parent: "fmv", archived: true, locked: true, messages: [] },
     ],
   };
   const discord: DiscordBoard = {
@@ -96,6 +97,17 @@ test("a thread post that fails the board's write checks is refused before Discor
     await post(b.url, "/discord", { ...form, csrf: "0".repeat(64) }, tailnet()),
   ];
   expect(refused.map((r) => r.status)).toEqual([403, 403, 403]);
+  expect(sends).toEqual([]);
+});
+
+test("a locked thread shows why it has no composer and refuses a post before Discord is called", async () => {
+  const { discord, sends } = fakeCopy();
+  const b = start({ discord });
+  const pane = await (await fetch(`${b.url}/?tab=proj&d=t-old`, { headers: tailnet() })).text();
+  expect(pane).toContain("잠긴 스레드라 보드에서 보낼 수 없어요");
+  expect(pane).not.toContain('action="/discord"');
+  const res = await post(b.url, "/discord", { csrf: await tokenOf(b.url), d: "t-old", text: "x" }, tailnet());
+  expect(res.status).toBe(409);
   expect(sends).toEqual([]);
 });
 

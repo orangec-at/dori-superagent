@@ -78,7 +78,7 @@ const chanLabel = (c: DiscordChannel, d?: DiscordView): string => {
   return c.kind === "thread" ? `${parent ? `#${parent.name} › ` : ""}${c.name}` : `#${c.name}`;
 };
 const threadTags = (c: DiscordChannel): string =>
-  `${c.private ? '<span class="tag">비공개</span>' : ""}${c.archived ? '<span class="tag">보관</span>' : ""}`;
+  `${c.archived ? '<span class="tag">보관</span>' : ""}${c.locked ? '<span class="tag">잠김</span>' : ""}`;
 
 /**
  * When a channel's new messages arrived: the others' messages after the operator's last one there. board.js keeps only
@@ -218,14 +218,22 @@ export function channelPane(
     )
     .join("\n");
   const synced = d.syncedAt ? `동기화 ${ago(now, d.syncedAt)}` : "동기화 전";
-  const composer = form(
-    "/discord",
-    token,
-    `<input type="hidden" name="d" value="${esc(c.key)}"><div class="box"><textarea name="text" rows="1" maxlength="${SEND_MAX}" required placeholder="${esc(`${chanLabel(c, d)}에 보내기…`)}" aria-label="Discord 메시지"></textarea><button class="send" aria-label="보내기">↑</button></div>`,
-    "composer",
-  );
+  // Discord reopens an archived thread a message is posted to, and refuses one in a locked thread.
+  const note = c.locked
+    ? `<p class="note">잠긴 스레드라 보드에서 보낼 수 없어요.</p>`
+    : c.archived
+      ? `<p class="note">보관된 스레드예요. 보내면 Discord에서 다시 열려요.</p>`
+      : "";
+  const composer = c.locked
+    ? ""
+    : form(
+        "/discord",
+        token,
+        `<input type="hidden" name="d" value="${esc(c.key)}"><div class="box"><textarea name="text" rows="1" maxlength="${SEND_MAX}" required placeholder="${esc(`${chanLabel(c, d)}에 보내기…`)}" aria-label="Discord 메시지"></textarea><button class="send" aria-label="보내기">↑</button></div>`,
+        "composer",
+      );
   return `<header class="rec-h"><a class="back" href="${esc(back)}" aria-label="목록으로">←</a><span class="chan">${c.kind === "dm" ? "@" : c.kind === "thread" ? "↳" : "#"}</span>
-<div class="title"><b>${esc(chanLabel(c, d))}</b><span class="meta">${proj ? `${esc(proj)} · ` : ""}${c.kind === "thread" ? `스레드${c.private ? " · 비공개" : ""}${c.archived ? " · 보관됨" : ""} · ` : ""}Discord · ${synced}</span></div></header>
+<div class="title"><b>${esc(chanLabel(c, d))}</b><span class="meta">${proj ? `${esc(proj)} · ` : ""}${c.kind === "thread" ? `스레드${c.archived ? " · 보관됨" : ""}${c.locked ? " · 잠김" : ""} · ` : ""}Discord · ${synced}</span></div></header>
 <section class="thread" id="chat" data-seen="${esc(c.key)}" data-at="${c.messages.at(-1)?.at ?? 0}">${msgs || `<p class="note">아직 메시지가 없어요.</p>`}<span id="end"></span></section>
-${composer}`;
+${note}${composer}`;
 }
