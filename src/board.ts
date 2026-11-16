@@ -6,6 +6,7 @@ import type { CertFetch } from "./board-access.ts";
 import { boardAuth, hostnameOf, LOOPBACK_HOSTS } from "./board-auth.ts";
 import { avatarResponse } from "./board-avatars.ts";
 import { appendChat } from "./board-chat.ts";
+import { discordPost } from "./board-discord.ts";
 import { readLinks } from "./board-links.ts";
 import { type BoardConfig, decideEnvelope, requestEnvelope } from "./board-config.ts";
 import { boardHtml, REQUEST_MAX } from "./board-html.ts";
@@ -14,6 +15,7 @@ import { type BoardState, boardState } from "./board-state.ts";
 import { rows } from "./board-status.ts";
 import { threadOf } from "./board-thread.ts";
 import { failureDetail } from "./delivery.ts";
+import type { DiscordBoard } from "./discord-sync.ts";
 import { PaneGone, Refusal } from "./refusal.ts";
 import type { Store } from "./store.ts";
 
@@ -30,6 +32,8 @@ export type BoardOptions = {
   log?: (line: string) => void;
   /** Reads the Cloudflare Access team keys; tests pass their own. */
   fetchCerts?: CertFetch;
+  /** The Discord copy the project tab shows and POST /discord sends through; absent: no Discord on the board. */
+  discord?: DiscordBoard;
 };
 
 const STATIC: Record<string, [string, string]> = {
@@ -86,7 +90,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     return text(why, status);
   };
 
-  async function write(req: Request, kind: "decide" | "request"): Promise<Response> {
+  async function write(req: Request, kind: "decide" | "request" | "discord"): Promise<Response> {
     const w = await auth.writer(req);
     if ("code" in w) return reject(kind, w.code, w.why, 403);
     if (req.headers.get("origin") !== w.origin) return reject(kind, "origin", "forbidden: cross-origin request", 403);
@@ -102,6 +106,12 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     const want = Buffer.from(tokenFor(w.id));
     if (given.length !== want.length || !timingSafeEqual(given, want))
       return reject(kind, "csrf", "forbidden: stale page, reload the board", 403);
+    if (kind === "discord")
+      return discordPost(o.discord, form, {
+        reject: (code, why, status) => reject(kind, code, why, status),
+        log,
+        headers: SECURITY_HEADERS,
+      });
 
     const done = (flash: string, c = "lead"): Response =>
       new Response(null, {
@@ -173,7 +183,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
   /** What the page shows, without the clock: the page polls it and reloads when it changes. */
   const versionOf = (s: BoardState): string =>
     createHash("sha256")
-      .update(JSON.stringify({ ...s, generatedAt: 0 }))
+      .update(JSON.stringify({ ...s, generatedAt: 0, discord: o.discord?.stamp() ?? 0 }))
       .digest("hex")
       .slice(0, 16);
   // Every open tab polls /api/version; the answer is reused for a moment so polling cannot make the board re-read its files.
@@ -193,6 +203,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
         if (!auth.knownHost(hostnameOf(req))) return reject("write", "host", "forbidden: unknown host", 403);
         if (url.pathname === "/decide") return write(req, "decide");
         if (url.pathname === "/request") return write(req, "request");
+        if (url.pathname === "/discord") return write(req, "discord");
         return text("not found", 404);
       }
       if (req.method !== "GET" && req.method !== "HEAD") return text("method not allowed", 405);
@@ -208,6 +219,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
           version: versionOf(state),
           view,
           links: view.tab === "map" ? readLinks(store.root) : null,
+          discord: "code" in w ? (o.discord ? "locked" : null) : (o.discord?.view() ?? null),
           ...(flash ? { flash } : {}),
         });
         return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", ...SECURITY_HEADERS } });

@@ -1,5 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { type Ask, asks } from "./asks.ts";
 import { type BotCard, botCards, firstLine } from "./board-bots.ts";
 import { type ChatMessage, chatTail } from "./board-chat.ts";
@@ -7,6 +5,7 @@ import { agentsOrNone, avatarUrls } from "./board-avatars.ts";
 import { missionState } from "./board-missions.ts";
 import { routines } from "./board-mission-sources.ts";
 import type { Mission, MissionCard, Routine } from "./board-mission-types.ts";
+import { OTHER, projectResolver, projectSeeds, type Subject } from "./board-projects.ts";
 import { lanePrs, type Pr } from "./board-prs.ts";
 import { type StandingCard, standingCards } from "./board-status.ts";
 import { NUDGE_MINUTES } from "./duty.ts";
@@ -25,11 +24,21 @@ export type ProjectLane = {
   /** A done backlog item listed with the day's finished lanes, not a lane. */
   item?: true;
 };
+/**
+ * `done`: lanes and items finished in the last day (listed as fresh results); `recent`: lanes finished in the last week
+ * (the project view); `at`: the newest activity; `repos`/`bots`: the lead's and the PRs' repos, the lead's bots.
+ */
 export type ProjectGroup = {
   name: string;
   lanes: ProjectLane[];
   backlog: { id: string; title: string; priority: number; status: ItemStatus; decision: string | null }[];
   done: ProjectLane[];
+  recent: ProjectLane[];
+  at: number;
+  repos: string[];
+  bots: string[];
+  /** The lead's key prefixes: a Discord channel named by one (`fmv`) belongs to the project. */
+  prefixes: string[];
 };
 
 export type BoardState = {
@@ -52,54 +61,44 @@ export type BoardState = {
   avatars: Record<string, string>;
 };
 
-/** Default project names and the words that put a lane's key, cwd or a backlog item's id/title/cwd into them. */
-export const DEFAULT_PROJECTS: Record<string, string[]> = {
-  vibeguard: ["vibeguard", "vg-", "fmv"],
-  coupas: ["coupas"],
-  yogaday: ["yogaday", "yd-"],
-  drawhatha: ["drawhatha", "dh-"],
-  corpus: ["corpus"],
-  dori: ["dori", "phone-board"],
-};
-const OTHER = "기타";
 const DAY_MS = 86_400_000;
+const WEEK_MS = 7 * DAY_MS;
 const CHAT_SHOWN = 60;
 
-/** The project a lane or item belongs to: the first project with a word in its text, else 기타. */
-export function projectOf(projects: Record<string, string[]>, ...texts: string[]): string {
-  const hay = texts.join(" ").toLowerCase();
-  return Object.entries(projects).find(([, words]) => words.some((w) => hay.includes(w.toLowerCase())))?.[0] ?? OTHER;
-}
-
-/** board.json `projects` when it is an object of word lists; anything else (or an unreadable file) is the default. */
-function projectsOf(home: string): Record<string, string[]> {
-  const path = join(home, "board.json");
-  try {
-    const p = existsSync(path)
-      ? (JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>)["projects"]
-      : undefined;
-    const entries = p && typeof p === "object" && !Array.isArray(p) ? Object.entries(p) : [];
-    const valid = entries.filter(
-      (e): e is [string, string[]] => Array.isArray(e[1]) && e[1].every((w) => typeof w === "string" && w !== ""),
-    );
-    return valid.length > 0 ? Object.fromEntries(valid) : DEFAULT_PROJECTS;
-  } catch {
-    return DEFAULT_PROJECTS;
-  }
-}
-
 export function boardState(store: Store, now: number): BoardState {
-  const projects = projectsOf(store.root);
+  const seeds = projectSeeds(store.root);
+  const lanes = store.lanes();
+  const items = store.items();
+  const laneSubject = (l: (typeof lanes)[number]): Subject => ({
+    key: l.key,
+    cwd: l.cwd,
+    repos: lanePrs(l).flatMap((p) => (p.repo ? [p.repo] : [])),
+  });
+  const projectOf = projectResolver(seeds, [
+    ...lanes.map(laneSubject),
+    ...items.map((i) => ({ key: i.id, cwd: i.cwd, repos: [] })),
+  ]);
   const groups = new Map<string, ProjectGroup>();
   const group = (name: string): ProjectGroup => {
     const found = groups.get(name);
     if (found) return found;
-    const g: ProjectGroup = { name, lanes: [], backlog: [], done: [] };
+    const seed = seeds.find((p) => p.name === name);
+    const g: ProjectGroup = {
+      name,
+      lanes: [],
+      backlog: [],
+      done: [],
+      recent: [],
+      at: 0,
+      repos: [...(seed?.repos ?? [])],
+      bots: [...(seed?.bots ?? [])],
+      prefixes: [...(seed?.prefixes ?? [])],
+    };
     groups.set(name, g);
     return g;
   };
   const attention: ProjectLane[] = [];
-  for (const l of store.lanes()) {
+  for (const l of lanes) {
     const entry = l.log.at(-1);
     const latest = entry?.kind === "start" || entry?.kind === "adopt" ? "시작함" : entry?.text;
     const last = l.status === "ready" || l.status === "done" ? (l.final?.text ?? latest) : latest;
@@ -112,16 +111,22 @@ export function boardState(store: Store, now: number): BoardState {
       prs: lanePrs(l),
       escalated: l.status === "working" && l.nudges >= NUDGE_MINUTES.length,
     };
+    if (l.status === "done" && now - l.lastActivityAt >= WEEK_MS) continue;
+    const g = group(projectOf(laneSubject(l)));
+    g.at = Math.max(g.at, l.lastActivityAt);
+    for (const p of pl.prs) if (p.repo && !g.repos.includes(p.repo.toLowerCase())) g.repos.push(p.repo.toLowerCase());
     if (l.status === "done") {
-      if (now - l.lastActivityAt < DAY_MS) group(projectOf(projects, l.key, l.cwd)).done.push(pl);
+      g.recent.push(pl);
+      if (now - l.lastActivityAt < DAY_MS) g.done.push(pl);
       continue;
     }
-    group(projectOf(projects, l.key, l.cwd)).lanes.push(pl);
+    g.lanes.push(pl);
     if (l.status !== "working") attention.push(pl);
   }
-  for (const i of store.items()) {
+  for (const i of items) {
     if (i.status === "dropped" || (i.status === "done" && now - i.updatedAt >= DAY_MS)) continue;
-    const g = group(projectOf(projects, i.id, i.title, i.cwd));
+    const g = group(projectOf({ key: i.id, cwd: i.cwd, repos: [] }));
+    g.at = Math.max(g.at, i.updatedAt);
     if (i.status === "done") {
       const title = firstLine(i.title);
       g.done.push({
@@ -138,11 +143,13 @@ export function boardState(store: Store, now: number): BoardState {
     }
     g.backlog.push({ id: i.id, title: i.title, priority: i.priority, status: i.status, decision: i.decision ?? null });
   }
-  const order = [...Object.keys(projects), OTHER];
-  const sorted = [...groups.values()].sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  const sorted = [...groups.values()].sort(
+    (a, b) => Number(a.name === OTHER) - Number(b.name === OTHER) || b.at - a.at,
+  );
   for (const g of sorted) {
     g.lanes.sort((a, b) => b.at - a.at);
     g.done.sort((a, b) => b.at - a.at);
+    g.recent.sort((a, b) => b.at - a.at);
     g.backlog.sort((a, b) => a.priority - b.priority);
   }
   const standing = standingCards(store, now);

@@ -3,6 +3,8 @@ import { serveBoard } from "./board.ts";
 import { loadBoardConfig } from "./board-config.ts";
 import { collectLinks, saveLinks } from "./board-links.ts";
 import { type Args, need, one } from "./cli-args.ts";
+import { discordCall, loadDiscordEnv } from "./discord-api.ts";
+import { discordSync, TICK_MS } from "./discord-sync.ts";
 import type { Deps } from "./harness.ts";
 import { send } from "./inbox.ts";
 import { Refusal } from "./refusal.ts";
@@ -52,7 +54,16 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
   const port = Number(one(a, "port") ?? "7401");
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Refusal("--port must be 0-65535");
   const config = loadBoardConfig(d.store.root);
+  const env = loadDiscordEnv(d.store.root);
+  const discord = env
+    ? discordSync(d.store.root, discordCall(env.token), { now: d.now, users: env.users, log: (l) => console.log(l) })
+    : undefined;
+  if (discord) {
+    void discord.tick();
+    setInterval(() => void discord.tick(), TICK_MS);
+  }
   const server = serveBoard(d.store, {
+    ...(discord ? { discord } : {}),
     host: one(a, "host") ?? "127.0.0.1",
     port,
     now: d.now,
@@ -60,7 +71,7 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
     toLead: (text) => send(d, "lead", text, "board"),
   });
   console.log(
-    `BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length} devices=${config.allowNodes.length} access=${config.access ? config.access.allowEmails.length : "off"} copy=${config.copyTo || "off"}`,
+    `BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length} devices=${config.allowNodes.length} access=${config.access ? config.access.allowEmails.length : "off"} copy=${config.copyTo || "off"} discord=${discord ? "on" : "off"}`,
   );
   return new Promise<number>(() => {});
 }

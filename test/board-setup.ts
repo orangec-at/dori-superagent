@@ -7,6 +7,7 @@ import { askAdd } from "../src/asks.ts";
 import type { CertFetch } from "../src/board-access.ts";
 import { serveBoard } from "../src/board.ts";
 import type { BoardConfig } from "../src/board-config.ts";
+import type { DiscordBoard } from "../src/discord-sync.ts";
 import { Store } from "../src/store.ts";
 
 export const NOW = Date.UTC(2026, 10, 13, 1, 0, 0);
@@ -31,7 +32,12 @@ afterEach(() => {
 
 /** A board on a fresh DORI_HOME with one open ask (vg-analytics, A recommended); every lead delivery is recorded. */
 export function start(
-  o: { toLead?: (text: string) => Promise<string>; config?: BoardConfig; fetchCerts?: CertFetch } = {},
+  o: {
+    toLead?: (text: string) => Promise<string>;
+    config?: BoardConfig;
+    fetchCerts?: CertFetch;
+    discord?: DiscordBoard;
+  } = {},
 ) {
   const root = mkdtempSync(join(tmpdir(), "dori-board-"));
   roots.push(root);
@@ -60,6 +66,7 @@ export function start(
       }),
     log: (l) => logs.push(l),
     ...(o.fetchCerts ? { fetchCerts: o.fetchCerts } : {}),
+    ...(o.discord ? { discord: o.discord } : {}),
   });
   servers.push(server);
   return { url: server.url.href.replace(/\/$/, ""), sent, logs, home: root, store };

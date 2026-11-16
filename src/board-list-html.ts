@@ -7,19 +7,25 @@ import type { Row, Section } from "./board-status.ts";
 import { rowAvatar, strip } from "./board-detail-html.ts";
 import { ago, esc, mark } from "./board-thread-html.ts";
 
-export type Tab = "work" | "mission" | "pr" | "backlog" | "map";
+export type Tab = "work" | "proj" | "mission" | "pr" | "backlog" | "map";
 export type Filter = "all" | "mine" | "working";
-/** What the page shows: the list tab, its filter, and the selected row or mission (null: the list alone on a phone). */
-export type View = { tab: Tab; f: Filter; c: string | null; m: string | null };
+/**
+ * What the page shows: the list tab, its filter, and the selected row or mission (null: the list alone on a phone);
+ * on the 프로젝트 tab, the selected project `p` or Discord channel key `d`.
+ */
+export type View = { tab: Tab; f: Filter; c: string | null; m: string | null; p: string | null; d: string | null };
+const TABS: readonly Tab[] = ["proj", "mission", "pr", "backlog", "map"];
 
 export function viewOf(params: URLSearchParams): View {
   const tab = params.get("tab");
   const f = params.get("f");
   return {
-    tab: tab === "pr" || tab === "backlog" || tab === "mission" || tab === "map" ? tab : "work",
+    tab: TABS.find((t) => t === tab) ?? "work",
     f: f === "mine" || f === "working" ? f : "all",
     c: params.get("c"),
     m: params.get("m"),
+    p: tab === "proj" ? params.get("p") : null,
+    d: tab === "proj" ? params.get("d") : null,
   };
 }
 
@@ -30,6 +36,8 @@ export function hrefOf(v: View, over: Partial<View> = {}): string {
   if (n.f !== "all") q.set("f", n.f);
   if (n.c) q.set("c", n.c);
   if (n.m) q.set("m", n.m);
+  if (n.tab === "proj" && n.p) q.set("p", n.p);
+  if (n.tab === "proj" && n.d) q.set("d", n.d);
   const s = q.toString();
   return s ? `/?${s}` : "/";
 }
@@ -155,6 +163,8 @@ export function listPane(
     cards: Record<string, MissionCard>;
     avatars: Record<string, string>;
     links?: LinkSnapshot | null;
+    /** The 프로젝트 tab's body, rendered by the page (it needs the Discord copy). */
+    proj?: string;
   },
   v: View,
   now: number,
@@ -166,15 +176,17 @@ export function listPane(
   const tab = (t: Tab, label: string, n: number): string =>
     `<a class="tab${v.tab === t ? " on" : ""}" href="${esc(hrefOf(v, { tab: t, f: "all" }))}">${label}${n ? ` ${n}` : ""}</a>`;
   const body =
-    v.tab === "mission"
-      ? missionTab(s.missions, v, now)
-      : v.tab === "pr"
-        ? prTab(rows, v, now, selected)
-        : v.tab === "backlog"
-          ? backlogTab(projects)
-          : v.tab === "map"
-            ? linksList(s.links ?? null, s.avatars)
-            : workTab(rows, v, now, selected, s.cards, s.avatars);
+    v.tab === "proj"
+      ? (s.proj ?? "")
+      : v.tab === "mission"
+        ? missionTab(s.missions, v, now)
+        : v.tab === "pr"
+          ? prTab(rows, v, now, selected)
+          : v.tab === "backlog"
+            ? backlogTab(projects)
+            : v.tab === "map"
+              ? linksList(s.links ?? null, s.avatars)
+              : workTab(rows, v, now, selected, s.cards, s.avatars);
   const active = s.missions.filter((m) => m.status !== "완료").length;
-  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}${tab("map", "연결", 0)}</nav>${body}`;
+  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("proj", "프로젝트", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}${tab("map", "연결", 0)}</nav>${body}`;
 }

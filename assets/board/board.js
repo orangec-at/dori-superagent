@@ -15,10 +15,14 @@
   const DRAFT = "dori-board-draft";
   try {
     const params = new URL(location.href).searchParams;
-    const c = box?.form?.elements.namedItem("c")?.value ?? "";
+    // A Discord composer names its channel in `d` and comes back as ?d=<key>&sent=dfailed.
+    const d = box?.form?.elements.namedItem("d")?.value;
+    const c = d !== undefined ? `d:${d}` : (box?.form?.elements.namedItem("c")?.value ?? "");
+    const failedHere =
+      (params.get("sent") === "failed" && params.get("c") === c) ||
+      (params.get("sent") === "dfailed" && `d:${params.get("d")}` === c);
     const kept = JSON.parse(sessionStorage.getItem(DRAFT) ?? "null");
-    if (box && params.get("sent") === "failed" && params.get("c") === c && kept?.c === c && box.value === "")
-      box.value = kept.text ?? "";
+    if (box && failedHere && kept?.c === c && box.value === "") box.value = kept.text ?? "";
     else if (params.has("sent")) sessionStorage.removeItem(DRAFT);
     box?.form?.addEventListener("submit", () => sessionStorage.setItem(DRAFT, JSON.stringify({ c, text: box.value })));
   } catch {
