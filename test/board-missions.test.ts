@@ -217,10 +217,11 @@ test("evidence that is not a web link or a board path is shown as text", async (
   }
 });
 
-test("a --mission run tagged [아침 배정] is handed in both missions, so the assignment does not wait on it", () => {
+test("a --mission run tagged [아침 배정] is handed in both missions, so the assignment does not wait on it; its issues hand over in the mission only", () => {
   const { store, home } = seeded();
   const path = join(home, "delegations.jsonl");
-  const run = { code: 0, at: "2026-11-13T00:30:00.000Z", agent: "yoridori", outcome: "ok", output: "초안 올림" };
+  const output = "https://github.com/orangec-at/yogaday.love/issues/94\n초안 올림";
+  const run = { code: 0, at: "2026-11-13T00:30:00.000Z", agent: "yoridori", outcome: "ok", output };
   const text = "[아침 배정 2026-11-13] Threads 초안";
   writeFileSync(path, `${readFileSync(path, "utf8")}${JSON.stringify({ ...run, text, mission: "yd-threads" })}\n`);
   const s = boardState(store, NOW);
@@ -229,10 +230,11 @@ test("a --mission run tagged [아침 배정] is handed in both missions, so the 
     "lead>bot:yoridori ok 지시 · Threads 초안",
     "bot:yoridori>lead ok 초안 올림",
   ]);
-  expect(handed(ASSIGN).some((f) => f.includes(" wait "))).toBe(false);
+  expect(handed(ASSIGN).some((f) => f.includes(" wait ") || f.includes("이슈 #94"))).toBe(false);
   expect(handed("mission:yd-threads")).toEqual([
     "lead>bot:yoridori ok 지시 · Threads 초안",
     "bot:yoridori>lead ok 초안 올림",
+    "bot:yoridori>gh:orangec-at/yogaday.love ok 이슈 #94",
   ]);
 });
 

@@ -154,7 +154,8 @@ export function missionState(
       .map((k) => prMission.get(k)?.mission)
       .find(Boolean);
     const id = d.mission ? `mission:${d.mission}` : tag ? `tag:${tag}` : (byPr ?? `d:${d.agent}:${at}`);
-    // A --mission run that is also a morning assignment shows in both, so the assignment does not wait on it.
+    // A --mission run that is also a morning assignment shows in both, so the assignment does not wait on it; the
+    // issues it names hand over in the --mission one only (the assignment gets its own from the result line).
     const targets = [draft(id, d.mission ?? tag ?? withoutTag(d.text))];
     if (d.mission && tag && date) targets.push(draft(`tag:${tag}`, tag));
     const bot = `bot:${d.agent}`;
@@ -164,8 +165,8 @@ export function missionState(
       step(m, at, "lead", bot, `지시 · ${withoutTag(d.text)}`, "ok");
       step(m, at, bot, "lead", answer, failed ? "stuck" : "ok", firstUrl(d.output));
       lastFailed.set(m, (lastFailed.get(m) ?? new Map()).set(bot, failed));
-      issues(m, at, bot, d.output);
     }
+    issues(targets[0]!, at, bot, d.output);
   }
 
   // A retry that succeeded clears an earlier failure: only each bot's latest run counts, as with review receipts.
