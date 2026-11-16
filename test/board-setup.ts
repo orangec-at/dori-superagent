@@ -7,7 +7,7 @@ import { askAdd } from "../src/asks.ts";
 import type { CertFetch } from "../src/board-access.ts";
 import { serveBoard } from "../src/board.ts";
 import type { BoardConfig } from "../src/board-config.ts";
-import type { DiscordBoard } from "../src/discord-sync.ts";
+import type { ChannelCopy, ChannelSource } from "../src/channel-source.ts";
 import { Store } from "../src/store.ts";
 
 export const NOW = Date.UTC(2026, 10, 13, 1, 0, 0);
@@ -36,7 +36,8 @@ export function start(
     toLead?: (text: string) => Promise<string>;
     config?: BoardConfig;
     fetchCerts?: CertFetch;
-    discord?: DiscordBoard;
+    discord?: ChannelCopy;
+    sources?: ChannelSource[];
   } = {},
 ) {
   const root = mkdtempSync(join(tmpdir(), "dori-board-"));
@@ -66,7 +67,7 @@ export function start(
       }),
     log: (l) => logs.push(l),
     ...(o.fetchCerts ? { fetchCerts: o.fetchCerts } : {}),
-    ...(o.discord ? { discord: o.discord } : {}),
+    sources: [...(o.discord ? [{ id: "discord", label: "Discord", ...o.discord }] : []), ...(o.sources ?? [])],
   });
   servers.push(server);
   return { url: server.url.href.replace(/\/$/, ""), sent, logs, home: root, store };

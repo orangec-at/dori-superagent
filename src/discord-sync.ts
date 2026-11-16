@@ -2,12 +2,11 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { projectAliases } from "./board-projects.ts";
+import type { Channel, ChannelCopy, ChannelView, SendResult } from "./channel-source.ts";
 import type { DiscordAnswer, DiscordCall } from "./discord-api.ts";
 import { everyoneSees, type GuildChannel, type GuildRole } from "./discord-perms.ts";
 import { type DiscordMessage, mergeMessages, nameOf, type Raw } from "./discord-text.ts";
 import { activeThreads, archivedThreads, capThreads, type FoundThread } from "./discord-threads.ts";
-
-export type { DiscordMessage } from "./discord-text.ts";
 
 /**
  * The board's copy of the Discord server's text channels, their public threads and the operator's DMs. A listing tick
@@ -20,30 +19,10 @@ export type { DiscordMessage } from "./discord-text.ts";
  * syncs. A thread names its parent channel by key; `project` is the ~/.dori/projects.json alias for its id, read at
  * each listing.
  */
-type Kind = "channel" | "dm" | "thread";
-export type DiscordChannel = {
-  key: string;
-  name: string;
-  kind: Kind;
-  parent?: string;
-  archived?: boolean;
-  locked?: boolean;
-  project?: string;
-  messages: DiscordMessage[];
-};
-export type DiscordView = {
-  channels: DiscordChannel[];
-  syncedAt: number | null;
-  error: string | null;
-  skipped: string[];
-};
-export type SendResult = "sent" | "failed";
-export type DiscordBoard = {
-  view(): DiscordView;
-  /** Grows when the copy changes; the board's version hash includes it so open pages reload. */
-  stamp(): number;
-  send(key: string, text: string): Promise<SendResult>;
-};
+type Kind = Channel["kind"];
+export type DiscordChannel = Channel;
+export type DiscordView = ChannelView;
+export type DiscordBoard = ChannelCopy;
 
 type Kept = Omit<Partial<FoundThread>, "id" | "name"> & {
   key: string;

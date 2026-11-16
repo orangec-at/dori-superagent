@@ -53,7 +53,7 @@ test("the timeline lists the week oldest first, one icon per kind; older events 
 test("the badge: a lost lane is 막힘, work alone is 진행 중, nothing is 쉬는 중; the list shows it with one next step", () => {
   const store = coupas();
   const s = boardState(store, NOW);
-  const list = projectsList(s, null, V, NOW);
+  const list = projectsList(s, V, NOW);
   expect(list).toMatch(/<b>coupas<\/b><span class="bdg b-turn">재일 님 차례<\/span>/);
   expect(list).toContain('<span class="rs">결정: 판매 단가는?</span>');
 
@@ -63,16 +63,14 @@ test("the badge: a lost lane is 막힘, work alone is 진행 중, nothing is 쉬
     lane("coupas-sales", "working", NOW - 600_000, [{ at: NOW - 600_000, kind: "report", text: "집계 중" }]),
   );
   const c = boardState(calm, NOW);
-  const calmList = projectsList(c, null, V, NOW);
+  const calmList = projectsList(c, V, NOW);
   expect(calmList).toMatch(/<b>coupas<\/b><span class="bdg b-active">진행 중<\/span>/);
   expect(calmList).toContain('<span class="rs">coupas-sales — 집계 중</span>');
   expect(calmList).toMatch(/<b>idle<\/b><span class="bdg b-rest">쉬는 중<\/span>/);
   expect(calmList).toContain("쉬는 프로젝트 · 진행 중인 일 없음");
 
   calm.saveLane(lane("coupas-sales", "lost", NOW - 600_000, [{ at: NOW - 600_000, kind: "lost", text: "pane gone" }]));
-  expect(projectsList(boardState(calm, NOW), null, V, NOW)).toMatch(
-    /<b>coupas<\/b><span class="bdg b-blocked">막힘<\/span>/,
-  );
+  expect(projectsList(boardState(calm, NOW), V, NOW)).toMatch(/<b>coupas<\/b><span class="bdg b-blocked">막힘<\/span>/);
 });
 
 test("without a note the purpose is the newest lane's brief title, its key prefix dropped", () => {
