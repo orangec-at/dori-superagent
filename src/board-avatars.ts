@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { type Agent, loadAgents } from "./agents.ts";
 import type { Exec } from "./runtime/exec.ts";
@@ -20,35 +20,53 @@ const MAX_BYTES = 2 * 1024 * 1024;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const dir = (home: string): string => join(home, "avatars");
-/** The real path of an existing file is inside `realHome` (DORI_HOME's real path); `..foo.png` is a name inside. */
-const inHome = (realHome: string, file: string): boolean => {
-  const rel = relative(realHome, realpathSync(file));
+/** The real path (symlinks resolved), or null when it does not exist (DORI_HOME not created yet, a file just removed). */
+const realOrNull = (p: string): string | null => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return null;
+  }
+};
+/** A real path is inside `realHome` (DORI_HOME's real path); `..foo.png` is a name inside. */
+const inHome = (realHome: string, real: string): boolean => {
+  const rel = relative(realHome, real);
   return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 };
 
-/** The picture file of a bot (or `lead`), or null: only an existing image file under 2 MB counts. */
-export function avatarFile(home: string, name: string, agents: Agent[]): string | null {
-  if (!NAME.test(name)) return null;
+/**
+ * The real path of a bot's (or `lead`'s) picture, or null: only an existing image file under 2 MB counts. The real
+ * path is what gets opened, so a symlink swapped in after the check cannot point the board outside DORI_HOME.
+ */
+export function avatarFile(
+  home: string,
+  name: string,
+  agents: Agent[],
+  realHome: string | null = realOrNull(home),
+): string | null {
+  if (!realHome || !NAME.test(name)) return null;
   const given = agents.find((a) => a.name === name)?.avatar;
   const candidates = [
     ...(given ? [resolve(home, given)] : []),
     ...Object.keys(TYPES).map((ext) => join(dir(home), `${name}${ext}`)),
   ];
-  const realHome = realpathSync(home);
-  return (
-    candidates.find((p) => {
-      if (!TYPES[extname(p).toLowerCase()] || !existsSync(p) || !inHome(realHome, p)) return false;
-      const st = statSync(p);
-      return st.isFile() && st.size > 0 && st.size <= MAX_BYTES;
-    }) ?? null
-  );
+  for (const p of candidates) {
+    if (!TYPES[extname(p).toLowerCase()]) continue;
+    const real = realOrNull(p);
+    if (!real || !TYPES[extname(real).toLowerCase()] || !inHome(realHome, real)) continue;
+    const st = statSync(real, { throwIfNoEntry: false });
+    if (st?.isFile() && st.size > 0 && st.size <= MAX_BYTES) return real;
+  }
+  return null;
 }
 
 /** Row id (`bot:<name>`, `lead`) -> the board URL of its picture, versioned by the file's mtime so a new one shows. */
 export function avatarUrls(home: string, agents: Agent[]): Record<string, string> {
   const out: Record<string, string> = {};
+  const realHome = realOrNull(home);
+  if (!realHome) return out;
   for (const [id, name] of [["lead", "lead"], ...agents.map((a) => [`bot:${a.name}`, a.name])] as const) {
-    const file = avatarFile(home, name, agents);
+    const file = avatarFile(home, name, agents, realHome);
     if (file) out[id] = `/avatar/${encodeURIComponent(name)}?v=${Math.floor(statSync(file).mtimeMs)}`;
   }
   return out;

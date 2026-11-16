@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { loadAgents } from "../src/agents.ts";
-import { avatarFile, syncAvatars } from "../src/board-avatars.ts";
+import { avatarFile, avatarUrls, syncAvatars } from "../src/board-avatars.ts";
 import type { Exec } from "../src/runtime/exec.ts";
 import { start, tailnet } from "./board-setup.ts";
 
@@ -36,7 +36,7 @@ function home() {
 }
 
 test("agents.json avatar comes first, then DORI_HOME/avatars/<name>.<image>; anything else is no picture", () => {
-  const { home: h } = home();
+  const h = realpathSync(home().home);
   const agents = loadAgents(h);
   expect(avatarFile(h, "endo", agents)).toBe(join(h, "pics", "endo.webp"));
   expect(avatarFile(h, "panbungi", agents)).toBe(join(h, "avatars", "panbungi.png"));
@@ -50,7 +50,7 @@ test("agents.json avatar comes first, then DORI_HOME/avatars/<name>.<image>; any
 });
 
 test("a picture outside DORI_HOME is never used: an absolute path, a `..` path or a symlink out", () => {
-  const { home: h } = home();
+  const h = realpathSync(home().home);
   const out = join(mkdtempSync(join(tmpdir(), "dori-out-")), "x.png");
   writeFileSync(out, PNG);
   symlinkSync(out, join(h, "avatars", "lead.png"));
@@ -62,6 +62,18 @@ test("a picture outside DORI_HOME is never used: an absolute path, a `..` path o
   expect(avatarFile(h, "lead", agents)).toBeNull();
   // A name that merely starts with `..` is still inside DORI_HOME.
   expect(avatarFile(h, "yoridori", agents)).toBe(join(h, "..yoridori.png"));
+});
+
+test("the picture is the symlink's real path, so the file opened is the one checked", () => {
+  const h = realpathSync(home().home);
+  symlinkSync(join(h, "pics", "endo.webp"), join(h, "avatars", "lead.webp"));
+  expect(avatarFile(h, "lead", loadAgents(h))).toBe(join(h, "pics", "endo.webp"));
+});
+
+test("without DORI_HOME there are no pictures, not an error", () => {
+  const gone = join(mkdtempSync(join(tmpdir(), "dori-gone-")), "home");
+  expect(avatarFile(gone, "lead", [])).toBeNull();
+  expect(avatarUrls(gone, [])).toEqual({});
 });
 
 test("the board serves the pictures and shows them in the list, the phone strip, the detail pane and the mission map", async () => {
