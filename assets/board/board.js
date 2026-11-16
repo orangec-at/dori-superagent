@@ -29,6 +29,26 @@
     // no sessionStorage (a private window): the failure notice still shows, only the text is not put back
   }
 
+  // A channel's new-message badge counts only what arrived after the channel was last opened on this device.
+  const SEEN = "dori-board-seen";
+  try {
+    const seen = JSON.parse(localStorage.getItem(SEEN) ?? "{}") ?? {};
+    const open = document.querySelector("[data-seen]");
+    const key = open?.getAttribute("data-seen");
+    if (key) {
+      seen[key] = Math.max(Number(seen[key]) || 0, Number(open.getAttribute("data-at")) || 0);
+      localStorage.setItem(SEEN, JSON.stringify(seen));
+    }
+    for (const b of document.querySelectorAll(".unr[data-d]")) {
+      const after = Number(seen[b.getAttribute("data-d")]) || 0;
+      const n = (b.getAttribute("data-ats") || "").split(",").filter((a) => a !== "" && Number(a) > after).length;
+      b.textContent = n > 99 ? "99+" : String(n);
+      b.hidden = n === 0;
+    }
+  } catch {
+    // no localStorage: the badge keeps the server's count (new since the operator last wrote there)
+  }
+
   // A tablet's detail panel (a checkbox the 미션 button toggles) closes on Escape too.
   const panel = document.getElementById("dt");
   document.addEventListener("keydown", (e) => {

@@ -5,7 +5,7 @@ import { agentsOrNone, avatarUrls } from "./board-avatars.ts";
 import { missionState } from "./board-missions.ts";
 import { routines } from "./board-mission-sources.ts";
 import type { Mission, MissionCard, Routine } from "./board-mission-types.ts";
-import { OTHER, projectResolver, projectSeeds, type Subject } from "./board-projects.ts";
+import { type Link, OTHER, projectResolver, projectSeeds, type Subject } from "./board-projects.ts";
 import { lanePrs, type Pr } from "./board-prs.ts";
 import { type StandingCard, standingCards } from "./board-status.ts";
 import { NUDGE_MINUTES } from "./duty.ts";
@@ -39,6 +39,9 @@ export type ProjectGroup = {
   bots: string[];
   /** The lead's key prefixes: a Discord channel named by one (`fmv`) belongs to the project. */
   prefixes: string[];
+  /** board.json's one-line description and links for the project. */
+  note: string | null;
+  links: Link[];
 };
 
 export type BoardState = {
@@ -82,7 +85,8 @@ export function boardState(store: Store, now: number): BoardState {
   const group = (name: string): ProjectGroup => {
     const found = groups.get(name);
     if (found) return found;
-    const seed = seeds.find((p) => p.name === name);
+    const mine = seeds.filter((p) => p.name === name);
+    const all = (f: (p: (typeof seeds)[number]) => string[]): string[] => [...new Set(mine.flatMap(f))];
     const g: ProjectGroup = {
       name,
       lanes: [],
@@ -90,9 +94,11 @@ export function boardState(store: Store, now: number): BoardState {
       done: [],
       recent: [],
       at: 0,
-      repos: [...(seed?.repos ?? [])],
-      bots: [...(seed?.bots ?? [])],
-      prefixes: [...(seed?.prefixes ?? [])],
+      repos: all((p) => p.repos),
+      bots: all((p) => p.bots),
+      prefixes: all((p) => p.prefixes),
+      note: mine.find((p) => p.note)?.note ?? null,
+      links: mine.flatMap((p) => p.links),
     };
     groups.set(name, g);
     return g;
@@ -143,6 +149,8 @@ export function boardState(store: Store, now: number): BoardState {
     }
     g.backlog.push({ id: i.id, title: i.title, priority: i.priority, status: i.status, decision: i.decision ?? null });
   }
+  // A seeded project shows with no work too; with no activity (at 0) it sorts after the active ones.
+  for (const p of seeds) group(p.name);
   const sorted = [...groups.values()].sort(
     (a, b) => Number(a.name === OTHER) - Number(b.name === OTHER) || b.at - a.at,
   );
