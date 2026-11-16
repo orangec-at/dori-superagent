@@ -186,13 +186,41 @@ test("bot-chat layout: list rows start with avatars, a phone gets the avatar str
   expect(bot).toContain(`<a class="dm" href="/?m=${encodeURIComponent(ASSIGN)}#mtop">`);
 });
 
+test("a retry that succeeds clears a failure; old lanes leave; Muse needs the repo name before #N; only web links are links", () => {
+  const { store, home } = seeded();
+  const at = (m: number) => new Date(NOW - m * 60_000).toISOString();
+  const line = (o: Record<string, unknown>) => `${JSON.stringify({ code: 0, output: "ok", ...o })}\n`;
+  writeFileSync(
+    join(home, "delegations.jsonl"),
+    line({ at: at(30), agent: "endo", text: "[재시도] CI", outcome: "timeout" }) +
+      line({ at: at(20), agent: "endo", text: "[재시도] CI", outcome: "ok" }),
+  );
+  writeFileSync(
+    join(home, "muse", "inbox.jsonl"),
+    `${JSON.stringify({ at: "2026-11-13 09:50", text: "webyogadaybook #93 아님" })}\n`,
+  );
+  const { mission: _, ...old } = store.lane("vg-web")!;
+  store.saveLane({ ...old, key: "vg-old", status: "lost", lastActivityAt: NOW - 8 * 24 * HOUR });
+  const s = boardState(store, NOW);
+  expect(s.missions.find((m) => m.id === "tag:재시도")?.status).toBe("완료");
+  expect(s.missions.some((m) => m.id === "lane:vg-old")).toBe(false);
+  expect(s.missions.find((m) => m.id === ASSIGN)?.steps.some((st) => st.to === "muse")).toBe(false);
+});
+
+test("evidence that is not a web link is shown as text", async () => {
+  const { store, url } = seeded();
+  store.saveLane({ ...store.lane("vg-web")!, final: { text: "x", evidence: ["javascript:alert(1)"], at: NOW } });
+  const page = await (await fetch(`${url}/?c=lane:vg-web`, { headers: tailnet() })).text();
+  expect(page).not.toContain('href="javascript:');
+});
+
 test("dori delegate --mission writes the tag to the log line; a tag that is not a key is refused", async () => {
   const { home } = seeded();
   const exec: Exec = async () => ({ code: 0, stdout: "ok", stderr: "" });
   await delegate(exec, "endo", "봐 줘", { home, timeoutMs: 60_000, now: () => NOW, mission: "vg-launch" });
   const last = readFileSync(join(home, "delegations.jsonl"), "utf8").trim().split("\n").at(-1)!;
   expect(JSON.parse(last)).toMatchObject({ agent: "endo", mission: "vg-launch" });
-  expect(delegate(exec, "endo", "x", { home, timeoutMs: 1000, now: () => NOW, mission: "Bad Tag" })).rejects.toThrow(
-    Refusal,
-  );
+  await expect(
+    delegate(exec, "endo", "x", { home, timeoutMs: 1000, now: () => NOW, mission: "Bad Tag" }),
+  ).rejects.toThrow(Refusal);
 });

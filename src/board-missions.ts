@@ -15,6 +15,7 @@ import {
   briefTitle,
   firstUrl,
   issueLinks,
+  mentionsIssue,
   museInbox,
   prKeys,
   tagOf,
@@ -98,7 +99,7 @@ export function missionState(
 
   // Lanes: lead (or the standing lead that owns it) -> lane -> back, with the PRs it names.
   const prMission = new Map<string, { mission: string; lane: string; url: string }>();
-  const lanes = store.lanes().filter((l) => l.status !== "done" || now - l.lastActivityAt < WINDOW_MS);
+  const lanes = store.lanes().filter((l) => now - l.lastActivityAt < WINDOW_MS);
   const laneTitles = new Map<string, string>();
   for (const l of lanes) {
     const title = briefTitle(l.brief, l.key);
@@ -138,6 +139,7 @@ export function missionState(
 
   // Delegations: lead -> bot and the bot's answer back, grouped by --mission, then [tag], then the PR they name.
   const assignDates = new Set([kstDate(now)]);
+  const lastFailed = new Map<Draft, Map<string, boolean>>();
   for (const d of delegations(home)) {
     const at = Date.parse(d.at);
     if (!(now - at < WINDOW_MS)) continue;
@@ -154,9 +156,12 @@ export function missionState(
     step(m, at, "lead", bot, `지시 · ${withoutTag(d.text)}`, "ok");
     const answer = failed ? (d.outcome === "timeout" ? "시간 초과" : "실패") : delegateSummary(d.output);
     step(m, at, bot, "lead", answer, failed ? "stuck" : "ok", firstUrl(d.output));
-    if (failed) m.stuck = true;
+    lastFailed.set(m, (lastFailed.get(m) ?? new Map()).set(bot, failed));
     issues(m, at, bot, d.output);
   }
+
+  // A retry that succeeded clears an earlier failure: only each bot's latest run counts, as with review receipts.
+  for (const [m, bots] of lastFailed) if ([...bots.values()].some(Boolean)) m.stuck = true;
 
   // The morning assignment file: who was given what, and the result line the lead wrote for each bot.
   for (const date of assignDates) {
@@ -187,14 +192,11 @@ export function missionState(
   // Muse: an inbox line that names `#N` joins the mission that already links that repository's issue N.
   for (const line of museInbox(home)) {
     if (now - line.at > WINDOW_MS) continue;
-    const lower = line.text.toLowerCase();
     for (const n of new Set([...line.text.matchAll(/#(\d+)/g)].map((x) => Number(x[1]))))
       for (const m of drafts.values())
         if (
           m.steps.some((s) =>
-            issueLinks(s.href ?? "").some(
-              (i) => i.num === n && lower.includes((i.repo.split("/")[1] ?? "").split(".")[0]!),
-            ),
+            issueLinks(s.href ?? "").some((i) => i.num === n && mentionsIssue(line.text, i.repo, n)),
           ) &&
           !m.steps.some((s) => s.to === "muse" && s.at === line.at)
         )

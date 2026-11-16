@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent } from "./agents.ts";
 import { botLabel } from "./board-bots.ts";
@@ -14,6 +14,7 @@ const URL_RE = /https?:\/\/[^\s)<>\]"'`|]+/;
 const ISSUE_RE = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)(#issuecomment-\d+)?/g;
 const PR_RE = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g;
 const TITLE_MAX = 90;
+const MUSE_TAIL_BYTES = 256 * 1024;
 
 const machineOf = (host: string): string => (host === "" ? "fedora" : (host.split("@").pop() ?? host));
 
@@ -45,6 +46,12 @@ export function issueLinks(text: string): { repo: string; num: number; comment: 
     seen.add(m[0]);
     return [{ repo: m[1]!, num: Number(m[2]), comment: m[3] !== undefined, url: m[0] }];
   });
+}
+
+/** The text names issue N of the repository as a word before `#N` (`yogaday #93`, `yogaday.love#93`, `owner/yogaday#93`). */
+export function mentionsIssue(text: string, repo: string, n: number): boolean {
+  const name = (repo.split("/")[1] ?? repo).split(".")[0]!.replace(/[^\w-]/g, "");
+  return name !== "" && new RegExp(`(^|[^\\w-])${name}(\\.[\\w-]+)?\\s*#${n}(?!\\d)`, "i").test(text);
 }
 
 /** `owner/repo#N` for every pull request link in the text. */
@@ -110,11 +117,20 @@ export function routines(home: string): Routine[] {
   ];
 }
 
-/** What the lead put in the Muse inbox (DORI_HOME/muse/inbox.jsonl); a line that is not a message is skipped. */
+/** The last lines the lead put in the Muse inbox (DORI_HOME/muse/inbox.jsonl); a cut or non-message line is skipped. */
 export function museInbox(home: string): { at: number; text: string }[] {
   const path = join(home, "muse", "inbox.jsonl");
   if (!existsSync(path)) return [];
-  return readFileSync(path, "utf8")
+  const size = statSync(path).size;
+  const buf = Buffer.alloc(Math.min(size, MUSE_TAIL_BYTES));
+  const fd = openSync(path, "r");
+  try {
+    readSync(fd, buf, 0, buf.length, size - buf.length);
+  } finally {
+    closeSync(fd);
+  }
+  return buf
+    .toString("utf8")
     .split("\n")
     .flatMap((line) => {
       try {
