@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { lanePrs } from "../src/board-prs.ts";
 import { boardState } from "../src/board-state.ts";
 import { rows } from "../src/board-status.ts";
+import { fold } from "../src/board-thread-html.ts";
 import type { Lane } from "../src/store-types.ts";
 import { NOW, start, tailnet } from "./board-setup.ts";
 
@@ -96,6 +97,18 @@ test("PRs come from report text and evidence URLs, each once", () => {
   expect(prs.map((p) => `${p.repo ?? "-"}#${p.num}`)).toEqual(["a/b#4", "a/c#4", "-#9"]);
 });
 
+test("a wide screen folds long paths and session ids, never a URL", () => {
+  const s =
+    "session_id: local-e5b6b143b1e465af7723fe381deb546fada4802edd8a and workspace/coupas/queue/2026-11-20-kitchen.md";
+  const html = fold(`${s} https://github.com/orangec-at/dori-superagent/pull/26 a/b/c`);
+  expect(html).toContain('<span class="ls">local-e5b6b143…</span>');
+  expect(html).toContain(
+    '<span class="lf">workspace/coupas/queue/2026-11-20-kitchen.md</span><span class="ls">…/2026-11-20-kitchen.md</span>',
+  );
+  expect(html).toContain(" https://github.com/orangec-at/dori-superagent/pull/26 a/b/c");
+  expect(fold("<b>")).toBe("&lt;b&gt;");
+});
+
 test("My turn shows only the operator's rows; the PR tab lists lane PRs; a row opens its record", async () => {
   const { url } = seeded();
   const mine = await (await fetch(`${url}/?f=mine`, { headers: tailnet() })).text();
@@ -111,6 +124,8 @@ test("My turn shows only the operator's rows; the PR tab lists lane PRs; a row o
   const bot = await (await fetch(`${url}/?c=bot:panbungi`, { headers: tailnet() })).text();
   expect(bot).toContain("지시 · ok");
   expect(bot).toContain('<div class="text">초안 1개 저장</div>');
+  expect(bot).toContain('<div class="msg them"><span class="mav" aria-hidden="true"><span class="av"');
+  expect(bot).toContain('<label class="dtb" for="dt">미션</label>');
   expect(bot).toContain("오늘 배정: V1 답글 초안");
   const lead = await (await fetch(`${url}/`, { headers: tailnet() })).text();
   expect(lead).toContain('<details class="work"><summary>vg-ready · 머지 승인');
