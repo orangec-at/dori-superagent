@@ -7,7 +7,15 @@ import { askText, briefTitle, type HubEvent, itemEvents, laneEvents } from "./bo
 import { missionState } from "./board-missions.ts";
 import { routines } from "./board-mission-sources.ts";
 import type { Mission, MissionCard, Routine } from "./board-mission-types.ts";
-import { type Link, messageProject, OTHER, projectResolver, projectSeeds, type Subject } from "./board-projects.ts";
+import {
+  type Link,
+  messageProject,
+  OTHER,
+  projectAliases,
+  projectResolver,
+  projectSeeds,
+  type Subject,
+} from "./board-projects.ts";
 import { lanePrs, type Pr } from "./board-prs.ts";
 import { type StandingCard, standingCards } from "./board-status.ts";
 import { NUDGE_MINUTES } from "./duty.ts";
@@ -87,9 +95,9 @@ export function boardState(store: Store, now: number): BoardState {
     cwd: l.cwd,
     repos: lanePrs(l).flatMap((p) => (p.repo ? [p.repo] : [])),
   });
-  const projectOf = projectResolver(seeds, [
+  const projectOf = projectResolver(seeds, projectAliases(store.root), [
     ...lanes.map(laneSubject),
-    ...items.map((i) => ({ key: i.id, cwd: i.cwd, repos: [] })),
+    ...items.map((i) => ({ key: i.id, cwd: i.cwd, repos: [], title: i.title })),
   ]);
   const groups = new Map<string, ProjectGroup>();
   const group = (name: string): ProjectGroup => {
@@ -145,7 +153,7 @@ export function boardState(store: Store, now: number): BoardState {
   }
   for (const i of items) {
     if (i.status === "dropped" || (i.status === "done" && now - i.updatedAt >= DAY_MS)) continue;
-    const g = group(projectOf({ key: i.id, cwd: i.cwd, repos: [] }));
+    const g = group(projectOf({ key: i.id, cwd: i.cwd, repos: [], title: i.title }));
     g.at = Math.max(g.at, i.updatedAt);
     g.events.push(...itemEvents(i, now));
     if (i.status === "done") {

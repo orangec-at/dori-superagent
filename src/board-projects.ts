@@ -8,9 +8,11 @@ import { loadLeads } from "./standing.ts";
  * Which project a piece of work belongs to, learned from the work itself rather than a fixed list. A standing lead
  * (leads.json) or a board.json `projects` entry is a seed; any other lane or item is placed by the repo directory its
  * cwd sits in, else the repo of a PR it names, else a key prefix other work taught (`drht-` lanes ran in drawhatha, so
- * `drht-x` is drawhatha too). What none of these place is 기타.
+ * `drht-x` is drawhatha too). A folder named after another project's first word joins it (coupas-art → coupas), a
+ * backlog item none of these place goes to the project its title names, and ~/.dori/projects.json `alias` overrides all.
+ * What none of these place is 기타.
  */
-export type Subject = { key: string; cwd: string; repos: string[] };
+export type Subject = { key: string; cwd: string; repos: string[]; title?: string };
 export type Link = { label: string; url: string };
 export type Seed = {
   name: string;
@@ -134,8 +136,30 @@ export function boardSeed(name: string, v: unknown): Seed | null {
   };
 }
 
+/**
+ * ~/.dori/projects.json `{ "alias": { "<project or lane/item key>": "<project>" } }`, keys lowercased. A missing or
+ * unreadable file, or an entry that is not a non-empty string, adds nothing.
+ */
+export function projectAliases(home: string): Map<string, string> {
+  const path = join(home, "projects.json");
+  try {
+    if (!existsSync(path)) return new Map();
+    const a = (JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>)["alias"];
+    if (!a || typeof a !== "object" || Array.isArray(a)) return new Map();
+    return new Map(
+      Object.entries(a)
+        .filter((e): e is [string, string] => e[0].trim() !== "" && typeof e[1] === "string" && e[1].trim() !== "")
+        .map(([k, v]) => [k.trim().toLowerCase(), v.trim()]),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+const family = (name: string): string => name.split("-")[0] ?? name;
+
 /** Places every subject; `all` is the work the prefixes are learned from (every lane and backlog item, done included). */
-export function projectResolver(seeds: Seed[], all: Subject[]): (s: Subject) => string {
+export function projectResolver(seeds: Seed[], aliases: Map<string, string>, all: Subject[]): (s: Subject) => string {
   const seedOf = (s: Subject): string | undefined => {
     const repo = repoOfCwd(s.cwd);
     const hay = `${s.key} ${s.cwd}`.toLowerCase();
@@ -151,13 +175,16 @@ export function projectResolver(seeds: Seed[], all: Subject[]): (s: Subject) => 
     const fromPr = s.repos.map((r) => projectName(r.split("/")[1] ?? "")).find((n) => n !== "");
     return seedOf(s) ?? repoOfCwd(s.cwd) ?? fromPr ?? null;
   };
-  const known = new Set(seeds.map((p) => p.name));
+  const seedNames = new Set(seeds.map((p) => p.name));
+  const known = new Set(seedNames);
+  const work = new Map<string, number>();
   const votes = new Map<string, Map<string, number>>();
   for (const s of all) {
     const d = direct(s);
     const t = tokenOf(s.key);
     if (!d) continue;
     known.add(d);
+    work.set(d, (work.get(d) ?? 0) + 1);
     if (!t) continue;
     const v = votes.get(t) ?? new Map<string, number>();
     v.set(d, (v.get(d) ?? 0) + 1);
@@ -165,12 +192,36 @@ export function projectResolver(seeds: Seed[], all: Subject[]): (s: Subject) => 
   }
   const alias = new Map<string, string>();
   for (const [t, v] of votes) alias.set(t, [...v].sort((a, b) => b[1] - a[1])[0]![0]);
-  return (s) => {
-    const d = direct(s);
-    if (d) return d;
+  /**
+   * One project per family of folders: `coupas-art` joins the project named `coupas`; `dori-research` and `dori-plans`
+   * join the dori-* project with the most work (dori-superagent), ties by name. A seed keeps its own name.
+   */
+  const canon = (n: string): string => {
+    const f = family(n);
+    if (seedNames.has(n) || f.length < 3) return n;
+    if (known.has(f)) return f;
+    const kin = [...known].filter((k) => family(k) === f);
+    return kin.sort((a, b) => (work.get(b) ?? 0) - (work.get(a) ?? 0) || a.localeCompare(b))[0] ?? n;
+  };
+  const byTitle = (title: string): string | undefined => {
+    const t = title.toLowerCase();
+    return [...known]
+      .filter((n) => n.length >= 4 && t.includes(n.toLowerCase()))
+      .sort((a, b) => b.length - a.length)[0];
+  };
+  const placed = (s: Subject): string | undefined => {
     const t = tokenOf(s.key);
-    if (!t) return OTHER;
-    return alias.get(t) ?? (known.has(t) ? t : OTHER);
+    return (
+      direct(s) ??
+      (t ? (alias.get(t) ?? (known.has(t) ? t : undefined)) : undefined) ??
+      (s.title ? byTitle(s.title) : undefined)
+    );
+  };
+  const named = (n: string): string | undefined => aliases.get(n.toLowerCase());
+  return (s) => {
+    const p = placed(s);
+    const c = p ? canon(p) : OTHER;
+    return named(s.key) ?? (p ? named(p) : undefined) ?? named(c) ?? c;
   };
 }
 

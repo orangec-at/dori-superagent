@@ -1,16 +1,24 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { DiscordAnswer, DiscordCall } from "./discord-api.ts";
+import { everyoneSees, type GuildChannel, type GuildRole } from "./discord-perms.ts";
 
 /**
  * The board's copy of the Discord server's text channels and the operator's DMs. One timer tick makes at most one
  * call: the channel list is re-read every DISCOVER_MS, otherwise the next channel in turn is asked only for the
  * messages after the newest one it already has. Page loads and polls read this copy and never call Discord. A view
- * names a channel by its key (its name), never its id, and message text has ids, webhook URLs and mentions masked.
+ * names a channel by its key (a hash of its id), never its id, and message text has ids, webhook URLs and mentions
+ * masked. A server or DM that cannot be listed is skipped (its copy kept) and named in `skipped`; the rest still syncs.
  */
 export type DiscordMessage = { at: number; author: string; mine: boolean; bot: boolean; text: string };
 export type DiscordChannel = { key: string; name: string; kind: "channel" | "dm"; messages: DiscordMessage[] };
-export type DiscordView = { channels: DiscordChannel[]; syncedAt: number | null; error: string | null };
+export type DiscordView = {
+  channels: DiscordChannel[];
+  syncedAt: number | null;
+  error: string | null;
+  skipped: string[];
+};
 export type SendResult = "sent" | "failed";
 export type DiscordBoard = {
   view(): DiscordView;
@@ -25,6 +33,8 @@ type Kept = {
   name: string;
   kind: "channel" | "dm";
   id: string;
+  /** The guild (`guild:<id>`) or DM recipient (`dm:<id>`) it was listed under; a failed listing keeps that scope's copy. */
+  scope?: string;
   after: string | null;
   denied: boolean;
   messages: Stored[];
@@ -48,17 +58,10 @@ const TEXT_MAX = 4_000;
 export const SEND_MAX = 1_900;
 
 const later = (a: string, b: string): boolean => BigInt(a) > BigInt(b);
-type GuildChannel = {
-  id: string;
-  name: string;
-  type: number;
-  position?: number;
-  permission_overwrites?: { id: string; deny?: string }[];
-};
-const VIEW_CHANNEL = 1n << 10n;
-/** A private channel: @everyone (the role whose id is the guild's) is denied View Channel. It is not copied. */
-const hiddenFromEveryone = (c: GuildChannel, guild: string): boolean =>
-  (c.permission_overwrites ?? []).some((p) => p.id === guild && (BigInt(p.deny ?? "0") & VIEW_CHANNEL) !== 0n);
+/** A channel's key: a hash of its id, so it does not move with list order or a rename and never shows the id. */
+export const keyOf = (kind: "channel" | "dm", id: string): string =>
+  `${kind === "dm" ? "dm" : "c"}-${createHash("sha256").update(id).digest("hex").slice(0, 10)}`;
+const good = (a: DiscordAnswer): boolean => a.status >= 200 && a.status < 300;
 const shape = (cs: Kept[]): string => JSON.stringify(cs.map((c) => [c.id, c.name, c.key, c.kind, c.denied]));
 const nameOf = (u: { username?: string; global_name?: string | null } | undefined): string =>
   u?.global_name || u?.username || "알 수 없음";
@@ -94,6 +97,9 @@ export function discordSync(
   } catch {
     channels = []; // a cut-off cache is rebuilt from Discord on the first tick
   }
+  // A cache written with name keys moves to id keys; its messages and read cursors stay.
+  const moved = channels.some((c) => c.key !== keyOf(c.kind, c.id));
+  channels = channels.map((c) => ({ ...c, key: keyOf(c.kind, c.id) }));
   let discoveredAt = Number.NEGATIVE_INFINITY;
   let pausedUntil = 0;
   let cursor = 0;
@@ -101,6 +107,7 @@ export function discordSync(
   let busy = false;
   let syncedAt: number | null = null;
   let error: string | null = null;
+  let skipped: string[] = [];
 
   const save = (): void => {
     version++;
@@ -108,6 +115,7 @@ export function discordSync(
     writeFileSync(`${path}.tmp`, JSON.stringify({ channels }), { mode: 0o600 });
     renameSync(`${path}.tmp`, path);
   };
+  if (moved) save();
   const ok = (a: DiscordAnswer): boolean => {
     if (a.status === 429) pausedUntil = o.now() + Math.max(1, a.retryAfter) * 1000;
     if (a.status >= 200 && a.status < 300) return true;
@@ -139,32 +147,48 @@ export function discordSync(
 
   async function discover(): Promise<void> {
     discoveredAt = o.now();
-    const found: Omit<Kept, "key" | "after" | "denied" | "messages">[] = [];
+    const found: Pick<Kept, "id" | "name" | "kind" | "scope">[] = [];
+    const failed: string[] = [];
+    /** A 429 ends the listing (every call would wait); any other failure skips only this server or DM. */
+    const skip = (what: string, a: DiscordAnswer, scope: string): boolean => {
+      if (a.status === 429) return ok(a);
+      failed.push(`${what} (Discord ${a.status})`);
+      log(`DISCORD_SKIP ${what} ${a.status}`);
+      found.push(...channels.filter((c) => c.scope === scope));
+      return true;
+    };
     const guilds = await call("/users/@me/guilds");
     if (!ok(guilds)) return;
     for (const g of guilds.body as { id: string }[]) {
-      const list = await call(`/guilds/${g.id}/channels`);
-      if (!ok(list)) return;
+      const scope = `guild:${g.id}`;
+      const roles = await call(`/guilds/${g.id}/roles`);
+      const list = good(roles) ? await call(`/guilds/${g.id}/channels`) : roles;
+      if (!good(list)) {
+        if (skip("서버", list, scope)) continue;
+        return;
+      }
       const text = (list.body as GuildChannel[])
-        .filter((c) => (c.type === 0 || c.type === 5) && !hiddenFromEveryone(c, g.id))
+        .filter((c) => (c.type === 0 || c.type === 5) && everyoneSees(c, g.id, roles.body as GuildRole[]))
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-      for (const c of text) found.push({ id: c.id, name: c.name, kind: "channel" });
+      for (const c of text) found.push({ id: c.id, name: c.name, kind: "channel", scope });
     }
     for (const user of o.users) {
+      const scope = `dm:${user}`;
       const dm = await call("/users/@me/channels", { method: "POST", body: { recipient_id: user } });
-      if (!ok(dm)) return;
+      if (!good(dm)) {
+        if (skip("DM", dm, scope)) continue;
+        return;
+      }
       const b = dm.body as { id: string; recipients?: { username?: string; global_name?: string | null }[] };
-      found.push({ id: b.id, name: nameOf(b.recipients?.[0]), kind: "dm" });
+      found.push({ id: b.id, name: nameOf(b.recipients?.[0]), kind: "dm", scope });
     }
-    const keys = new Set<string>();
     const before = shape(channels);
     channels = found.map((f) => {
       const old = channels.find((c) => c.id === f.id);
-      let key = f.kind === "dm" ? `dm-${f.name}` : f.name;
-      while (keys.has(key)) key += "_";
-      keys.add(key);
+      const key = keyOf(f.kind, f.id);
       return { ...f, key, after: old?.after ?? null, denied: false, messages: old?.messages ?? [] };
     });
+    skipped = failed;
     error = null;
     if (shape(channels) !== before) save();
   }
@@ -218,6 +242,7 @@ export function discordSync(
       .map((c) => ({ key: c.key, name: c.name, kind: c.kind, messages: c.messages.map(({ id: _, ...m }) => m) })),
     syncedAt,
     error,
+    skipped,
   });
   return { tick, send, view, stamp: () => version };
 }

@@ -2,7 +2,14 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { messageProject, projectResolver, projectSeeds, repoOfCwd, type Subject } from "../src/board-projects.ts";
+import {
+  messageProject,
+  projectAliases,
+  projectResolver,
+  projectSeeds,
+  repoOfCwd,
+  type Subject,
+} from "../src/board-projects.ts";
 import { channelProject } from "../src/board-projects-html.ts";
 import type { ProjectGroup } from "../src/board-state.ts";
 
@@ -36,7 +43,7 @@ test("projects come from leads.json, cwds, PR repos and key prefixes the other w
     s("corpus-more"),
     s("dev-env"),
   ];
-  const place = projectResolver(projectSeeds(home), work);
+  const place = projectResolver(projectSeeds(home), new Map(), work);
   expect(Object.fromEntries(work.map((x) => [x.key, place(x)]))).toEqual({
     "vg-issue-4": "vibeguard",
     "fmv-home-copy": "vibeguard",
@@ -50,6 +57,69 @@ test("projects come from leads.json, cwds, PR repos and key prefixes the other w
     "corpus-more": "corpus",
     "dev-env": "기타",
   });
+});
+
+test("folders of one family become one project: coupas-art joins coupas, dori-* joins the busiest dori-* project", () => {
+  const work = [
+    s("coupas-1", `${W}/personal/coupas`),
+    s("cat-sand", `${W}/coupas-art/cat-sand`),
+    s("cat-more"),
+    s("dori-1", `${W}/dori-superagent`),
+    s("dori-2", `${W}/dori-superagent-worktrees/dori-2`),
+    s("biz-growth", `${W}/dori-research/biz-growth`),
+    s("plan-v2", `${W}/dori-plans/plan-v2`),
+    s("mr-1", `${W}/market-radar`),
+    s("xmini-1", `${W}/personal/x-mini`),
+    s("ops-access", `${W}/ops-access`),
+  ];
+  const place = projectResolver([], new Map(), work);
+  expect(work.map(place)).toEqual([
+    "coupas",
+    "coupas",
+    "coupas",
+    "dori-superagent",
+    "dori-superagent",
+    "dori-superagent",
+    "dori-superagent",
+    "market-radar",
+    "x-mini",
+    "ops-access",
+  ]);
+});
+
+test("~/.dori/projects.json alias moves a project or one lane/item key; a bad file or entry adds nothing", () => {
+  const home = mkdtempSync(join(tmpdir(), "dori-projects-alias-"));
+  writeFileSync(
+    join(home, "projects.json"),
+    JSON.stringify({ alias: { "ops-access": "dori-superagent", "Phone-Board": "dori-superagent", bad: 3, "": "x" } }),
+  );
+  const aliases = projectAliases(home);
+  expect([...aliases]).toEqual([
+    ["ops-access", "dori-superagent"],
+    ["phone-board", "dori-superagent"],
+  ]);
+  const work = [s("ops-access", `${W}/ops-access`), s("phone-board"), s("dori-1", `${W}/dori-superagent`)];
+  const place = projectResolver([], aliases, work);
+  expect(work.map(place)).toEqual(["dori-superagent", "dori-superagent", "dori-superagent"]);
+  writeFileSync(join(home, "projects.json"), "{nope");
+  expect(projectAliases(home).size).toBe(0);
+  expect(projectAliases(mkdtempSync(join(tmpdir(), "dori-projects-none-"))).size).toBe(0);
+});
+
+// The old fixed word list matched a backlog item's title; these are the items it placed that no key, cwd or PR does.
+test("after title matching was removed, an item placed by nothing else still goes to the project its title names", () => {
+  const item = (key: string, title: string, cwd = W): Subject => ({ ...s(key, cwd), title });
+  const work = [
+    s("vg-issue-4", `${W}/personal/vibeguard.run-worktrees/vg-issue-4`),
+    s("coupas-1", `${W}/personal/coupas`),
+    s("ab-2", `${W}/all-bots`),
+    item("weekly-copy", "vibeguard 랜딩 문구 고치기"),
+    item("sales-log", "Coupas 판매 로그 정리"),
+    item("ab-p", "all-bots#10 Hermes Desktop dori 플러그인", `${W}/all-bots`),
+    item("lunch", "점심 메뉴 정하기"),
+  ];
+  const place = projectResolver([], new Map(), work);
+  expect(work.slice(3).map(place)).toEqual(["vibeguard", "coupas", "all-bots", "기타"]);
 });
 
 test("a malformed leads.json adds no seeds; the work still places itself", () => {

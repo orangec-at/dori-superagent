@@ -103,7 +103,7 @@ export function projectsList(s: BoardState, d: DiscordView | "locked" | null, v:
     ? `<p class="note">Discord가 이 보드에 연결되지 않았어요.</p>`
     : d === "locked"
       ? `<p class="note">Discord 채널·DM은 허용된 계정·기기로 열어야 보여요.</p>`
-      : `${d.error ? `<p class="note">${esc(d.error)} · 마지막 동기화 ${d.syncedAt ? ago(now, d.syncedAt) : "없음"}</p>` : ""}${chans("channel") + chans("dm") || `<p class="note">읽을 수 있는 채널이 없어요.</p>`}`;
+      : `${d.error ? `<p class="note">${esc(d.error)} · 마지막 동기화 ${d.syncedAt ? ago(now, d.syncedAt) : "없음"}</p>` : ""}${d.skipped.length ? `<p class="note">못 읽은 곳: ${esc(d.skipped.join(", "))} · 나머지는 계속 동기화해요</p>` : ""}${chans("channel") + chans("dm") || `<p class="note">읽을 수 있는 채널이 없어요.</p>`}`;
   const count = d && d !== "locked" ? ` <span>${d.channels.length}</span>` : "";
   // Channels first: what was said is what the operator reads most; the projects follow.
   return `<h3 class="sec"><span>채널${count}</span></h3>${discord}<h3 class="sec"><span>프로젝트 <span>${s.projects.length}</span></span></h3>${projects || `<p class="note">진행 중인 프로젝트가 없어요.</p>`}`;
