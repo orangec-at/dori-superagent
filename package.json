@@ -16,7 +16,8 @@
     "knip": "knip",
     "test": "bun test ./test/",
     "test:skill": "cd skills/dori-mode/scripts && bun test",
-    "ci": "bun run check && bun run typecheck && bun run knip && bun run lint:loc && bun run test && bun run test:skill"
+    "ci": "bun run check && bun run typecheck && bun run knip && bun run lint:loc && bun run test:tmp",
+    "test:tmp": "bun scripts/check-tmp-leak.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",
