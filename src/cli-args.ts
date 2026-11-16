@@ -20,6 +20,7 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
   dori inbox resend <pane|role|key> <index>   release a held entry: the next flush delivers it
   dori duty [--once] [--interval SECONDS]     flush inboxes, nudge idle lanes, escalate, detect lost lanes
   dori duty stop [--text WHY] | resume | status   kill switch
+  dori duty autopilot                         roadmaps, idle bots and hand-outs as JSON (docs/autopilot.md)
   dori budget set <key|default> --usd N       a lane's cost limit in DORI_HOME/budgets.json; each duty pass reads the
                                               last $<n> on a working or waiting lane's screen: [BUDGET 80%] and
                                               [BUDGET OVER] go to the lead once each, and an OVER lane is not nudged

@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 import { runBacklog, runDuty, runLoop, runTimer } from "./cli-loops.ts";
 import { runBudget } from "./cli-budget.ts";
 import { status, up } from "./cli-up.ts";
-import { done, ready, report, startLane } from "./lanes.ts";
+import { ready, report, startLane } from "./lanes.ts";
+import { doneThenStart } from "./autostart.ts";
 import { adoptLane } from "./adopt.ts";
 import { mergeGate, parsePr, review } from "./gate.ts";
 import { runSelfUpdate } from "./cli-self-update.ts";
@@ -25,7 +26,6 @@ import { syncAvatars } from "./board-avatars.ts";
 import { ConfigError as RuntimeConfigError, RuntimeChoiceError } from "./runtime/select.ts";
 import { parseRef } from "./runtime/types.ts";
 import type { Role } from "./store-types.ts";
-
 const COMMANDS = new Set(
   "up role start adopt report ready send inbox duty review merge done status loop backlog budget migrate serve reply agents delegate self-update lead ask board timer".split(
     " ",
@@ -160,7 +160,7 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
     case "lead":
       return runLead(d, a, x);
     case "done":
-      await done(d, need(x, "lane key"));
+      for (const line of await doneThenStart(d, need(x, "lane key"))) console.log(`AUTOSTART ${line}`);
       console.log(`DONE ${x}`);
       return 0;
     case "migrate":

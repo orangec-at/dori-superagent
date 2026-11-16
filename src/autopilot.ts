@@ -1,0 +1,184 @@
+// The autopilot, run on each duty pass: a bot idle for hours gets the next task of a project it owns, and a project
+// silent for a day is reported to the lead and handed its next task. Every hand-out is recorded, and status.json
+// shows the whole picture to the board. See docs/autopilot.md.
+import { spawn } from "node:child_process";
+import { openSync } from "node:fs";
+import { join } from "node:path";
+import { loadAgents } from "./agents.ts";
+import {
+  autopilotDir,
+  autopilotStopped,
+  botActivity,
+  delegateRuns,
+  readAssignments,
+  readState,
+  recordAssignment,
+  writeJson,
+} from "./autopilot-store.ts";
+import { delegateText, handOut, lastActivity, nextTask, STALL_HOURS } from "./autopilot-stall.ts";
+import { CLI, type Deps } from "./harness.ts";
+import { tellLead } from "./inbox.ts";
+import { loadRoadmaps, type Roadmap } from "./roadmap.ts";
+import { KEY_RE } from "./store-types.ts";
+
+const HOUR = 3_600_000;
+export const IDLE_CHECK_MS = 10 * 60_000;
+export const STALL_CHECK_MS = HOUR;
+const DELEGATE_TIMEOUT_S = 1800;
+
+/** How long a bot may sit idle before it is handed work: DORI_IDLE_HOURS, default 2. */
+export const idleHours = (): number => {
+  const v = Number(process.env["DORI_IDLE_HOURS"]);
+  return Number.isFinite(v) && v > 0 ? v : 2;
+};
+
+/** 01:00-08:00 in Korea: nobody is handed work and no stall is reported. */
+export const quietHour = (now: number): boolean => {
+  const h = (new Date(now).getUTCHours() + 9) % 24;
+  return h >= 1 && h < 8;
+};
+
+export type Launch = (bot: string, text: string, mission?: string) => void;
+
+/** Starts `dori delegate` as its own process, so a bot's long answer never holds up the duty loop. */
+export const spawnDelegate =
+  (d: Deps): Launch =>
+  (bot, text, mission) => {
+    const log = openSync(join(autopilotDir(d.store.root), "delegate.log"), "a");
+    const argv = [CLI, "delegate", bot, "--text", text, "--timeout", String(DELEGATE_TIMEOUT_S)];
+    if (mission !== undefined) argv.push("--mission", mission);
+    const env = { ...process.env, DORI_HOME: d.store.root };
+    spawn(process.execPath, argv, { detached: true, stdio: ["ignore", log, log], env }).unref();
+  };
+
+const assignedKeys = (home: string): Set<string> => new Set(readAssignments(home).map((a) => `${a.project}:${a.task}`));
+
+/** One task per idle bot: the first open task of the first project (by name) that names it or lists it as owner. */
+function assignIdle(d: Deps, roadmaps: readonly Roadmap[], launch: Launch): string[] {
+  const home = d.store.root;
+  const now = d.now();
+  let names: string[];
+  try {
+    names = loadAgents(home).map((a) => a.name);
+  } catch {
+    return ["agents.json을 읽을 수 없어 유휴 봇 배정을 건너뜀"];
+  }
+  const activity = botActivity(delegateRuns(home), now);
+  const assigned = assignedKeys(home);
+  const lastHanded = new Map<string, number>();
+  for (const a of readAssignments(home))
+    if (a.bot !== undefined) lastHanded.set(a.bot, Math.max(lastHanded.get(a.bot) ?? 0, a.at));
+  const out: string[] = [];
+  for (const bot of names) {
+    const act = activity.get(bot);
+    if (act?.busy) continue;
+    const since = Math.max(act?.lastAt ?? 0, lastHanded.get(bot) ?? 0);
+    if (now - since < idleHours() * HOUR) continue;
+    for (const r of roadmaps) {
+      const t = r.tasks.find(
+        (x) =>
+          !x.done &&
+          x.blocked === undefined &&
+          x.kind === "delegate" &&
+          !assigned.has(`${r.project}:${x.id}`) &&
+          (x.bot === bot || (x.bot === undefined && r.owners.includes(bot))),
+      );
+      if (t === undefined) continue;
+      const mission = `autopilot-${r.project}`;
+      launch(bot, delegateText(r, t), KEY_RE.test(mission) ? mission : undefined);
+      recordAssignment(home, {
+        at: now,
+        project: r.project,
+        task: t.id,
+        text: t.text,
+        reason: "idle",
+        kind: "delegate",
+        bot,
+      });
+      assigned.add(`${r.project}:${t.id}`);
+      const idle = since === 0 ? "기록 없음" : `${Math.floor((now - since) / HOUR)}시간`;
+      out.push(`${bot} 유휴(${idle}) -> ${r.project}: ${t.text}`);
+      break;
+    }
+  }
+  return out;
+}
+
+async function checkStalls(d: Deps, roadmaps: readonly Roadmap[], launch: Launch): Promise<string[]> {
+  const home = d.store.root;
+  const now = d.now();
+  const state = readState(home);
+  const runs = delegateRuns(home);
+  const out: string[] = [];
+  for (const r of roadmaps) {
+    const act = await lastActivity(d, r, runs, readAssignments(home));
+    state.activity[r.project] = act;
+    const reported = state.stallReportedAt[r.project];
+    if (now - act.at < STALL_HOURS * HOUR || (reported !== undefined && now - reported < STALL_HOURS * HOUR)) continue;
+    const t = nextTask(r, assignedKeys(home));
+    const made = t === undefined ? undefined : handOut(d, r, t, launch);
+    state.stallReportedAt[r.project] = now;
+    const hours = Math.floor((now - act.at) / HOUR);
+    out.push(
+      `[REPORT ${r.project} 정체] ${hours}시간째 활동 없음 (마지막: ${act.source} ${new Date(act.at).toISOString().slice(0, 16)}Z). ` +
+        (made ? `자동 생성: ${made}` : `넘길 다음 할 일이 없음: ${r.file}에 추가해 주세요`),
+    );
+  }
+  writeJson(home, "state.json", {
+    ...readState(home),
+    activity: state.activity,
+    stallReportedAt: state.stallReportedAt,
+  });
+  return out;
+}
+
+/** Everything the board shows: roadmaps with each task's hand-out, each bot's idle time, and the newest hand-outs. */
+export function autopilotStatus(d: Deps): Record<string, unknown> {
+  const home = d.store.root;
+  const now = d.now();
+  const assignments = readAssignments(home);
+  const state = readState(home);
+  const handed = new Map(assignments.map((a) => [`${a.project}:${a.task}`, a]));
+  const activity = botActivity(delegateRuns(home), now);
+  return {
+    at: new Date(now).toISOString(),
+    stopped: autopilotStopped(home),
+    idleHours: idleHours(),
+    projects: loadRoadmaps(home).map((r) => ({
+      ...r,
+      tasks: r.tasks.map((t) => ({ ...t, assignment: handed.get(`${r.project}:${t.id}`) })),
+      activity: state.activity[r.project],
+      stallReportedAt: state.stallReportedAt[r.project],
+    })),
+    bots: [...activity].map(([name, a]) => ({
+      name,
+      busy: a.busy,
+      lastAt: a.lastAt,
+      idleMinutes: Math.floor((now - a.lastAt) / 60_000),
+    })),
+    assignments: assignments.slice(-100),
+  };
+}
+
+/** One autopilot pass: idle bots every IDLE_CHECK_MS, stalls every STALL_CHECK_MS, both outside quiet hours. */
+export async function autopilotTick(d: Deps, launch: Launch = spawnDelegate(d)): Promise<string[]> {
+  const home = d.store.root;
+  const roadmaps = loadRoadmaps(home);
+  if (roadmaps.length === 0 || autopilotStopped(home) || quietHour(d.now())) return [];
+  const now = d.now();
+  const state = readState(home);
+  const idleDue = now - (state.idleCheckAt ?? 0) >= IDLE_CHECK_MS;
+  const stallDue = now - (state.stallCheckAt ?? 0) >= STALL_CHECK_MS;
+  if (!idleDue && !stallDue) return [];
+  writeJson(home, "state.json", {
+    ...state,
+    ...(idleDue ? { idleCheckAt: now } : {}),
+    ...(stallDue ? { stallCheckAt: now } : {}),
+  });
+  const assigned = idleDue ? assignIdle(d, roadmaps, launch) : [];
+  const stalls = stallDue ? await checkStalls(d, roadmaps, launch) : [];
+  const lines = [...(assigned.length ? [`[AUTOPILOT] 유휴 봇 배정: ${assigned.join("; ")}`] : []), ...stalls];
+  for (const line of lines) await tellLead(d, line, "duty");
+  writeJson(home, "status.json", autopilotStatus(d));
+  return lines;
+}

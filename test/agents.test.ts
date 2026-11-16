@@ -70,6 +70,7 @@ test("a delegation that succeeds returns the answer and logs time, agent, text, 
       outcome: "ok",
       code: 0,
       output: "found 3 sources",
+      endedAt: "2026-11-10T08:00:00.000Z",
     },
   ]);
 });
