@@ -33,7 +33,7 @@ function readConfigRepo(root: string): string | undefined {
 }
 
 /** `DORI_BOARD_REPO`, else `boardRepo` in config.json, else orangec-at/team-board; "off" turns the check off. */
-function boardRepo(root: string): string | undefined {
+export function boardRepo(root: string): string | undefined {
   const repo = process.env["DORI_BOARD_REPO"] || readConfigRepo(root) || DEFAULT_REPO;
   return repo === "off" ? undefined : repo;
 }

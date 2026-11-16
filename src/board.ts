@@ -6,6 +6,7 @@ import type { CertFetch } from "./board-access.ts";
 import { boardAuth, hostnameOf, LOOPBACK_HOSTS } from "./board-auth.ts";
 import { avatarResponse } from "./board-avatars.ts";
 import { appendChat } from "./board-chat.ts";
+import { readLinks } from "./board-links.ts";
 import { type BoardConfig, decideEnvelope, requestEnvelope } from "./board-config.ts";
 import { boardHtml, REQUEST_MAX } from "./board-html.ts";
 import { viewOf } from "./board-list-html.ts";
@@ -206,6 +207,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
           token: "code" in w ? null : tokenFor(w.id),
           version: versionOf(state),
           view,
+          links: view.tab === "map" ? readLinks(store.root) : null,
           ...(flash ? { flash } : {}),
         });
         return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", ...SECURITY_HEADERS } });
