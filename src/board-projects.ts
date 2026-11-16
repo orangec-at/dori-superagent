@@ -10,6 +10,7 @@ import { loadLeads } from "./standing.ts";
  * `drht-x` is drawhatha too). What none of these place is 기타.
  */
 export type Subject = { key: string; cwd: string; repos: string[] };
+export type Link = { label: string; url: string };
 export type Seed = {
   name: string;
   /** Key prefixes (leads.json keyPrefixes): `fmv-` also places a key or channel named `fmv`. */
@@ -19,6 +20,9 @@ export type Seed = {
   repos: string[];
   dirs: string[];
   bots: string[];
+  /** board.json object form: a one-line description and links the project page shows. */
+  note: string | null;
+  links: Link[];
 };
 
 export const OTHER = "기타";
@@ -62,19 +66,71 @@ export function projectSeeds(home: string): Seed[] {
     repos: l.repos.map((r) => r.toLowerCase()),
     dirs: l.cwds.map((c) => repoOfCwd(c) ?? projectName(basename(c))),
     bots: [...l.bots],
+    note: null,
+    links: [],
   }));
   const path = join(home, "board.json");
   try {
     const p = existsSync(path)
       ? (JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>)["projects"]
       : undefined;
-    for (const [name, words] of p && typeof p === "object" && !Array.isArray(p) ? Object.entries(p) : [])
-      if (Array.isArray(words) && words.every((w) => typeof w === "string" && w !== ""))
-        seeds.push({ name, prefixes: [], words: words as string[], repos: [], dirs: [], bots: [] });
+    for (const [name, v] of p && typeof p === "object" && !Array.isArray(p) ? Object.entries(p) : []) {
+      const seed = boardSeed(name, v);
+      if (seed) seeds.push(seed);
+    }
   } catch {
     // a board.json that is not JSON is reported by the board's own config loader; it adds no projects here
   }
   return seeds;
+}
+
+const strings = (v: unknown): string[] | null =>
+  v === undefined
+    ? []
+    : Array.isArray(v) && v.every((w) => typeof w === "string" && w.trim() !== "")
+      ? (v as string[])
+      : null;
+const linksOf = (v: unknown): Link[] | null => {
+  if (v === undefined) return [];
+  if (!Array.isArray(v)) return null;
+  const ok = (l: unknown): l is Link =>
+    typeof l === "object" &&
+    l !== null &&
+    typeof (l as Link).label === "string" &&
+    (l as Link).label.trim() !== "" &&
+    typeof (l as Link).url === "string" &&
+    /^https?:\/\/\S+$/.test((l as Link).url);
+  return v.every(ok) ? v.map((l) => ({ label: l.label, url: l.url })) : null;
+};
+
+/**
+ * One board.json `projects` entry: `["word", …]`, or `{ words, repos: ["owner/repo"], dirs, note, links: [{ label, url }] }`
+ * with every field optional. An entry of another shape, or with a field of the wrong type, is ignored (null).
+ */
+export function boardSeed(name: string, v: unknown): Seed | null {
+  if (name.trim() === "") return null;
+  const seed = { name, prefixes: [], words: [], repos: [], dirs: [], bots: [], note: null, links: [] };
+  if (Array.isArray(v)) {
+    const words = strings(v);
+    return words ? { ...seed, words } : null;
+  }
+  if (typeof v !== "object" || v === null) return null;
+  const o = v as Record<string, unknown>;
+  const words = strings(o["words"]);
+  const repos = strings(o["repos"]);
+  const dirs = strings(o["dirs"]);
+  const links = linksOf(o["links"]);
+  const note = o["note"] === undefined ? null : typeof o["note"] === "string" ? o["note"].trim() || null : undefined;
+  if (!words || !repos || !dirs || !links || note === undefined) return null;
+  if (!repos.every((r) => /^[\w.-]+\/[\w.-]+$/.test(r))) return null;
+  return {
+    ...seed,
+    words,
+    repos: repos.map((r) => r.toLowerCase()),
+    dirs: dirs.map(projectName),
+    note,
+    links,
+  };
 }
 
 /** Places every subject; `all` is the work the prefixes are learned from (every lane and backlog item, done included). */

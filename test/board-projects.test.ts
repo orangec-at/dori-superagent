@@ -68,6 +68,8 @@ const group = (name: string, over: Partial<ProjectGroup> = {}): ProjectGroup => 
   repos: [],
   bots: [],
   prefixes: [],
+  note: null,
+  links: [],
   ...over,
 });
 const lane = (key: string) => ({

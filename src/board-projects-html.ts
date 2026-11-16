@@ -17,6 +17,8 @@ export const PROJECTS_STYLE = `.pjm{display:flex;flex-direction:column;gap:2px}.
 .chan{flex:none;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--panel);color:var(--muted);font-weight:700}
 .tag{font-size:12px;padding:0 7px;border-radius:999px;background:var(--panel);color:var(--muted);white-space:nowrap}.dmsg .who{font-weight:600;font-size:13px;padding:0}
 .dmsg .meta{margin-left:6px}.tabs{overflow-x:auto;scrollbar-width:none}.tab{white-space:nowrap;flex:1 0 auto;padding:7px 8px}
+.unr{flex:none;min-width:18px;padding:0 6px;border-radius:999px;background:#e5484d;color:#fff;font-size:12px;font-weight:700;text-align:center}.unr[hidden]{display:none}
+.pjn{margin:12px 0 4px}.pjm a{color:inherit}
 @media (min-width:768px){.tabs{flex-wrap:wrap}}
 @media (min-width:1024px){.app.pj{grid-template-columns:320px minmax(0,1fr)}}`;
 
@@ -83,11 +85,31 @@ const missionsOf = (g: ProjectGroup, missions: Mission[]): Mission[] => {
 
 const chanLabel = (c: DiscordChannel): string => (c.kind === "dm" ? `DM · ${c.name}` : `#${c.name}`);
 
+/**
+ * When a channel's new messages arrived: the others' messages after the operator's last one there. board.js keeps only
+ * those after the channel was last opened on this device.
+ */
+export function unreadAts(c: DiscordChannel): number[] {
+  const last = c.messages.findLastIndex((m) => m.mine);
+  return c.messages
+    .slice(last + 1)
+    .filter((m) => !m.mine)
+    .map((m) => m.at);
+}
+
+const unreadBadge = (c: DiscordChannel): string => {
+  const ats = unreadAts(c);
+  return `<span class="unr" data-d="${esc(c.key)}" data-ats="${ats.join(",")}" aria-label="새 글"${ats.length ? "" : " hidden"}>${ats.length > 99 ? "99+" : ats.length}</span>`;
+};
+
 export function projectsList(s: BoardState, d: DiscordView | "locked" | null, v: View, now: number): string {
   const projects = s.projects
     .map((g) => {
       const prs = prsOf(g).length;
-      const line = `lane ${g.lanes.length} · PR ${prs} · 백로그 ${g.backlog.length} · 완료 ${g.recent.length}`;
+      const line =
+        g.lanes.length + g.backlog.length + g.recent.length + prs
+          ? `lane ${g.lanes.length} · PR ${prs} · 백로그 ${g.backlog.length} · 완료 ${g.recent.length}`
+          : `${g.note ? `${g.note} · ` : ""}진행 중인 일 없음`;
       return `<a class="row${v.p === g.name ? " on" : ""}" href="${esc(hrefOf(v, { p: g.name, d: null, c: null, m: null }))}#ptop">${avatar({ id: `project:${g.name}`, label: g.name, sub: "" })}<span class="rb">
 <span class="rt"><b>${esc(g.name)}</b><span class="ago">${g.at ? ago(now, g.at) : ""}</span></span><span class="rs">${line}</span></span></a>`;
     })
@@ -99,7 +121,7 @@ export function projectsList(s: BoardState, d: DiscordView | "locked" | null, v:
         const last = c.messages.at(-1);
         const proj = channelProject(c.name, s);
         return `<a class="row${v.d === c.key ? " on" : ""}" href="${esc(hrefOf(v, { d: c.key, p: null, c: null, m: null }))}#end"><span class="chan">${kind === "dm" ? "@" : "#"}</span><span class="rb">
-<span class="rt"><b>${esc(chanLabel(c))}</b>${proj ? `<span class="tag">${esc(proj)}</span>` : ""}<span class="ago">${last ? ago(now, last.at) : ""}</span></span>
+<span class="rt"><b>${esc(chanLabel(c))}</b>${proj ? `<span class="tag">${esc(proj)}</span>` : ""}${unreadBadge(c)}<span class="ago">${last ? ago(now, last.at) : ""}</span></span>
 <span class="rs">${last ? `${esc(last.author)}: ${esc(last.text.replace(/\s+/g, " ").slice(0, 120))}` : "아직 메시지가 없어요"}</span></span></a>`;
       })
       .join("");
@@ -107,8 +129,10 @@ export function projectsList(s: BoardState, d: DiscordView | "locked" | null, v:
     ? `<p class="note">Discord가 이 보드에 연결되지 않았어요.</p>`
     : d === "locked"
       ? `<p class="note">Discord 채널·DM은 허용된 계정·기기로 열어야 보여요.</p>`
-      : `${d.error ? `<p class="note">${esc(d.error)} · 마지막 동기화 ${d.syncedAt ? ago(now, d.syncedAt) : "없음"}</p>` : ""}<h3 class="sec"><span>Discord 채널</span></h3>${chans("channel") || `<p class="note">읽을 수 있는 채널이 없어요.</p>`}<h3 class="sec"><span>DM</span></h3>${chans("dm") || `<p class="note">DM이 없어요.</p>`}`;
-  return `<h3 class="sec"><span>프로젝트 <span>${s.projects.length}</span></span></h3>${projects || `<p class="note">진행 중인 프로젝트가 없어요.</p>`}${discord}`;
+      : `${d.error ? `<p class="note">${esc(d.error)} · 마지막 동기화 ${d.syncedAt ? ago(now, d.syncedAt) : "없음"}</p>` : ""}${chans("channel") + chans("dm") || `<p class="note">읽을 수 있는 채널이 없어요.</p>`}`;
+  const count = d && d !== "locked" ? ` <span>${d.channels.length}</span>` : "";
+  // Channels first: what was said is what the operator reads most; the projects follow.
+  return `<h3 class="sec"><span>채널${count}</span></h3>${discord}<h3 class="sec"><span>프로젝트 <span>${s.projects.length}</span></span></h3>${projects || `<p class="note">진행 중인 프로젝트가 없어요.</p>`}`;
 }
 
 function laneRow(l: ProjectLane, now: number): string {
@@ -135,9 +159,16 @@ export function projectPane(
   const missions = missionsOf(g, s.missions);
   const talk = talkOf(g, s, d);
   const meta = [g.repos.join(", "), g.bots.length ? `봇 ${g.bots.join(", ")}` : ""].filter(Boolean).join(" · ");
+  const ext = (href: string, label: string, sub: string): string =>
+    `<li><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a> <span class="meta">${sub}</span></li>`;
+  const refs = [
+    ...g.links.map((l) => ext(l.url, l.label, "링크")),
+    ...g.repos.map((r) => ext(`https://github.com/${r}`, r, "저장소")),
+  ];
   return `<header class="rec-h" id="ptop"><a class="back" href="${esc(back)}" aria-label="목록으로">←</a><span class="hav">${avatar({ id: `project:${g.name}`, label: g.name, sub: "" })}</span>
 <div class="title"><b>${esc(g.name)}</b><span class="meta">${esc(meta || "프로젝트")}</span></div></header>
 <section class="thread pjd" id="chat">
+${g.note ? `<p class="pjn">${esc(g.note)}</p>` : ""}${refs.length ? `<ul class="pjm">${refs.join("")}</ul>` : ""}
 ${sec(
   "진행 중 lane",
   g.lanes.length,
@@ -149,7 +180,7 @@ ${sec("백로그", g.backlog.length, g.backlog.map((i) => `<div class="row">${ma
 ${sec("미션", missions.length, missions.map((m) => `<a class="row" href="${esc(hrefOf(v, { tab: "mission", m: m.id, c: null, p: null, d: null }))}#mtop"><span class="rb"><span class="rt"><b>${esc(m.title)}</b><span class="ago">${ago(now, m.at)}</span></span><span class="rs">${esc(m.status)} · 참여 ${m.actors.length}</span></span></a>`).join(""))}
 ${g.recent.length ? `<details class="sec"><summary>이번 주 완료 <span>${g.recent.length}</span></summary>${g.recent.map((l) => laneRow(l, now)).join("")}</details>` : ""}
 ${sec("최근 대화", talk.length, talk.map((m) => talkHtml(m, now, v)).join(""))}
-${g.lanes.length + g.backlog.length + g.recent.length ? "" : `<p class="note">이 프로젝트에 열린 일이 없어요.</p>`}<span id="end"></span></section>`;
+${g.lanes.length + g.backlog.length ? "" : `<p class="note">진행 중인 일 없음</p>`}<span id="end"></span></section>`;
 }
 
 /** A Discord channel or DM: its messages and a composer that posts to POST /discord. */
@@ -178,6 +209,6 @@ export function channelPane(
   );
   return `<header class="rec-h"><a class="back" href="${esc(back)}" aria-label="목록으로">←</a><span class="chan">${c.kind === "dm" ? "@" : "#"}</span>
 <div class="title"><b>${esc(chanLabel(c))}</b><span class="meta">${proj ? `${esc(proj)} · ` : ""}Discord · ${synced}</span></div></header>
-<section class="thread" id="chat">${msgs || `<p class="note">아직 메시지가 없어요.</p>`}<span id="end"></span></section>
+<section class="thread" id="chat" data-seen="${esc(c.key)}" data-at="${c.messages.at(-1)?.at ?? 0}">${msgs || `<p class="note">아직 메시지가 없어요.</p>`}<span id="end"></span></section>
 ${composer}`;
 }
