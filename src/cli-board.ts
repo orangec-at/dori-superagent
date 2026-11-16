@@ -1,6 +1,7 @@
 import { askAdd, askClose, asks, parseOptions } from "./asks.ts";
 import { serveBoard } from "./board.ts";
 import { loadBoardConfig } from "./board-config.ts";
+import { HUB_EVERY_MS, refreshHub } from "./board-hub.ts";
 import { collectLinks, saveLinks } from "./board-links.ts";
 import { type Args, need, one } from "./cli-args.ts";
 import { discordCall, loadDiscordEnv } from "./discord-api.ts";
@@ -62,6 +63,10 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
     void discord.tick();
     setInterval(() => void discord.tick(), TICK_MS);
   }
+  // PR states and project numbers are collected here, never on a page load or a poll.
+  const hub = (): void => void refreshHub(d.exec, d.store, d.now()).then((l) => l && console.log(l));
+  hub();
+  setInterval(hub, HUB_EVERY_MS);
   const server = serveBoard(d.store, {
     ...(discord ? { discord } : {}),
     host: one(a, "host") ?? "127.0.0.1",

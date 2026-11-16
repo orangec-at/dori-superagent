@@ -28,8 +28,54 @@ no activity they sort after the active ones, and their page says `진행 중인 
 | `note`  | `string`                       | one line shown in the list and on the project's page            |
 | `links` | `{ "label", "url" }[]` (http/https) | shown on the project's page                                 |
 
+| `metrics` | `{ "name", "cmd" \| "file" }[]` | numbers shown on the project's status card (below)          |
+
 Every field is optional. An entry of another shape, or with a field of the wrong type (a non-`owner/repo` repo, a
 link that is not http/https), is ignored; the rest of the file still applies.
+
+## A project's page
+
+The page opens with a status card, on a phone too:
+
+- **purpose**: the `note`, else the title of the newest lane's brief (its `# ` line, the lane key dropped);
+- **badge**: `막힘` (a lane lost or escalated), else `재일 님 차례` (an open ask about the project, a backlog item
+  waiting on a decision, a lane ready or waiting), else `진행 중` (a lane at work or a backlog item running), else
+  `쉬는 중`;
+- **numbers** from `metrics`;
+- **재일 님이 결정할 것**: those asks, decisions and lanes, linked;
+- **다음 할 일**: the latest report of up to two lanes at work, then the highest-priority open backlog item that
+  needs no decision.
+
+An ask belongs to the project its id's key prefix places it in (as a lane key would be), else the project its
+question names. The project list shows each project's badge and one line: its first decision, else its first next step.
+
+Below the card: the open lanes, the PRs, **진행 흐름 · 7일** (lane starts, READYs, finishes and losses, backlog
+additions, PRs merged and the project's Discord talk of the last week, oldest first, one icon per kind), the backlog,
+missions and the week's finished lanes. PRs show their state (`열림`, `병합`, `닫힘`; `확인 전` before the first
+collection); open ones, ones merged this week and unread ones of an open lane are listed, the rest fold under
+`지난 PR n개`.
+
+### PR states and metrics are cached
+
+`dori board` collects them when it starts and every 10 minutes into `$DORI_HOME/board-hub.json`; a page load or a
+poll only reads that file, so it never runs `gh` or a metric command. One `gh pr list` per repo named by a PR of a
+lane active in the last two weeks; a repo gh cannot read keeps its last states. The whole collection stops after 60
+seconds, killing what still runs, and keeps the last file.
+
+A metric is either `cmd`, run with `sh -c` (20 seconds at most, then killed), or `file`, read (relative to
+`$DORI_HOME` unless absolute). Its value is the first non-empty line of the output or file, up to 80 characters; a
+failure, an empty output or a timeout shows `알 수 없음`. Only what board.json names runs: the page never takes a
+command, and the command itself is never shown. Keep secrets out of what the command prints.
+
+```json
+"coupas": {
+  "words": ["coupas"],
+  "metrics": [
+    { "name": "쿠팡 누적 판매 / 목표 150,000원", "cmd": "ssh ubuntu 'cd ~/workspace/coupas && python3 -m coupas sales'" },
+    { "name": "게시 수", "file": "coupas-posts.txt" }
+  ]
+}
+```
 
 ```json
 {

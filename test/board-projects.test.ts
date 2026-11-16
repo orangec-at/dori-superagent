@@ -70,6 +70,9 @@ const group = (name: string, over: Partial<ProjectGroup> = {}): ProjectGroup => 
   prefixes: [],
   note: null,
   links: [],
+  purpose: null,
+  asks: [],
+  events: [],
   ...over,
 });
 const lane = (key: string) => ({
