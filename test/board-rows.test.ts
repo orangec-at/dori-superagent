@@ -107,6 +107,14 @@ test("a wide screen folds long paths and session ids, never a URL", () => {
   );
   expect(html).toContain(" https://github.com/orangec-at/dori-superagent/pull/26 a/b/c");
   expect(fold("<b>")).toBe("&lt;b&gt;");
+  const query = `https://x.io/?id=${"ab".repeat(16)}&p=aa/bb/cccccccccccccccccccccccccc.md`;
+  expect(fold(query)).toBe(query.replaceAll("&", "&amp;"));
+});
+
+test("folding a long word without a boundary stays linear", () => {
+  const started = performance.now();
+  fold(`${"a".repeat(50_000)}g ${"a/".repeat(20_000)}`);
+  expect(performance.now() - started).toBeLessThan(1000);
 });
 
 test("My turn shows only the operator's rows; the PR tab lists lane PRs; a row opens its record", async () => {

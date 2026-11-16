@@ -28,15 +28,22 @@ export const prLabel = (p: Pr): string =>
     ? `<a class="pr" href="${esc(p.url)}" rel="noopener" target="_blank">⑂ #${p.num}</a>`
     : `<span class="pr">⑂ #${p.num}</span>`;
 
-// A path of three or more parts, or an id ending in 24+ hex digits (a session_id), not inside a URL.
-const LONG_TOKEN = /(?<![:/\w.@~-])(?:[~.\w@-]*\/){2,}[\w.@-]+|(?<![\w/.-])[\w-]*[0-9a-f]{24,}\b/g;
+// A path of three or more parts, or an id ending in 24+ hex digits (a session_id). Every quantifier is bounded, so a
+// long word costs linear time.
+const LONG_TOKEN = /(?<![:/\w.@~-])(?:[~.\w@-]{0,80}\/){2,16}[\w.@-]{1,80}|(?<![\w/.-])[\w-]{0,40}[0-9a-f]{24,128}\b/g;
 const TOKEN_MIN = 28;
 
 /**
  * Escaped text whose long paths and ids carry a short form beside the full one: a wide screen shows the short form
- * (the full one on hover), a phone keeps the full text.
+ * (the full one on hover), a phone keeps the full text. A word holding a URL (`://`) is never folded.
  */
-export function fold(s: string): string {
+export const fold = (s: string): string =>
+  s
+    .split(/(\s+)/)
+    .map((w) => (w.includes("://") ? esc(w) : foldWord(w)))
+    .join("");
+
+function foldWord(s: string): string {
   let out = "";
   let i = 0;
   for (const m of s.matchAll(LONG_TOKEN)) {
