@@ -16,6 +16,17 @@ describe("lanes", () => {
     await expect(startLane(d, "fix-login", brief, { group: "w1" })).rejects.toThrow(Refusal);
   });
 
+  test("start --mission keeps the mission id on the lane and refuses one that is not a key before opening anything", async () => {
+    const { w, d, brief } = setup();
+    const lane = await startLane(d, "fix-login", brief, { group: "w1", mission: "login-push" });
+    expect(d.store.lane("fix-login")?.mission).toBe("login-push");
+    expect(lane.mission).toBe("login-push");
+    const calls = w.calls.length;
+    await expect(startLane(d, "fix-other", brief, { group: "w1", mission: "Bad Tag" })).rejects.toThrow(Refusal);
+    expect(d.store.lane("fix-other")).toBeUndefined();
+    expect(w.calls.length).toBe(calls);
+  });
+
   test("start refuses the role names lead and duty as lane keys before it writes or opens anything", async () => {
     const { w, d, lead, brief } = setup();
     for (const key of ["lead", "duty"]) {

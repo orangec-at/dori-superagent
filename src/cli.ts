@@ -21,6 +21,7 @@ import { refuseForStanding, runLead } from "./cli-lead.ts";
 import { ReplyError, reply } from "./reply.ts";
 import { refText } from "./refs.ts";
 import { agentLine, agentsPath, DELEGATE_EXIT, delegate, loadAgents } from "./agents.ts";
+import { syncAvatars } from "./board-avatars.ts";
 import { ConfigError as RuntimeConfigError, RuntimeChoiceError } from "./runtime/select.ts";
 import { parseRef } from "./runtime/types.ts";
 import type { Role } from "./store-types.ts";
@@ -68,11 +69,17 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       return 0;
     }
     case "start": {
-      const [cwd, workspace, machine] = [one(a, "cwd"), one(a, "workspace"), one(a, "machine")];
+      const [cwd, workspace, machine, mission] = [
+        one(a, "cwd"),
+        one(a, "workspace"),
+        one(a, "machine"),
+        one(a, "mission"),
+      ];
       const lane = await startLane(d, need(x, "lane key"), need(one(a, "brief"), "--brief"), {
         ...(cwd !== undefined ? { cwd } : {}),
         ...(workspace !== undefined ? { group: workspace } : {}),
         ...(machine !== undefined ? { machine } : {}),
+        ...(mission !== undefined ? { mission } : {}),
       });
       console.log(`STARTED ${lane.key} pane=${refText(lane.sessionRef)} brief=${lane.brief}`);
       return 0;
@@ -187,6 +194,8 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
     }
     case "agents": {
       const agents = loadAgents(d.store.root);
+      if (x === "avatars") for (const line of await syncAvatars(d.exec, d.store.root, agents)) console.log(line);
+      if (x === "avatars") return 0;
       if (agents.length === 0) console.log(`NO_AGENTS ${agentsPath(d.store.root)}`);
       for (const agent of agents) console.log(agentLine(agent));
       return 0;
@@ -196,7 +205,13 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       const seconds = Number(one(a, "timeout") ?? "600");
       if (!(seconds > 0)) throw new Refusal("--timeout must be a positive number of seconds");
       const text = await textOf(a);
-      const r = await delegate(d.exec, name, text, { home: d.store.root, timeoutMs: seconds * 1000, now: d.now });
+      const mission = one(a, "mission");
+      const r = await delegate(d.exec, name, text, {
+        home: d.store.root,
+        timeoutMs: seconds * 1000,
+        now: d.now,
+        ...(mission !== undefined ? { mission } : {}),
+      });
       if (r.outcome === "ok") process.stdout.write(r.output);
       else console.error(`DELEGATE_${r.outcome.toUpperCase()} ${name}: ${r.output}`);
       return DELEGATE_EXIT[r.outcome];

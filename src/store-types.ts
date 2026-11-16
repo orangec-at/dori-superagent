@@ -30,6 +30,8 @@ export type Lane = {
   costAt?: number;
   budgetAlert?: "80" | "over";
   final?: { text: string; evidence: string[]; at: number };
+  /** `dori start --mission`: the mission the board groups this lane under, with the delegations tagged the same. */
+  mission?: string;
   log: {
     at: number;
     kind: "start" | "adopt" | "report" | "ready" | "nudge" | "done" | "lost" | "budget";

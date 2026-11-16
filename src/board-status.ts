@@ -38,7 +38,7 @@ const QUIET_MS = 2 * 3_600_000;
 /** Past noon KST a bot with an assignment and nothing delegated since midnight KST is shown as stalled. */
 const KST_MS = 9 * 3_600_000;
 const NOON_MS = 12 * 3_600_000;
-const NO_ASSIGNMENT = /^배정 없음|^-$/;
+export const NO_ASSIGNMENT = /^배정 없음|^-$/;
 
 export function standingCards(store: Store, now: number): { cards: StandingCard[]; error: string | null } {
   let defs: ReturnType<typeof loadLeads>;

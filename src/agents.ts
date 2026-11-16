@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { shq } from "./delivery.ts";
 import { Refusal } from "./refusal.ts";
 import type { Exec, ExecResult } from "./runtime/exec.ts";
+import { KEY_RE } from "./store-types.ts";
 
 /**
  * A bot dori can hand work to: a hermes profile on this machine (empty host) or on another one reached over ssh.
@@ -14,6 +15,8 @@ export type Agent = {
   readonly profile: string;
   readonly role: string;
   readonly description: string;
+  /** A picture for the board: a path, absolute, `~/…` or relative to DORI_HOME (see board-avatars.ts). */
+  readonly avatar?: string;
 };
 
 const WORD = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -47,11 +50,13 @@ export function loadAgents(home: string): Agent[] {
       role: field("role"),
       description: field("description"),
     };
+    if (e["avatar"] !== undefined && typeof e["avatar"] !== "string")
+      throw new Refusal(`${path} entry ${i}: avatar must be a string`);
     if (!WORD.test(agent.name)) throw new Refusal(`${path} entry ${i}: name must match ${WORD}`);
     if (!WORD.test(agent.profile)) throw new Refusal(`${path} entry ${i}: profile must match ${WORD}`);
     if (agent.host !== "" && !HOST.test(agent.host))
       throw new Refusal(`${path} entry ${i}: host must be empty (this machine) or [user@]host`);
-    return agent;
+    return typeof e["avatar"] === "string" && e["avatar"] !== "" ? { ...agent, avatar: e["avatar"] } : agent;
   });
 }
 
@@ -68,7 +73,13 @@ export function delegateCommand(agent: Agent, text: string): { cmd: string; argv
 export type DelegateOutcome = "ok" | "failed" | "timeout";
 export type Delegation = { readonly outcome: DelegateOutcome; readonly code: number | null; readonly output: string };
 
-export type DelegateOptions = { readonly home: string; readonly timeoutMs: number; readonly now: () => number };
+/** `mission`: a mission id (lane-key shape) the board groups this run under; written to the log line as is. */
+export type DelegateOptions = {
+  readonly home: string;
+  readonly timeoutMs: number;
+  readonly now: () => number;
+  readonly mission?: string;
+};
 
 /** Runs the instruction on the named agent, waits at most timeoutMs, and appends one line to delegations.jsonl. */
 export async function delegate(exec: Exec, name: string, text: string, o: DelegateOptions): Promise<Delegation> {
@@ -79,6 +90,7 @@ export async function delegate(exec: Exec, name: string, text: string, o: Delega
       `no agent ${name} in ${agentsPath(o.home)}${agents.length ? ` (known: ${agents.map((a) => a.name).join(", ")})` : ""}`,
     );
   if (!text.trim()) throw new Refusal("the instruction is empty: give --text or pipe it on stdin");
+  if (o.mission !== undefined && !KEY_RE.test(o.mission)) throw new Refusal(`--mission must match ${KEY_RE}`);
   const { cmd, argv } = delegateCommand(agent, text);
   const at = o.now();
   let proc: { kill(): void } | undefined;
@@ -104,6 +116,7 @@ export async function delegate(exec: Exec, name: string, text: string, o: Delega
     outcome: d.outcome,
     code: d.code,
     output: d.output.slice(0, 2000),
+    ...(o.mission !== undefined ? { mission: o.mission } : {}),
   };
   appendFileSync(join(o.home, "delegations.jsonl"), `${JSON.stringify(line)}\n`);
   return d;

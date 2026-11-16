@@ -1,5 +1,7 @@
 import { hrefOf, listPane, type View } from "./board-list-html.ts";
-import type { ProjectGroup } from "./board-state.ts";
+import { DETAIL_STYLE, detailPane, missionDetail } from "./board-detail-html.ts";
+import { MISSION_STYLE, missionCard, missionPane } from "./board-mission-html.ts";
+import type { BoardState } from "./board-state.ts";
 import type { Thread } from "./board-thread.ts";
 import { esc, form, record } from "./board-thread-html.ts";
 
@@ -68,21 +70,35 @@ const BAD_FLASH: ReadonlySet<string> = new Set(["held", "failed"]);
 
 export type PageOptions = { token: string | null; version: string; view: View; flash?: string };
 
-/** The board page: the row list beside (a phone: instead of) the selected row's record, whose composer writes to the lead. */
-export function boardHtml(t: Thread, projects: ProjectGroup[], now: number, o: PageOptions): string {
+/**
+ * The board page: the row list beside (a phone: instead of) the selected row's record or mission, whose composer writes
+ * to the lead.
+ */
+export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions): string {
   const r = t.row;
+  const mission = o.view.m ? s.missions.find((m) => m.id === o.view.m) : undefined;
+  const open = Boolean(o.view.c || mission);
+  // A message from a mission is about its row the operator acts on, else its first bot or lane: the lead sees which.
+  const about = mission
+    ? (mission.needs ?? mission.actors.find((a) => /^(bot|lane|standing):/.test(a.id))?.id ?? "lead")
+    : r.id;
   const flash =
     o.flash && FLASH[o.flash] ? `<p class="flash${BAD_FLASH.has(o.flash) ? " bad" : ""}">${FLASH[o.flash]}</p>` : "";
   const readOnly = o.token ? "" : `<p class="note">읽기 전용이에요. 허용된 계정·기기로 열어야 보낼 수 있어요.</p>`;
-  const placeholder = r.id === "lead" ? "도리도라에게 메시지…" : `도리도라에게 ${r.title} 관련 메시지…`;
+  const placeholder = mission
+    ? `도리도라에게 이 미션 관련 메시지…`
+    : r.id === "lead"
+      ? "도리도라에게 메시지…"
+      : `도리도라에게 ${r.title} 관련 메시지…`;
   const composer = form(
     "/request",
     o.token,
-    `<input type="hidden" name="c" value="${esc(r.id)}"><div class="box"><textarea name="text" rows="1" maxlength="${REQUEST_MAX}" required placeholder="${esc(placeholder)}" aria-label="메시지"></textarea><button class="send" aria-label="보내기">↑</button></div>`,
+    `<input type="hidden" name="c" value="${esc(about)}"><div class="box"><textarea name="text" rows="1" maxlength="${REQUEST_MAX}" required placeholder="${esc(placeholder)}" aria-label="메시지"></textarea><button class="send" aria-label="보내기">↑</button></div>`,
     "composer",
   );
   const kst = new Date(now + 9 * 3_600_000).toISOString().slice(5, 16).replace("T", " ");
-  const back = hrefOf(o.view, { c: null });
+  const back = hrefOf(o.view, { c: null, m: null });
+  const card = s.cards[r.id];
   return `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
@@ -91,12 +107,12 @@ export function boardHtml(t: Thread, projects: ProjectGroup[], now: number, o: P
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="도리 보드"><meta name="board-version" content="${esc(o.version)}">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/icon-180.png">
-<link rel="icon" href="/icon-192.png"><title>도리 보드</title><style>${STYLE}</style>
-<script src="/board.js" defer></script></head><body${o.view.c ? ' class="has-c"' : ""}>
+<link rel="icon" href="/icon-192.png"><title>도리 보드</title><style>${STYLE}${MISSION_STYLE}${DETAIL_STYLE}</style>
+<script src="/board.js" defer></script></head><body${open ? ' class="has-c"' : ""}>
 <div class="app"><aside class="list" aria-label="작업 목록"><header class="lh"><b>도리 보드</b><a class="meta" href="${esc(hrefOf(o.view))}">${kst} KST</a></header>
-${o.view.c ? "" : flash}${readOnly}${listPane(t.rows, projects, o.view, now, o.view.c ?? "lead")}</aside>
-<main class="pane">${o.view.c ? flash : ""}${record(t, now, o.token, back)}
-${composer}</main></div><a id="news" href="${esc(hrefOf(o.view))}" hidden>새 소식이 있어요 · 눌러서 보기</a>
+${open ? "" : flash}${readOnly}${listPane(t.rows, s, o.view, now, mission ? null : (o.view.c ?? "lead"))}</aside>
+<main class="pane">${open ? flash : ""}${mission ? missionPane(mission, now, back) : record(t, now, o.token, back, card ? missionCard(card, "inline") : "")}
+${composer}</main>${mission ? missionDetail(mission) : detailPane(r, card, s.routines, s.missions, now, s.avatars)}</div><a id="news" href="${esc(hrefOf(o.view))}" hidden>새 소식이 있어요 · 눌러서 보기</a>
 </body></html>
 `;
 }

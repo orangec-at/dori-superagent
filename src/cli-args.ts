@@ -7,6 +7,7 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
                                               a pane on a saved herdr machine is REF@machine (w4:p3@ubuntu)
   dori start <key> --brief FILE [--cwd DIR]   open a lane: new tab, omo session, brief + lane rules
              [--machine M --cwd DIR]          ... on a saved herdr SSH machine (herdr --machine M); DIR is on M
+             [--mission ID]                   ... tagged with a mission id the board groups its work under
   dori adopt <key> --pane REF [--machine M] [--brief FILE] [--note T] [--cwd DIR]
                                               watch a running agent session (omo or Claude Code) as a lane: its
                                               rules, brief and note are delivered once; done leaves the pane open
@@ -65,9 +66,12 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
                                               discord:<channel>, hermes:<machine>/<profile> (its Bot Chat);
                                               REPLIED, or REPLY_FAILED <address>: <reason> and exit 1
   dori agents                                 bots in DORI_HOME/agents.json: name, host (local), profile, role
+  dori agents avatars                         save each bot's picture for the board to DORI_HOME/avatars/<name>.png:
+                                              its Discord account picture, else its hermes profile's assets/avatar.png
   dori delegate <name> --text T [--timeout S] run hermes -p <profile> chat -Q -q T on that bot (ssh when it has a host)
                                               and print its answer; DELEGATE_FAILED exit 1, DELEGATE_TIMEOUT exit 124
                                               (default 600s); every run is logged to DORI_HOME/delegations.jsonl
+                [--mission ID]                tag the run with a mission id the board groups its work under
 
 --text may be omitted to read the message from stdin.
 send, report and ready exit 3 and print HELD <target> when the delivery may or may not have reached the pane:

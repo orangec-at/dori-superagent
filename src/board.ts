@@ -4,6 +4,7 @@ import type { Server } from "bun";
 import { type Ask, markSent, openAsk } from "./asks.ts";
 import type { CertFetch } from "./board-access.ts";
 import { boardAuth, hostnameOf, LOOPBACK_HOSTS } from "./board-auth.ts";
+import { avatarResponse } from "./board-avatars.ts";
 import { appendChat } from "./board-chat.ts";
 import { type BoardConfig, decideEnvelope, requestEnvelope } from "./board-config.ts";
 import { boardHtml, REQUEST_MAX } from "./board-html.ts";
@@ -201,7 +202,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
         const now = o.now();
         const view = viewOf(url.searchParams);
         const state = boardState(store, now);
-        const html = boardHtml(threadOf(store, state, view.c ?? "lead"), state.projects, now, {
+        const html = boardHtml(threadOf(store, state, view.c ?? "lead"), state, now, {
           token: "code" in w ? null : tokenFor(w.id),
           version: versionOf(state),
           view,
@@ -216,6 +217,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
           ? reject("read", w.code, w.why, 403)
           : Response.json(boardState(store, o.now()), { headers: SECURITY_HEADERS });
       }
+      if (url.pathname.startsWith("/avatar/")) return avatarResponse(store.root, url.pathname.slice("/avatar/".length));
       if (url.pathname === "/manifest.webmanifest")
         return Response.json(MANIFEST, { headers: { "content-type": "application/manifest+json" } });
       const asset = STATIC[url.pathname];
