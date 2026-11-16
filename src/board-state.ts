@@ -2,10 +2,12 @@ import { type Ask, asks } from "./asks.ts";
 import { type BotCard, botCards, firstLine } from "./board-bots.ts";
 import { type ChatMessage, chatTail } from "./board-chat.ts";
 import { agentsOrNone, avatarUrls } from "./board-avatars.ts";
+import { type Hub, readHub } from "./board-hub.ts";
+import { askText, briefTitle, type HubEvent, itemEvents, laneEvents } from "./board-hub-state.ts";
 import { missionState } from "./board-missions.ts";
 import { routines } from "./board-mission-sources.ts";
 import type { Mission, MissionCard, Routine } from "./board-mission-types.ts";
-import { type Link, OTHER, projectResolver, projectSeeds, type Subject } from "./board-projects.ts";
+import { type Link, messageProject, OTHER, projectResolver, projectSeeds, type Subject } from "./board-projects.ts";
 import { lanePrs, type Pr } from "./board-prs.ts";
 import { type StandingCard, standingCards } from "./board-status.ts";
 import { NUDGE_MINUTES } from "./duty.ts";
@@ -42,6 +44,12 @@ export type ProjectGroup = {
   /** board.json's one-line description and links for the project. */
   note: string | null;
   links: Link[];
+  /** The note, else the title of its newest lane's brief. */
+  purpose: string | null;
+  /** The open asks about it (by the ask id's key prefix, else the project its question names). */
+  asks: Ask[];
+  /** Lane starts, READYs, finishes and backlog additions of the last week, unsorted. */
+  events: HubEvent[];
 };
 
 export type BoardState = {
@@ -62,6 +70,8 @@ export type BoardState = {
   routines: Routine[];
   /** Row id -> its picture URL (/avatar/<name>); a row without one keeps its letter circle. */
   avatars: Record<string, string>;
+  /** PR states and project numbers the board process collected (board-hub.json); null before the first collection. */
+  hub: Hub | null;
 };
 
 const DAY_MS = 86_400_000;
@@ -99,6 +109,9 @@ export function boardState(store: Store, now: number): BoardState {
       prefixes: all((p) => p.prefixes),
       note: mine.find((p) => p.note)?.note ?? null,
       links: mine.flatMap((p) => p.links),
+      purpose: null,
+      asks: [],
+      events: [],
     };
     groups.set(name, g);
     return g;
@@ -120,6 +133,7 @@ export function boardState(store: Store, now: number): BoardState {
     if (l.status === "done" && now - l.lastActivityAt >= WEEK_MS) continue;
     const g = group(projectOf(laneSubject(l)));
     g.at = Math.max(g.at, l.lastActivityAt);
+    g.events.push(...laneEvents(l, now));
     for (const p of pl.prs) if (p.repo && !g.repos.includes(p.repo.toLowerCase())) g.repos.push(p.repo.toLowerCase());
     if (l.status === "done") {
       g.recent.push(pl);
@@ -133,6 +147,7 @@ export function boardState(store: Store, now: number): BoardState {
     if (i.status === "dropped" || (i.status === "done" && now - i.updatedAt >= DAY_MS)) continue;
     const g = group(projectOf({ key: i.id, cwd: i.cwd, repos: [] }));
     g.at = Math.max(g.at, i.updatedAt);
+    g.events.push(...itemEvents(i, now));
     if (i.status === "done") {
       const title = firstLine(i.title);
       g.done.push({
@@ -159,6 +174,15 @@ export function boardState(store: Store, now: number): BoardState {
     g.done.sort((a, b) => b.at - a.at);
     g.recent.sort((a, b) => b.at - a.at);
     g.backlog.sort((a, b) => a.priority - b.priority);
+    const newest = g.lanes[0] ?? g.recent[0];
+    const lane = newest ? lanes.find((l) => l.key === newest.key) : undefined;
+    g.purpose = g.note ?? (lane ? briefTitle(lane.brief, lane.key) : null);
+  }
+  const open = asks(store.root).filter((a) => a.status === "open");
+  for (const a of open) {
+    const byKey = groups.get(projectOf({ key: a.id, cwd: "", repos: [] }));
+    const g = byKey && byKey.name !== OTHER ? byKey : groups.get(messageProject(askText(a), sorted) ?? "");
+    g?.asks.push(a);
   }
   const standing = standingCards(store, now);
   const agents = agentsOrNone(store.root);
@@ -172,7 +196,8 @@ export function boardState(store: Store, now: number): BoardState {
     standing: standing.cards,
     standingError: standing.error,
     chat: chatTail(store.root, CHAT_SHOWN),
-    asks: asks(store.root).filter((a) => a.status === "open"),
+    asks: open,
+    hub: readHub(store.root),
     attention: attention.sort((a, b) => b.at - a.at),
     bots,
     projects: sorted,
