@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { dutyTick } from "../src/duty.ts";
-import { Refusal } from "../src/refusal.ts";
+import { PaneGone } from "../src/refusal.ts";
 import { send } from "../src/inbox.ts";
 import { parseRef, type RuntimeKind } from "../src/runtime/types.ts";
 import { terminal } from "./fake-hc.ts";
@@ -67,11 +67,11 @@ describe.each(["herdr", "hc"] as const)("send on %s (IS-2)", (kind) => {
     expect(d.store.queued(parseRef(s.target)!).map((m) => m.text)).toEqual(["rm -rf nothing"]);
   });
 
-  test("a gone session: Refusal, the message kept in its inbox", async () => {
+  test("a gone session: PaneGone (a Refusal), the message kept in its inbox", async () => {
     const { d, place } = rig(kind);
     const s = place("gone");
     const target = kind === "herdr" ? "w1:p9" : "hc:t9";
-    await expect(send(d, target, "anyone?", "cli")).rejects.toThrow(Refusal);
+    await expect(send(d, target, "anyone?", "cli")).rejects.toThrow(PaneGone);
     expect(s.received()).toEqual([]);
     expect(d.store.queued(parseRef(target)!)).toHaveLength(1);
   });

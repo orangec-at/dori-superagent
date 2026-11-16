@@ -1,6 +1,6 @@
 import { DeliveryUncertain, failureDetail } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
-import { Refusal } from "./refusal.ts";
+import { PaneGone, Refusal } from "./refusal.ts";
 import { resolveTarget } from "./target.ts";
 import { refText } from "./refs.ts";
 import type { AgentStatus, SessionRef } from "./runtime/types.ts";
@@ -23,10 +23,23 @@ export const isHeld = (m: QueuedMessage): boolean =>
 
 /**
  * Delivers now when the pane can read; otherwise queues it for the duty loop (busy agents are never interrupted).
- * The command-line path: an uncertain delivery is a result, never an error (see settled).
+ * The command-line path: an uncertain delivery is a result, never an error (see settled). Once the message is in the
+ * inbox, any other flush failure (a herdr probe call that failed, say) is `QUEUED` too: the message stays in the inbox
+ * for the duty loop, and a sender who saw an error would send it again. Only a Refusal is still an error: a gone pane
+ * (PaneGone, the message kept in its inbox) or a target that cannot be resolved (nothing queued).
  */
 export async function send(d: Deps, target: string, text: string, from: string): Promise<SendResult> {
-  return settled(sendOrThrow(d, target, text, from));
+  const ref = resolveTarget(d, target);
+  d.store.enqueue(ref, { at: d.now(), from, text });
+  try {
+    return await settled(flushInbox(d, ref).then((r) => (r === "delivered" ? "DELIVERED" : "QUEUED")));
+  } catch (e) {
+    if (e instanceof Refusal) throw e;
+    process.stderr.write(
+      `dori: delivering to ${refText(ref)} failed after it was queued (${failureDetail(e)}); kept in its inbox for the duty loop\n`,
+    );
+    return "QUEUED";
+  }
 }
 
 /** send for the duty and hourly loops: throws DeliveryUncertain, having recorded it, so they report the failure. */
@@ -97,7 +110,7 @@ async function flushLocked(d: Deps, ref: SessionRef): Promise<"delivered" | "que
   // herdr sees no agent in (#5), asked for here only.
   const { status, shellInFront } = await rt.probe(ref, { omoWithoutAgent: true });
   // Before the held check, so a gone session with only held messages says so instead of delivery-ambiguous forever (#108).
-  if (status === "gone") throw new Refusal(`pane ${refText(ref)} is gone; ${all.length} message(s) kept in its inbox`);
+  if (status === "gone") throw new PaneGone(`pane ${refText(ref)} is gone; ${all.length} message(s) kept in its inbox`);
   if (queued.length === 0) return "held";
   const typed = queued.filter((m) => m.attempt?.state === "typed");
   // #5: text typed into a no-agent omo pane hides its idle input, so the pane reads shell; with nothing interactive in
