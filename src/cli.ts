@@ -175,7 +175,8 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       const files = a.flags.get("file") ?? [];
       const text = a.pos.slice(2).join(" ") || one(a, "text") || (files.length > 0 ? "" : await textOf(a));
       try {
-        await reply(d.exec, address, text, { home: d.store.root, files });
+        const note = await reply(d.exec, address, text, { home: d.store.root, files, now: d.now });
+        if (note) console.error(note);
       } catch (e) {
         if (!(e instanceof ReplyError)) throw e;
         console.error(e.message);
