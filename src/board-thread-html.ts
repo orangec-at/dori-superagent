@@ -28,11 +28,39 @@ export const prLabel = (p: Pr): string =>
     ? `<a class="pr" href="${esc(p.url)}" rel="noopener" target="_blank">⑂ #${p.num}</a>`
     : `<span class="pr">⑂ #${p.num}</span>`;
 
+// A path of three or more parts, or an id ending in 24+ hex digits (a session_id). Every quantifier is bounded, so a
+// long word costs linear time.
+const LONG_TOKEN = /(?<![:/\w.@~-])(?:[~.\w@-]{0,80}\/){2,16}[\w.@-]{1,80}|(?<![\w/.-])[\w-]{0,40}[0-9a-f]{24,128}\b/g;
+const TOKEN_MIN = 28;
+
+/**
+ * Escaped text whose long paths and ids carry a short form beside the full one: a wide screen shows the short form
+ * (the full one on hover), a phone keeps the full text. A word holding a URL (`://`) is never folded.
+ */
+export const fold = (s: string): string =>
+  s
+    .split(/(\s+)/)
+    .map((w) => (w.includes("://") ? esc(w) : foldWord(w)))
+    .join("");
+
+function foldWord(s: string): string {
+  let out = "";
+  let i = 0;
+  for (const m of s.matchAll(LONG_TOKEN)) {
+    const t = m[0];
+    if (t.length < TOKEN_MIN) continue;
+    const short = t.includes("/") ? `…/${t.split("/").at(-1)}` : `${t.slice(0, 14)}…`;
+    out += `${esc(s.slice(i, m.index))}<span class="lt" title="${esc(t)}"><span class="lf">${esc(t)}</span><span class="ls">${esc(short)}</span></span>`;
+    i = m.index + t.length;
+  }
+  return out + esc(s.slice(i));
+}
+
 const LONG = 700;
 const body = (text: string): string =>
   text.length > LONG
-    ? `${esc(text.slice(0, LONG))}…<details class="more"><summary>더 보기</summary>${esc(text.slice(LONG))}</details>`
-    : esc(text);
+    ? `${fold(text.slice(0, LONG))}…<details class="more"><summary>더 보기</summary>${fold(text.slice(LONG))}</details>`
+    : fold(text);
 
 const DELIVERY: Record<string, [string, string]> = {
   DELIVERED: ["전달됨", ""],
@@ -61,7 +89,7 @@ function askCard(a: Ask, now: number, token: string | null): string {
 ${form("/decide", token, `<input type="hidden" name="id" value="${esc(a.id)}"><div class="buttons">${buttons}</div>`)}${sent}</article>`;
 }
 
-function item(i: ThreadItem, now: number, token: string | null): string {
+function item(i: ThreadItem, now: number, token: string | null, face: string): string {
   const when = (at: number | null): string => (at ? `<span class="meta">${ago(now, at)}</span>` : "");
   switch (i.t) {
     case "me": {
@@ -69,7 +97,7 @@ function item(i: ThreadItem, now: number, token: string | null): string {
       return `<div class="msg me"><div class="bubble">${body(i.text)}</div><div class="meta${cls}">${ago(now, i.at)}${label ? ` · ${label}` : ""}</div></div>`;
     }
     case "them":
-      return `<div class="msg them"><div class="text">${body(i.text)}</div>${(i.links ?? []).map((u) => `<p class="ev">${link(u)}</p>`).join("")}${when(i.at)}</div>`;
+      return `<div class="msg them">${face ? `<span class="mav" aria-hidden="true">${face}</span>` : ""}<div class="mb"><div class="text">${body(i.text)}</div>${(i.links ?? []).map((u) => `<p class="ev">${link(u)}</p>`).join("")}${when(i.at)}</div></div>`;
     case "work":
       return `<details class="work"><summary>${esc(i.title)} ${when(i.at)}</summary><pre>${esc(i.body)}</pre>${i.href ? `<a href="${esc(i.href)}">기록 열기 →</a>` : ""}</details>`;
     case "ask":
@@ -79,10 +107,13 @@ function item(i: ThreadItem, now: number, token: string | null): string {
   }
 }
 
-/** The record of the selected row: header, `top` (its mission card), what waits on the operator, its PRs, then its timeline. */
-export function record(t: Thread, now: number, token: string | null, back: string, top = ""): string {
+/**
+ * The record of the selected row: header, `top` (its mission card), what waits on the operator, its PRs, then its
+ * timeline. `face` is the row's avatar, shown by a wide screen in the header and beside each answer.
+ */
+export function record(t: Thread, now: number, token: string | null, back: string, top = "", face = ""): string {
   const r = t.row;
-  const items = (list: ThreadItem[]): string => list.map((i) => item(i, now, token)).join("\n");
+  const items = (list: ThreadItem[]): string => list.map((i) => item(i, now, token, face)).join("\n");
   const waiting = t.waiting.length
     ? `<h3 class="needs">재일 님 차례 <span>${t.waiting.length}</span></h3>${items(t.waiting)}`
     : "";
@@ -91,7 +122,7 @@ export function record(t: Thread, now: number, token: string | null, back: strin
         .map((p) => `<li>${prLabel(p)} <span class="meta">${esc(p.repo ?? "")}</span></li>`)
         .join("")}</ul></details>`
     : "";
-  return `<header class="rec-h"><a class="back" href="${esc(back)}" aria-label="목록으로">←</a>${mark(r)}
+  return `<header class="rec-h"><a class="back" href="${esc(back)}" aria-label="목록으로">←</a>${mark(r)}${face ? `<span class="hav">${face}</span>` : ""}
 <div class="title"><b>${esc(r.title)}</b><span class="meta">${esc(r.project)} · <span class="w s-${r.section}">${esc(r.word)}</span>${r.at ? ` · ${ago(now, r.at)}` : ""}</span></div></header>
 <section class="thread" id="chat">${top}${waiting}${prs}${items(t.items)}<span id="end"></span></section>`;
 }

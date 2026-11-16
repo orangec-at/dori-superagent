@@ -25,6 +25,12 @@
     // no sessionStorage (a private window): the failure notice still shows, only the text is not put back
   }
 
+  // A tablet's detail panel (a checkbox the 미션 button toggles) closes on Escape too.
+  const panel = document.getElementById("dt");
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && panel?.checked) panel.checked = false;
+  });
+
   box?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) box.form?.requestSubmit();
   });
