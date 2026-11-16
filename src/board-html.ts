@@ -54,7 +54,7 @@ button.primary{background:var(--needs);border-color:var(--needs);color:#1b1200;f
 .box textarea{flex:1;min-height:42px;max-height:40vh;resize:none;border:0;outline:0;background:transparent;color:var(--text);font:inherit;padding:9px 0;field-sizing:content}
 .box button{flex:none;width:40px;min-width:40px;height:40px;min-height:40px;padding:0;border-radius:50%;background:var(--needs);border-color:var(--needs);color:#1b1200;font-size:18px}
 #news{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);background:var(--needs);color:#1b1200;padding:6px 14px;border-radius:999px;font-size:13px;z-index:6}
-@media (min-width:900px){.app{display:grid;grid-template-columns:400px 1fr}.list{position:sticky;top:0;height:100dvh;overflow-y:auto;border-right:1px solid var(--line)}
+@media (min-width:900px){.app{display:grid;grid-template-columns:400px 1fr}.list{position:sticky;top:0;align-self:start;height:100dvh;overflow-y:auto;border-right:1px solid var(--line)}
 .has-c .list{display:block}body:not(.has-c) .pane{display:flex}.back{display:none}}`;
 
 const FLASH: Record<string, string> = {
