@@ -1,3 +1,5 @@
+import { autopilotTick } from "./autopilot.ts";
+import { startNow } from "./autostart.ts";
 import { COST_SCREEN_LINES, limitFor, loadBudgets, noteCost } from "./budget.ts";
 import { DeliveryUncertain, failureDetail } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
@@ -131,6 +133,17 @@ export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
       // One lane's failed status read or delivery must not end the loop for the other lanes.
       events.push({ lane: listed.key, action: "lane-failed", detail: failureDetail(e) });
     }
+  }
+  // Roadmap work for idle bots and stalled projects, then any free lane slot goes to the next backlog item at once.
+  try {
+    events.push(...(await autopilotTick(d)).map((t) => ({ action: "autopilot", detail: t })));
+  } catch (e) {
+    events.push({ action: "autopilot-failed", detail: failureDetail(e) });
+  }
+  try {
+    events.push(...(await startNow(d, "autostart on a duty pass")).map((t) => ({ action: "autostart", detail: t })));
+  } catch (e) {
+    events.push({ action: "autostart-failed", detail: failureDetail(e) });
   }
   const count = (pred: (a: string) => boolean) => events.filter((e) => pred(e.action)).length;
   d.usage.touch();

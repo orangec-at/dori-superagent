@@ -12,7 +12,15 @@ const home = mkdtempSync(join(tmpdir(), "dori-e2e-"));
 const cli = resolve(import.meta.dir, "../src/cli.ts");
 // Pinned to herdr, and outside any session of the host's own runtimes, so the lane opens in the isolated session only.
 const { HC_TERMINAL_ID: _hc, HERDR_PANE_ID: _pane, HERDR_WORKSPACE_ID: _ws, ...outer } = process.env;
-const env = { ...outer, DORI_HOME: home, DORI_HERDR_SESSION: session, DORI_TELEMETRY: "0", DORI_RUNTIME: "herdr" };
+// Autostart off: these tests prove the hourly loop opens the lane, so `backlog add` must not open it first.
+const env = {
+  ...outer,
+  DORI_HOME: home,
+  DORI_HERDR_SESSION: session,
+  DORI_TELEMETRY: "0",
+  DORI_RUNTIME: "herdr",
+  DORI_AUTOSTART: "off",
+};
 let server: ReturnType<typeof Bun.spawn> | undefined;
 
 const herdr = async (...argv: string[]) => {

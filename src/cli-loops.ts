@@ -1,10 +1,13 @@
 import { backlogAdd, backlogDecide, backlogDrop, backlogImport, backlogPriority, IMPORT_LIMIT } from "./backlog.ts";
 import { need, one, textOf, USAGE, type Args } from "./cli-args.ts";
+import { autopilotStatus } from "./autopilot.ts";
+import { startAfter } from "./autostart.ts";
 import { dutyTick } from "./duty.ts";
 import type { Deps } from "./harness.ts";
 import { Refusal } from "./refusal.ts";
 import { HOUR, type LoopOpts, loopTick, msUntilNext, summary } from "./loop.ts";
 import { acquire, release } from "./loop-lock.ts";
+import { saveLoopLimits } from "./loop-pull.ts";
 import { onTerm, type Term } from "./loop-term.ts";
 import { autoSelfUpdate, spawnSelfUpdate } from "./self-update-run.ts";
 
@@ -25,6 +28,10 @@ export async function runDuty(d: Deps, a: Args, x: string | undefined, newTerm: 
   if (x === "status") {
     const stop = d.store.stop("duty");
     console.log(stop ? `stopped: ${stop.reason}` : "running (no stop file)");
+    return 0;
+  }
+  if (x === "autopilot") {
+    console.log(JSON.stringify(autopilotStatus(d), null, 2));
     return 0;
   }
   if (x !== undefined) throw new Refusal(`unknown duty command ${x}\n\n${USAGE}`);
@@ -114,6 +121,7 @@ export async function runLoop(
       "--interval and --max-load must be finite positive numbers; --max-lanes and --max-starts whole numbers >= 0",
     );
   }
+  saveLoopLimits(d, { maxLanes: opts.maxLanes, maxStarts: opts.maxStarts, maxLoad: opts.maxLoad });
   const term = newTerm();
   try {
     return await loopPasses(d, a, opts, term, startSelfUpdate);
@@ -182,6 +190,7 @@ export async function runBacklog(d: Deps, a: Args, x: string | undefined): Promi
       ...(p !== undefined ? { priority: Number(p) } : {}),
     });
     console.log(`ADDED ${item.id} p${item.priority}${item.decision ? " (needs decision)" : ""}`);
+    for (const line of await startAfter(d, "autostart after backlog add")) console.log(`AUTOSTART ${line}`);
   } else if (x === "list" || x === undefined) {
     for (const i of d.store.items()) {
       console.log(

@@ -4,19 +4,16 @@
 import { log } from "./backlog.ts";
 import type { Deps } from "./harness.ts";
 import { tellLead } from "./inbox.ts";
-import { startLane } from "./lanes.ts";
 import { audit, HOUR } from "./loop-audit.ts";
 import { checkBoard } from "./loop-board.ts";
 import { refreshLinks } from "./loop-links.ts";
-import { acquire, holds, release } from "./loop-lock.ts";
-import { refText } from "./refs.ts";
+import { acquire, release } from "./loop-lock.ts";
+import { busyLanes, isOpenLane, MAX_ATTEMPTS, pull } from "./loop-pull.ts";
 import { markTrialsAsked, routeStanding } from "./standing-loop.ts";
 import type { LoopRun } from "./store-types.ts";
 
 export { HOUR };
 export const REMIND_HOURS = 6;
-export const MAX_ATTEMPTS = 2;
-export const MEM_FREE_MIN_PCT = 10;
 
 export type LoopOpts = {
   interval?: number;
@@ -76,84 +73,6 @@ async function sync(d: Deps, run: LoopRun): Promise<void> {
   }
 }
 
-const isOpenLane = (status: string): boolean => status !== "done" && status !== "lost";
-
-/**
- * Lanes holding one of the loop's slots: backlog lanes still at work. A READY lane waits only for the human's merge,
- * and an ad-hoc lane (no running backlog item, opened by the lead) is not the loop's, so neither keeps the backlog
- * from moving. The host load and memory checks still bound how many lanes run at once.
- */
-function busyLanes(d: Deps): number {
-  const running = new Set(
-    d.store
-      .items()
-      .filter((i) => i.status === "running")
-      .map((i) => i.id),
-  );
-  return d.store.lanes().filter((l) => isOpenLane(l.status) && l.status !== "ready" && running.has(l.key)).length;
-}
-
-async function pull(
-  d: Deps,
-  run: LoopRun,
-  maxLanes: number,
-  maxStarts: number,
-  maxLoad: number | undefined,
-  nonce: string,
-): Promise<void> {
-  if (!d.store.roles().lead) {
-    run.held.push("no lead pane registered");
-    return;
-  }
-  const host = d.host();
-  const open = busyLanes(d);
-  let starts = Math.max(0, Math.min(maxLanes - open, maxStarts));
-  const candidates = d.store
-    .items()
-    .filter((i) => i.status === "open" && !i.decision && !isOpenLane(d.store.lane(i.id)?.status ?? "done"))
-    .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
-  if (candidates.length > 0 && (host.load1 > (maxLoad ?? host.cores) || host.memFreePct < MEM_FREE_MIN_PCT)) {
-    run.held.push(
-      `host busy: load ${host.load1.toFixed(1)} (limit ${maxLoad ?? host.cores}), mem free ${host.memFreePct}%`,
-    );
-    starts = 0;
-  }
-  // Each start attempt uses one of this run's slots, so a broken host costs at most `starts` failures per run.
-  // A failed item counts toward MAX_ATTEMPTS and then becomes a question, so it never blocks the items behind it.
-  let tried = 0;
-  for (; tried < Math.min(starts, candidates.length); tried++) {
-    const item = candidates[tried]!;
-    if (!holds(d, nonce)) {
-      run.held.push("lock lost to another loop; no more starts this run");
-      break;
-    }
-    try {
-      await startLane(d, item.id, item.brief, { cwd: item.cwd });
-    } catch (e) {
-      const why = e instanceof Error ? e.message : String(e);
-      const lane = d.store.lane(item.id);
-      if (!lane || !isOpenLane(lane.status) || lane.createdAt < run.at) {
-        item.startFailures = (item.startFailures ?? 0) + 1;
-        if (item.startFailures >= MAX_ATTEMPTS)
-          item.decision = `lane start failed ${item.startFailures} times (${why.slice(0, 120)}); fix the brief or cwd, or drop?`;
-        log(d, item, "start", `failed: ${why}`);
-        run.findings.push(`start ${item.id} failed: ${why}`);
-        continue;
-      }
-      run.findings.push(`${item.id} started in ${refText(lane.sessionRef)} but the lead was not told: ${why}`);
-    }
-    item.status = "running";
-    log(d, item, "start", "lane opened by the hourly loop");
-    run.started.push(`${item.id} (p${item.priority})`);
-  }
-  const waiting = candidates.length - tried;
-  if (waiting > 0) {
-    run.held.push(
-      `${waiting} item(s) waiting: ${Math.max(0, maxLanes - open - run.started.length)} free of ${maxLanes} lanes, max ${maxStarts}/run`,
-    );
-  }
-}
-
 function ask(d: Deps, run: LoopRun): void {
   const now = d.now();
   for (const item of d.store.items()) {
@@ -203,7 +122,7 @@ export async function loopTick(d: Deps, opts: LoopOpts = {}): Promise<LoopRun> {
     const run: LoopRun = { at: d.now(), synced: [], findings: [], started: [], held: [], asked: [] };
     await sync(d, run);
     await audit(d, run);
-    await pull(d, run, maxLanes, maxStarts, opts.maxLoad, lock.nonce);
+    await pull(d, run, { maxLanes, maxStarts, maxLoad: opts.maxLoad }, lock.nonce);
     ask(d, run);
     await routeStanding(d, run);
     run.board = await checkBoard(d);

@@ -122,6 +122,7 @@ export async function delegate(exec: Exec, name: string, text: string, o: Delega
     outcome: d.outcome,
     code: d.code,
     output: d.output.slice(0, 2000),
+    endedAt: new Date(o.now()).toISOString(),
     ...(o.mission !== undefined ? { mission: o.mission } : {}),
   };
   appendFileSync(join(o.home, "delegations.jsonl"), `${JSON.stringify(line)}\n`);
