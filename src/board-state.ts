@@ -1,4 +1,5 @@
 import { type Ask, asks } from "./asks.ts";
+import { type AgentActivity, agentActivity } from "./board-agents.ts";
 import { type BotCard, botCards, firstLine } from "./board-bots.ts";
 import { type ChatMessage, chatTail } from "./board-chat.ts";
 import { agentsOrNone, avatarUrls } from "./board-avatars.ts";
@@ -80,6 +81,8 @@ export type BoardState = {
   avatars: Record<string, string>;
   /** PR states and project numbers the board process collected (board-hub.json); null before the first collection. */
   hub: Hub | null;
+  /** The 에이전트 tab: what the lead, each open lane, each bot and Muse is doing. */
+  agents: AgentActivity[];
 };
 
 const DAY_MS = 86_400_000;
@@ -227,6 +230,7 @@ export function boardState(store: Store, now: number): BoardState {
   const agents = agentsOrNone(store.root);
   const bots = botCards(store.root, now, agents);
   const avatars = avatarUrls(store.root, agents);
+  const chat = chatTail(store.root, CHAT_SHOWN);
   return {
     ...missionState(store, bots, standing.cards, now, agents, avatars),
     routines: routines(store.root),
@@ -234,7 +238,8 @@ export function boardState(store: Store, now: number): BoardState {
     generatedAt: now,
     standing: standing.cards,
     standingError: standing.error,
-    chat: chatTail(store.root, CHAT_SHOWN),
+    chat,
+    agents: agentActivity(store, now, bots, chat),
     asks: open,
     hub: readHub(store.root),
     attention: attention.sort((a, b) => b.at - a.at),

@@ -95,6 +95,12 @@ export async function delegate(exec: Exec, name: string, text: string, o: Delega
   if (o.mission !== undefined && !KEY_RE.test(o.mission)) throw new Refusal(`--mission must match ${KEY_RE}`);
   const { cmd, argv } = delegateCommand(agent, text);
   const at = o.now();
+  // The start, for the board's 에이전트 tab: the delegations.jsonl line with the same at and agent below ends it.
+  const start = { at: new Date(at).toISOString(), agent: name, text: text.slice(0, 200) };
+  appendFileSync(
+    join(o.home, "delegate-runs.jsonl"),
+    `${JSON.stringify({ ...start, until: new Date(at + o.timeoutMs).toISOString() })}\n`,
+  );
   let proc: { kill(): void } | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const run = exec(cmd, argv, { onSpawn: (p) => (proc = p) }).catch(
@@ -112,9 +118,7 @@ export async function delegate(exec: Exec, name: string, text: string, o: Delega
     d = { outcome: result.code === 0 ? "ok" : "failed", code: result.code, output };
   }
   const line = {
-    at: new Date(at).toISOString(),
-    agent: name,
-    text: text.slice(0, 200),
+    ...start,
     outcome: d.outcome,
     code: d.code,
     output: d.output.slice(0, 2000),
