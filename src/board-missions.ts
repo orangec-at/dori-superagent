@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { type Agent, loadAgents } from "./agents.ts";
+import type { Agent } from "./agents.ts";
 import {
   assignmentOf,
   type BotCard,
@@ -65,14 +65,11 @@ export function missionState(
   bots: BotCard[],
   standing: StandingCard[],
   now: number,
+  agents: Agent[],
   imgs: Record<string, string> = {},
 ): { missions: Mission[]; cards: Record<string, MissionCard> } {
   const home = store.root;
-  let agents: Agent[] = [];
   let leads: StandingLead[] = [];
-  try {
-    agents = loadAgents(home);
-  } catch {}
   try {
     leads = loadLeads(home);
   } catch {}
@@ -92,9 +89,15 @@ export function missionState(
       if (!m.steps.some((s) => s.to === `gh:${i.repo}` && s.href === i.url))
         step(m, at, from, `gh:${i.repo}`, i.comment ? `이슈 #${i.num} 댓글` : `이슈 #${i.num}`, "ok", i.url);
   };
+  // One read of each standing lead's state per board build, however many lanes it owns.
+  const states = new Map<string, ReturnType<typeof leadState>>();
+  const stateOf = (domain: string) => {
+    if (!states.has(domain)) states.set(domain, leadState(home, domain));
+    return states.get(domain);
+  };
   const ownerOf = (l: Lane): string => {
     const def = leads.find((d) => owns(store, d, l.key));
-    const s = def ? leadState(home, def.domain) : undefined;
+    const s = def ? stateOf(def.domain) : undefined;
     return def && s && s.startedAt <= l.createdAt ? `standing:${def.domain}` : "lead";
   };
 
@@ -151,14 +154,18 @@ export function missionState(
       .map((k) => prMission.get(k)?.mission)
       .find(Boolean);
     const id = d.mission ? `mission:${d.mission}` : tag ? `tag:${tag}` : (byPr ?? `d:${d.agent}:${at}`);
-    const m = draft(id, d.mission ?? tag ?? withoutTag(d.text));
+    // A --mission run that is also a morning assignment shows in both, so the assignment does not wait on it.
+    const targets = [draft(id, d.mission ?? tag ?? withoutTag(d.text))];
+    if (d.mission && tag && date) targets.push(draft(`tag:${tag}`, tag));
     const bot = `bot:${d.agent}`;
     const failed = d.outcome !== "ok";
-    step(m, at, "lead", bot, `지시 · ${withoutTag(d.text)}`, "ok");
     const answer = failed ? (d.outcome === "timeout" ? "시간 초과" : "실패") : delegateSummary(d.output);
-    step(m, at, bot, "lead", answer, failed ? "stuck" : "ok", firstUrl(d.output));
-    lastFailed.set(m, (lastFailed.get(m) ?? new Map()).set(bot, failed));
-    issues(m, at, bot, d.output);
+    for (const m of targets) {
+      step(m, at, "lead", bot, `지시 · ${withoutTag(d.text)}`, "ok");
+      step(m, at, bot, "lead", answer, failed ? "stuck" : "ok", firstUrl(d.output));
+      lastFailed.set(m, (lastFailed.get(m) ?? new Map()).set(bot, failed));
+      issues(m, at, bot, d.output);
+    }
   }
 
   // A retry that succeeded clears an earlier failure: only each bot's latest run counts, as with review receipts.

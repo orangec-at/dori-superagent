@@ -207,11 +207,32 @@ test("a retry that succeeds clears a failure; old lanes leave; Muse needs the re
   expect(s.missions.find((m) => m.id === ASSIGN)?.steps.some((st) => st.to === "muse")).toBe(false);
 });
 
-test("evidence that is not a web link is shown as text", async () => {
+test("evidence that is not a web link or a board path is shown as text", async () => {
   const { store, url } = seeded();
-  store.saveLane({ ...store.lane("vg-web")!, final: { text: "x", evidence: ["javascript:alert(1)"], at: NOW } });
-  const page = await (await fetch(`${url}/?c=lane:vg-web`, { headers: tailnet() })).text();
-  expect(page).not.toContain('href="javascript:');
+  for (const bad of ["javascript:alert(1)", "/\\evil.example", "//evil.example"]) {
+    store.saveLane({ ...store.lane("vg-web")!, final: { text: "x", evidence: [bad], at: NOW } });
+    const page = await (await fetch(`${url}/?c=lane:vg-web`, { headers: tailnet() })).text();
+    expect(page).not.toContain(`href="${bad}`);
+  }
+});
+
+test("a --mission run tagged [아침 배정] is handed in both missions, so the assignment does not wait on it", () => {
+  const { store, home } = seeded();
+  const path = join(home, "delegations.jsonl");
+  const run = { code: 0, at: "2026-11-13T00:30:00.000Z", agent: "yoridori", outcome: "ok", output: "초안 올림" };
+  const text = "[아침 배정 2026-11-13] Threads 초안";
+  writeFileSync(path, `${readFileSync(path, "utf8")}${JSON.stringify({ ...run, text, mission: "yd-threads" })}\n`);
+  const s = boardState(store, NOW);
+  const handed = (id: string) => flow(s.missions.find((m) => m.id === id)!.steps).filter((f) => f.includes("yoridori"));
+  expect(handed(ASSIGN).slice(0, 2)).toEqual([
+    "lead>bot:yoridori ok 지시 · Threads 초안",
+    "bot:yoridori>lead ok 초안 올림",
+  ]);
+  expect(handed(ASSIGN).some((f) => f.includes(" wait "))).toBe(false);
+  expect(handed("mission:yd-threads")).toEqual([
+    "lead>bot:yoridori ok 지시 · Threads 초안",
+    "bot:yoridori>lead ok 초안 올림",
+  ]);
 });
 
 test("dori delegate --mission writes the tag to the log line; a tag that is not a key is refused", async () => {

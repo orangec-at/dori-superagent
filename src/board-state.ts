@@ -146,10 +146,11 @@ export function boardState(store: Store, now: number): BoardState {
     g.backlog.sort((a, b) => a.priority - b.priority);
   }
   const standing = standingCards(store, now);
-  const bots = botCards(store.root, now);
-  const avatars = avatarUrls(store.root, agentsOrNone(store.root));
+  const agents = agentsOrNone(store.root);
+  const bots = botCards(store.root, now, agents);
+  const avatars = avatarUrls(store.root, agents);
   return {
-    ...missionState(store, bots, standing.cards, now, avatars),
+    ...missionState(store, bots, standing.cards, now, agents, avatars),
     routines: routines(store.root),
     avatars,
     generatedAt: now,

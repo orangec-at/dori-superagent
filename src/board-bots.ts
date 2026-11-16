@@ -1,6 +1,6 @@
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { type Agent, loadAgents } from "./agents.ts";
+import type { Agent } from "./agents.ts";
 
 const KST_MS = 9 * 3_600_000;
 const DELEGATION_TAIL_BYTES = 256 * 1024;
@@ -103,13 +103,8 @@ export function delegations(
     });
 }
 
-export function botCards(home: string, now: number): BotCard[] {
-  let agents: Agent[];
-  try {
-    agents = loadAgents(home);
-  } catch {
-    return [];
-  }
+/** `agents`: agents.json as read once for the whole board (none when it is missing or malformed). */
+export function botCards(home: string, now: number, agents: Agent[]): BotCard[] {
   const assignFile = join(home, "out", `daily-assign-${kstDate(now)}.md`);
   const md = existsSync(assignFile) ? readFileSync(assignFile, "utf8") : "";
   const log = delegations(home);

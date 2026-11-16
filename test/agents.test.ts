@@ -138,3 +138,23 @@ test("dori agents lists them; dori delegate exits 0, 1 or 124 and refuses an unk
   ]);
   expect(log(d.store.root).map((x) => x["outcome"])).toEqual(["ok", "failed", "timeout"]);
 });
+
+test("dori agents avatars runs the picture sync; dori delegate --mission writes the tag to the log line", async () => {
+  const { d } = setup();
+  writeFileSync(join(d.store.root, "agents.json"), JSON.stringify(AGENTS));
+  const out: string[] = [];
+  const [l, w] = [console.log, process.stdout.write];
+  console.log = (...a: unknown[]) => void out.push(a.join(" "));
+  process.stdout.write = ((s: string) => out.push(s) > 0) as typeof process.stdout.write;
+  const none = runner({ code: 1, stdout: "", stderr: "" });
+  const ok = runner({ code: 0, stdout: "ok\n", stderr: "" });
+  try {
+    expect(await main(["agents", "avatars"], { ...d, exec: none.exec })).toBe(0);
+    expect(await main(["delegate", "endo", "--text", "x", "--mission", "vg-launch"], { ...d, exec: ok.exec })).toBe(0);
+  } finally {
+    [console.log, process.stdout.write] = [l, w];
+  }
+  expect(out).toEqual(["NO_AVATAR endo", "NO_AVATAR hongbungi", "ok\n"]);
+  expect(none.calls.map((c) => c.cmd)).toEqual(["sh", "sh", "ssh", "ssh"]);
+  expect(log(d.store.root)).toEqual([expect.objectContaining({ agent: "endo", mission: "vg-launch" })]);
+});
