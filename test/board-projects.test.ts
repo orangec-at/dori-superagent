@@ -138,6 +138,7 @@ const group = (name: string, over: Partial<ProjectGroup> = {}): ProjectGroup => 
   repos: [],
   bots: [],
   prefixes: [],
+  milestones: [],
   note: null,
   links: [],
   purpose: null,

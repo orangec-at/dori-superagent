@@ -18,6 +18,7 @@ import {
   type Subject,
 } from "./board-projects.ts";
 import { lanePrs, type Pr } from "./board-prs.ts";
+import type { Milestone } from "./board-tasks.ts";
 import { type StandingCard, standingCards } from "./board-status.ts";
 import { NUDGE_MINUTES } from "./duty.ts";
 import type { Store } from "./store.ts";
@@ -32,8 +33,7 @@ export type ProjectLane = {
   full: string;
   prs: Pr[];
   escalated: boolean;
-  /** A done backlog item listed with the day's finished lanes, not a lane. */
-  item?: true;
+  item?: true; // a done backlog item listed with the day's finished lanes, not a lane
 };
 /**
  * `done`: lanes and items finished in the last day (listed as fresh results); `recent`: lanes finished in the last week
@@ -48,11 +48,11 @@ export type ProjectGroup = {
   at: number;
   repos: string[];
   bots: string[];
-  /** The lead's key prefixes: a Discord channel named by one (`fmv`) belongs to the project. */
-  prefixes: string[];
+  prefixes: string[]; // the lead's key prefixes: a Discord channel named by one (`fmv`) belongs to the project
   /** board.json's one-line description and links for the project. */
   note: string | null;
   links: Link[];
+  milestones: Milestone[];
   /** The note, else the title of its newest lane's brief. */
   purpose: string | null;
   /** The open asks about it (by the ask id's key prefix, else the project its question names). */
@@ -122,6 +122,7 @@ export function boardState(store: Store, now: number): BoardState {
       prefixes: all((p) => p.prefixes),
       note: mine.find((p) => p.note)?.note ?? null,
       links: mine.flatMap((p) => p.links),
+      milestones: mine.flatMap((p) => p.milestones),
       purpose: null,
       asks: [],
       events: [],

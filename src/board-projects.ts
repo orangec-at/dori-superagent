@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ProjectGroup } from "./board-state.ts";
+import { type Milestone, milestonesOf } from "./board-tasks.ts";
 import { Refusal } from "./refusal.ts";
 import { loadLeads } from "./standing.ts";
 
@@ -26,6 +27,7 @@ export type Seed = {
   /** board.json object form: a one-line description and links the project page shows. */
   note: string | null;
   links: Link[];
+  milestones: Milestone[];
 };
 
 export const OTHER = "기타";
@@ -71,6 +73,7 @@ export function projectSeeds(home: string): Seed[] {
     bots: [...l.bots],
     note: null,
     links: [],
+    milestones: [],
   }));
   const path = join(home, "board.json");
   try {
@@ -107,12 +110,12 @@ const linksOf = (v: unknown): Link[] | null => {
 };
 
 /**
- * One board.json `projects` entry: `["word", …]`, or `{ words, repos: ["owner/repo"], dirs, note, links: [{ label, url }] }`
- * with every field optional. An entry of another shape, or with a field of the wrong type, is ignored (null).
+ * One board.json `projects` entry: `["word", …]`, or `{ words, repos: ["owner/repo"], dirs, note, links: [{ label, url }],
+ * milestones: [{ name, due, items }] }` with every field optional. An entry of another shape, or with a field of the wrong type, is ignored (null).
  */
 export function boardSeed(name: string, v: unknown): Seed | null {
   if (name.trim() === "") return null;
-  const seed = { name, prefixes: [], words: [], repos: [], dirs: [], bots: [], note: null, links: [] };
+  const seed = { name, prefixes: [], words: [], repos: [], dirs: [], bots: [], note: null, links: [], milestones: [] };
   if (Array.isArray(v)) {
     const words = strings(v);
     return words ? { ...seed, words } : null;
@@ -123,8 +126,9 @@ export function boardSeed(name: string, v: unknown): Seed | null {
   const repos = strings(o["repos"]);
   const dirs = strings(o["dirs"]);
   const links = linksOf(o["links"]);
+  const milestones = milestonesOf(o["milestones"]);
   const note = o["note"] === undefined ? null : typeof o["note"] === "string" ? o["note"].trim() || null : undefined;
-  if (!words || !repos || !dirs || !links || note === undefined) return null;
+  if (!words || !repos || !dirs || !links || !milestones || note === undefined) return null;
   if (!repos.every((r) => /^[\w.-]+\/[\w.-]+$/.test(r))) return null;
   return {
     ...seed,
@@ -133,6 +137,7 @@ export function boardSeed(name: string, v: unknown): Seed | null {
     dirs: dirs.map(projectName),
     note,
     links,
+    milestones,
   };
 }
 

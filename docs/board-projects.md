@@ -28,6 +28,7 @@ no activity they sort after the active ones, and their page says `진행 중인 
 | `note`  | `string`                       | one line shown in the list and on the project's page            |
 | `links` | `{ "label", "url" }[]` (http/https) | shown on the project's page                                 |
 | `metrics` | `{ "name", "cmd" \| "file" }[]` | numbers shown on the project's status card (below)          |
+| `milestones` | `{ "name", "due"?: "YYYY-MM-DD", "items"?: string[] }[]` | progress bars and the next due date (below); `items` are backlog item ids or lane keys |
 
 Every field is optional. An entry of another shape, or with a field of the wrong type (a non-`owner/repo` repo, a
 link that is not http/https), is ignored; the rest of the file still applies.
@@ -43,15 +44,34 @@ The page opens with a status card, on a phone too:
   `쉬는 중`;
 - **numbers** from `metrics`;
 - **재일 님이 결정할 것**: those asks, decisions and lanes, linked;
+- **담당 · 다음 마감 · 남은 작업**: the project's standing lead (else 도리도라), its open lanes and bots; the
+  unfinished milestone with the nearest `due` (D-n, or how many days late); the tasks not yet done;
 - **다음 할 일**: the latest report of up to two lanes at work, then the highest-priority open backlog item that
   needs no decision.
 
 An ask belongs to the project its id's key prefix places it in (as a lane key would be), else the project its
 question names. The project list shows each project's badge and one line: its first decision, else its first next step.
 
-Below the card: the open lanes, the PRs, **진행 흐름 · 7일** (lane starts, READYs, finishes and losses, backlog
-additions, PRs merged and the project's Discord talk of the last week, oldest first, one icon per kind; a talk row
-opens its channel), the backlog, missions and the week's finished lanes. PRs show their state (`열림`, `병합`, `닫힘`;
+Below the card: the milestones (a bar per milestone: its `items` done of all; a key the board no longer shows counts
+as done), then **작업** in four columns, side by side on a wide screen and one under another on a phone:
+
+- **할 일**: open backlog items (a decision it waits on is shown on the card);
+- **진행 중**: lanes at work or waiting, running items, a bot's delegation of the week that did not finish;
+- **검토**: lanes READY (with their PRs);
+- **완료**: lanes and items finished this week, a bot's delegation of the week that finished.
+
+A backlog item that runs as a lane is that lane's card, with the item's priority. Cards waiting on the operator or
+stuck come first, then by priority. Chips filter them: 전체, 내 차례 (a decision, a READY or waiting lane), 막힘 (a
+lane lost or escalated, a failed delegation), 백로그, lane (`?k=mine|blocked|item|lane`).
+
+A writer (the same check as the composer) also gets forms that edit the backlog through `POST /backlog`, with the same
+functions as `dori backlog`: **작업 추가** (title, priority, optional text as the brief; the id starts with the
+project's key prefix or word and the item takes the cwd of the project's newest work, and an add that would not be
+placed in the project is refused), and on an open item **우선순위 변경** (`dori backlog priority`), **결정 답하기**
+and **드롭**. A lane or running item is not edited here. A reader sees the same columns without the forms.
+
+Then the PRs, **진행 흐름 · 7일** (lane starts, READYs, finishes and losses, backlog additions and decisions, PRs merged and the project's Discord talk of the last week, oldest first, one icon per kind; a talk row
+opens its channel) and missions. PRs show their state (`열림`, `병합`, `닫힘`;
 `확인 전` before the first collection); open ones, ones merged this week and unread ones of an open lane are listed,
 the rest fold under `지난 PR n개`. A repo that belongs to another project on the board (a seed, or where some lane or
 item sits) is not listed among this project's repos. A PR in such a repo that a lane of that project also names (a

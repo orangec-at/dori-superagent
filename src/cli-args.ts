@@ -28,7 +28,7 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
                                               hourly: sync backlog, audit missed work, start the next item, ask decisions
   dori loop stop [--text WHY] | resume | status   kill switch and last run
   dori backlog add <id> --brief FILE [--title T] [--priority 1-9] [--cwd DIR] [--decision Q]
-  dori backlog list | decide <id> --text ANSWER | drop <id> [--text WHY]
+  dori backlog list | decide <id> --text ANSWER | drop <id> [--text WHY] | priority <id> --priority 1-9
   dori backlog import <owner/repo> [--label dori] [--cwd DIR]   open labelled issues -> items
   dori timer add <id> --at <ISO|+30m> --text T [--every 30m|2h|1d]
                                               a follow-up in DORI_HOME/timers.json: once due, the duty loop sends

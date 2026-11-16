@@ -11,7 +11,7 @@ import { coupas, lane, NOW, PR, page, V } from "./board-hub-setup.ts";
 test("the status card opens the page: badge, purpose, numbers, the operator's decisions, then the next steps", () => {
   const html = page(coupas());
   const card = html.slice(html.indexOf('class="hub"'), html.indexOf("</section>"));
-  expect(html.indexOf('class="hub"')).toBeLessThan(html.indexOf("진행 중 lane"));
+  expect(html.indexOf('class="hub"')).toBeLessThan(html.indexOf('id="tasks"'));
   expect(card).toContain('<span class="bdg b-turn">재일 님 차례</span>');
   expect(card).toContain("쿠팡 파트너스 자동 게시");
   expect(card).toContain("<b>12,300원</b>");

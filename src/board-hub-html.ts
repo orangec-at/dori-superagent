@@ -38,6 +38,7 @@ const ICON: Record<HubEventKind, string> = {
   done: "✓",
   lost: "⚠",
   backlog: "＋",
+  decide: "⚖",
   merged: "⑂",
   talk: "💬",
 };
@@ -52,8 +53,11 @@ const kst = (at: number): string => {
   return `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))} ${d.slice(11, 16)}`;
 };
 
-/** The status card: badge, purpose, numbers, what waits on the operator, then the next steps and the project's links. */
-export function statusCard(g: ProjectGroup, hub: Hub | null, now: number, refs: string): string {
+/**
+ * The status card: badge, purpose, `facts` (who runs it, the next due date), numbers, what waits on the operator, then
+ * the next steps and the project's links.
+ */
+export function statusCard(g: ProjectGroup, hub: Hub | null, now: number, refs: string, facts = ""): string {
   const badge = badgeOf(g);
   const dec = decisions(g);
   const next = nextSteps(g);
@@ -69,7 +73,7 @@ export function statusCard(g: ProjectGroup, hub: Hub | null, now: number, refs: 
     : "";
   const fresh = metrics.length && hub ? `<span class="meta">숫자 ${ago(now, hub.generatedAt)} 갱신</span>` : "";
   return `<section class="hub" aria-label="프로젝트 현황"><div class="hb-top">${badgeHtml(badge)}${fresh}</div>
-${g.purpose ? `<p class="hb-p">${esc(g.purpose)}</p>` : ""}${mts}${decs}${steps}${refs}</section>`;
+${g.purpose ? `<p class="hb-p">${esc(g.purpose)}</p>` : ""}${facts}${mts}${decs}${steps}${refs}</section>`;
 }
 
 /** The last week, oldest first: lane starts, READYs, finishes, backlog additions, merged PRs and Discord talk. */

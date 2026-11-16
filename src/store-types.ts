@@ -87,7 +87,11 @@ export type Item = {
   source?: string;
   createdAt: number;
   updatedAt: number;
-  log: { at: number; kind: "add" | "start" | "reopen" | "done" | "drop" | "ask" | "remind" | "decide"; text: string }[];
+  log: {
+    at: number;
+    kind: "add" | "start" | "reopen" | "done" | "drop" | "ask" | "remind" | "decide" | "priority";
+    text: string;
+  }[];
 };
 
 export type HostLoad = { load1: number; cores: number; memFreePct: number };
