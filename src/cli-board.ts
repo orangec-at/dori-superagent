@@ -1,6 +1,7 @@
 import { askAdd, askClose, asks, parseOptions } from "./asks.ts";
 import { serveBoard } from "./board.ts";
 import { loadBoardConfig } from "./board-config.ts";
+import { collectLinks, saveLinks } from "./board-links.ts";
 import { type Args, need, one } from "./cli-args.ts";
 import type { Deps } from "./harness.ts";
 import { send } from "./inbox.ts";
@@ -35,6 +36,14 @@ export function runAsk(d: Deps, a: Args, x: string | undefined): number {
   console.log(
     `ASKED ${ask.id} options=${ask.options.map((o) => o.key).join(",")}${ask.recommend ? ` recommend=${ask.recommend}` : ""}`,
   );
+  return 0;
+}
+
+/** `dori agents map`: collects the board's connection map into DORI_HOME/board-links.json; one UNKNOWN line per gap. */
+export async function runLinks(d: Deps): Promise<number> {
+  const s = await collectLinks(d.exec, d.store, { now: d.now(), agentCmd: d.agentCmd });
+  console.log(`LINKS ${saveLinks(d.store.root, s)} actors=${s.actors.length} unknown=${s.unknown.length}`);
+  for (const u of s.unknown) console.log(`UNKNOWN ${u}`);
   return 0;
 }
 

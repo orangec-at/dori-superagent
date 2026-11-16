@@ -1,3 +1,5 @@
+import type { LinkSnapshot } from "./board-links.ts";
+import { linksList } from "./board-links-html.ts";
 import { avatar, rowMission, statusPill } from "./board-mission-html.ts";
 import type { Mission, MissionCard } from "./board-mission-types.ts";
 import type { ProjectGroup } from "./board-state.ts";
@@ -5,7 +7,7 @@ import type { Row, Section } from "./board-status.ts";
 import { rowAvatar, strip } from "./board-detail-html.ts";
 import { ago, esc, mark } from "./board-thread-html.ts";
 
-export type Tab = "work" | "mission" | "pr" | "backlog";
+export type Tab = "work" | "mission" | "pr" | "backlog" | "map";
 export type Filter = "all" | "mine" | "working";
 /** What the page shows: the list tab, its filter, and the selected row or mission (null: the list alone on a phone). */
 export type View = { tab: Tab; f: Filter; c: string | null; m: string | null };
@@ -14,7 +16,7 @@ export function viewOf(params: URLSearchParams): View {
   const tab = params.get("tab");
   const f = params.get("f");
   return {
-    tab: tab === "pr" || tab === "backlog" || tab === "mission" ? tab : "work",
+    tab: tab === "pr" || tab === "backlog" || tab === "mission" || tab === "map" ? tab : "work",
     f: f === "mine" || f === "working" ? f : "all",
     c: params.get("c"),
     m: params.get("m"),
@@ -152,6 +154,7 @@ export function listPane(
     missions: Mission[];
     cards: Record<string, MissionCard>;
     avatars: Record<string, string>;
+    links?: LinkSnapshot | null;
   },
   v: View,
   now: number,
@@ -169,7 +172,9 @@ export function listPane(
         ? prTab(rows, v, now, selected)
         : v.tab === "backlog"
           ? backlogTab(projects)
-          : workTab(rows, v, now, selected, s.cards, s.avatars);
+          : v.tab === "map"
+            ? linksList(s.links ?? null, s.avatars)
+            : workTab(rows, v, now, selected, s.cards, s.avatars);
   const active = s.missions.filter((m) => m.status !== "완료").length;
-  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}</nav>${body}`;
+  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}${tab("map", "연결", 0)}</nav>${body}`;
 }

@@ -1,3 +1,5 @@
+import type { LinkSnapshot } from "./board-links.ts";
+import { LINKS_STYLE, linksPane } from "./board-links-html.ts";
 import { hrefOf, listPane, type View } from "./board-list-html.ts";
 import { DETAIL_STYLE, detailPane, missionDetail, rowFace } from "./board-detail-html.ts";
 import { MISSION_STYLE, missionCard, missionPane } from "./board-mission-html.ts";
@@ -68,7 +70,14 @@ const FLASH: Record<string, string> = {
 };
 const BAD_FLASH: ReadonlySet<string> = new Set(["held", "failed"]);
 
-export type PageOptions = { token: string | null; version: string; view: View; flash?: string };
+/** `links`: the collected connection map, read only for the 연결 tab. */
+export type PageOptions = {
+  token: string | null;
+  version: string;
+  view: View;
+  flash?: string;
+  links?: LinkSnapshot | null;
+};
 
 /**
  * The board page: the row list beside (a phone: instead of) the selected row's record or mission, whose composer writes
@@ -78,6 +87,7 @@ export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions)
   const r = t.row;
   const mission = o.view.m ? s.missions.find((m) => m.id === o.view.m) : undefined;
   const open = Boolean(o.view.c || mission);
+  const linksView = o.view.tab === "map" && !open;
   // A message from a mission is about its row the operator acts on, else its first bot or lane: the lead sees which.
   const about = mission
     ? (mission.needs ?? mission.actors.find((a) => /^(bot|lane|standing):/.test(a.id))?.id ?? "lead")
@@ -107,13 +117,17 @@ export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions)
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="도리 보드"><meta name="board-version" content="${esc(o.version)}">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/icon-180.png">
-<link rel="icon" href="/icon-192.png"><title>도리 보드</title><style>${STYLE}${MISSION_STYLE}${DETAIL_STYLE}</style>
+<link rel="icon" href="/icon-192.png"><title>도리 보드</title><style>${STYLE}${MISSION_STYLE}${DETAIL_STYLE}${LINKS_STYLE}</style>
 <script src="/board.js" defer></script></head><body${open ? ' class="has-c"' : ""}>
-<div class="app"><input class="dt" id="dt" type="checkbox" aria-label="${mission ? "참여" : "미션"} 패널"><label class="dtb" for="dt">${mission ? "참여" : "미션"}</label>
+<div class="app${linksView ? " lk" : ""}">${linksView ? "" : `<input class="dt" id="dt" type="checkbox" aria-label="${mission ? "참여" : "미션"} 패널"><label class="dtb" for="dt">${mission ? "참여" : "미션"}</label>`}
 <aside class="list" aria-label="작업 목록"><header class="lh"><b>도리 보드</b><a class="meta" href="${esc(hrefOf(o.view))}">${kst} KST</a></header>
-${open ? "" : flash}${readOnly}${listPane(t.rows, s, o.view, now, mission ? null : (o.view.c ?? "lead"))}</aside>
-<main class="pane">${open ? flash : ""}${mission ? missionPane(mission, now, back) : record(t, now, o.token, back, card ? missionCard(card, "inline") : "", rowFace(r, s.avatars))}
-${composer}</main>${mission ? missionDetail(mission) : detailPane(r, card, s.routines, s.missions, now, s.avatars)}<label class="dts" for="dt" aria-hidden="true"></label></div><a id="news" href="${esc(hrefOf(o.view))}" hidden>새 소식이 있어요 · 눌러서 보기</a>
+${open ? "" : flash}${readOnly}${listPane(t.rows, { ...s, links: o.links ?? null }, o.view, now, mission || linksView ? null : (o.view.c ?? "lead"))}</aside>
+<main class="pane">${
+    linksView
+      ? linksPane(o.links ?? null, s.avatars)
+      : `${open ? flash : ""}${mission ? missionPane(mission, now, back) : record(t, now, o.token, back, card ? missionCard(card, "inline") : "", rowFace(r, s.avatars))}
+${composer}`
+  }</main>${linksView ? "" : `${mission ? missionDetail(mission) : detailPane(r, card, s.routines, s.missions, now, s.avatars)}<label class="dts" for="dt" aria-hidden="true"></label>`}</div><a id="news" href="${esc(hrefOf(o.view))}" hidden>새 소식이 있어요 · 눌러서 보기</a>
 </body></html>
 `;
 }

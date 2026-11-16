@@ -16,7 +16,7 @@ import { inboxList, releaseHeld, sendToShell } from "./inbox-held.ts";
 import { Refusal } from "./refusal.ts";
 import { runMigrate } from "./migrate.ts";
 import { serveDashboard } from "./serve.ts";
-import { runAsk, runBoard } from "./cli-board.ts";
+import { runAsk, runBoard, runLinks } from "./cli-board.ts";
 import { refuseForStanding, runLead } from "./cli-lead.ts";
 import { ReplyError, reply } from "./reply.ts";
 import { refText } from "./refs.ts";
@@ -193,6 +193,7 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       return 0;
     }
     case "agents": {
+      if (x === "map") return runLinks(d);
       const agents = loadAgents(d.store.root);
       if (x === "avatars") for (const line of await syncAvatars(d.exec, d.store.root, agents)) console.log(line);
       if (x === "avatars") return 0;

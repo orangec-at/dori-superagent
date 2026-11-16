@@ -68,6 +68,9 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
   dori agents                                 bots in DORI_HOME/agents.json: name, host (local), profile, role
   dori agents avatars                         save each bot's picture for the board to DORI_HOME/avatars/<name>.png:
                                               its Discord account picture, else its hermes profile's assets/avatar.png
+  dori agents map                             collect the board's 연결 tab (who runs where, CLI, provider/model, channel
+                                              names; other machines over ssh, read-only, no secrets) into
+                                              DORI_HOME/board-links.json; UNKNOWN <what> for each value it could not read
   dori delegate <name> --text T [--timeout S] run hermes -p <profile> chat -Q -q T on that bot (ssh when it has a host)
                                               and print its answer; DELEGATE_FAILED exit 1, DELEGATE_TIMEOUT exit 124
                                               (default 600s); every run is logged to DORI_HOME/delegations.jsonl
