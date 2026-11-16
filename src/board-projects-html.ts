@@ -4,9 +4,10 @@ import { hrefOf, type View } from "./board-list-html.ts";
 import { avatar } from "./board-mission-html.ts";
 import type { Mission } from "./board-mission-types.ts";
 import { messageProject, OTHER } from "./board-projects.ts";
-import type { BoardState, ProjectGroup, ProjectLane } from "./board-state.ts";
-import { laneStatus } from "./board-status.ts";
-import { ago, esc, form, mark } from "./board-thread-html.ts";
+import type { BoardState, ProjectGroup } from "./board-state.ts";
+import { projectTasks } from "./board-tasks.ts";
+import { milestonesHtml, overviewFacts, TASKS_STYLE, taskBoard } from "./board-tasks-html.ts";
+import { ago, esc, form } from "./board-thread-html.ts";
 import { type DiscordChannel, type DiscordMessage, type DiscordView, SEND_MAX } from "./discord-sync.ts";
 
 /**
@@ -23,7 +24,7 @@ export const PROJECTS_STYLE = `.pjm{display:flex;flex-direction:column;gap:2px}.
 .unr{flex:none;min-width:18px;padding:0 6px;border-radius:999px;background:#e5484d;color:#fff;font-size:12px;font-weight:700;text-align:center}.unr[hidden]{display:none}
 .pjn{margin:12px 0 4px}.pjm a{color:inherit}.row.sub{padding-left:26px}.row.sub .chan{width:24px;height:24px;font-size:13px}
 @media (min-width:768px){.tabs{flex-wrap:wrap}}
-@media (min-width:1024px){.app.pj{grid-template-columns:320px minmax(0,1fr)}}${HUB_STYLE}`;
+@media (min-width:1024px){.app.pj{grid-template-columns:320px minmax(0,1fr)}}${HUB_STYLE}${TASKS_STYLE}`;
 
 const RECENT_TALK = 6;
 const TALK_CHARS = 120;
@@ -139,12 +140,6 @@ export function projectsList(s: BoardState, d: DiscordView | "locked" | null, v:
   return `<h3 class="sec"><span>채널${count}</span></h3>${discord}<h3 class="sec"><span>프로젝트 <span>${s.projects.length}</span></span></h3>${projects || `<p class="note">진행 중인 프로젝트가 없어요.</p>`}`;
 }
 
-function laneRow(l: ProjectLane, now: number): string {
-  const [health, section, w] = laneStatus(l, now);
-  return `<a class="row" href="${esc(`/?c=${encodeURIComponent(`lane:${l.key}`)}`)}">${mark({ section, health })}<span class="rb"><span class="rt"><b>${esc(l.key)}</b>${l.prs[0] ? `<span class="pr">⑂ #${l.prs[0].num}</span>` : ""}<span class="ago">${ago(now, l.at)}</span></span>
-<span class="rs"><span class="w s-${section}">${esc(w)}</span> · ${esc(l.first)}</span></span></a>`;
-}
-
 /** The project's recent Discord talk of the last week as timeline events, each linking to its channel. */
 const talkEvents = (talk: Talk[], d: DiscordView | null, v: View, now: number): HubEvent[] =>
   talk
@@ -160,8 +155,9 @@ const talkEvents = (talk: Talk[], d: DiscordView | null, v: View, now: number): 
     });
 
 /**
- * The selected project: its status card first (on a phone too), then what is open, its PRs by state, the week's
- * timeline (Discord talk included), backlog and missions, and the week's finished lanes.
+ * The selected project: its status card first (on a phone too) with who runs it and the next due date, its milestones,
+ * the tasks in four columns (forms for a writer: `token`), its PRs by state, the week's timeline (Discord talk
+ * included) and missions.
  */
 export function projectPane(
   g: ProjectGroup,
@@ -170,9 +166,11 @@ export function projectPane(
   v: View,
   now: number,
   back: string,
+  token: string | null = null,
 ): string {
-  const sec = (label: string, n: number, body: string, needs = false): string =>
-    n ? `<h3 class="sec"><span class="${needs ? "needs" : ""}">${label} <span>${n}</span></span></h3>${body}` : "";
+  const sec = (label: string, n: number, body: string): string =>
+    n ? `<h3 class="sec"><span>${label} <span>${n}</span></span></h3>${body}` : "";
+  const tasks = projectTasks(g, s.bots, now);
   const missions = missionsOf(g, s.missions);
   const talk = talkEvents(talkOf(g, s, d), d, v, now);
   const meta = [g.repos.join(", "), g.bots.length ? `봇 ${g.bots.join(", ")}` : ""].filter(Boolean).join(" · ");
@@ -185,19 +183,14 @@ export function projectPane(
   return `<header class="rec-h" id="ptop"><a class="back" href="${esc(back)}" aria-label="목록으로">←</a><span class="hav">${avatar({ id: `project:${g.name}`, label: g.name, sub: "" })}</span>
 <div class="title"><b>${esc(g.name)}</b><span class="meta">${esc(meta || "프로젝트")}</span></div></header>
 <section class="thread pjd" id="chat">
-${statusCard(g, s.hub, now, refs.length ? `<ul class="pjm">${refs.join("")}</ul>` : "")}
-${sec(
-  "진행 중 lane",
-  g.lanes.length,
-  g.lanes.map((l) => laneRow(l, now)).join(""),
-  g.lanes.some((l) => l.status !== "working"),
-)}
+${statusCard(g, s.hub, now, refs.length ? `<ul class="pjm">${refs.join("")}</ul>` : "", overviewFacts(g, s, tasks, now))}
+${milestonesHtml(g.milestones, tasks, now)}
+${g.lanes.length + g.backlog.length ? "" : `<p class="note">진행 중인 일 없음</p>`}
+${taskBoard(g, tasks, v, token, now)}
 ${prSection(g, s.hub, now)}
 ${timelineHtml(g, s.hub, talk, now)}
-${sec("백로그", g.backlog.length, g.backlog.map((i) => `<div class="row">${mark({ section: i.decision ? "needs" : "idle", health: "idle" })}<span class="rb"><span class="rt"><b>${esc(i.title)}</b></span><span class="rs">p${i.priority} · ${esc(i.status)}${i.decision ? ` · 결정 필요: ${esc(i.decision)}` : ""}</span></span></div>`).join(""))}
 ${sec("미션", missions.length, missions.map((m) => `<a class="row" href="${esc(hrefOf(v, { tab: "mission", m: m.id, c: null, p: null, d: null }))}#mtop"><span class="rb"><span class="rt"><b>${esc(m.title)}</b><span class="ago">${ago(now, m.at)}</span></span><span class="rs">${esc(m.status)} · 참여 ${m.actors.length}</span></span></a>`).join(""))}
-${g.recent.length ? `<details class="sec"><summary>이번 주 완료 <span>${g.recent.length}</span></summary>${g.recent.map((l) => laneRow(l, now)).join("")}</details>` : ""}
-${g.lanes.length + g.backlog.length ? "" : `<p class="note">진행 중인 일 없음</p>`}<span id="end"></span></section>`;
+<span id="end"></span></section>`;
 }
 
 /** A Discord channel or DM: its messages and a composer that posts to POST /discord. */

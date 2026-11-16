@@ -5,7 +5,10 @@ import { KEY_RE, reservedKey, type Deps } from "./harness.ts";
 import { Refusal } from "./refusal.ts";
 import type { Item } from "./store-types.ts";
 
-export function log(d: Deps, item: Item, kind: Item["log"][number]["kind"], text: string): void {
+/** What the edits below need: the board server runs them with its store and clock, not the full harness. */
+export type BacklogDeps = Pick<Deps, "store" | "now">;
+
+export function log(d: BacklogDeps, item: Item, kind: Item["log"][number]["kind"], text: string): void {
   const now = d.now();
   item.log.push({ at: now, kind, text });
   item.updatedAt = now;
@@ -13,7 +16,7 @@ export function log(d: Deps, item: Item, kind: Item["log"][number]["kind"], text
 }
 
 export function backlogAdd(
-  d: Deps,
+  d: BacklogDeps,
   id: string,
   briefFile: string,
   opts: { title?: string; priority?: number; cwd?: string; decision?: string; source?: string } = {},
@@ -48,21 +51,21 @@ export function backlogAdd(
   return item;
 }
 
-function knownItem(d: Deps, id: string): Item {
+function knownItem(d: BacklogDeps, id: string): Item {
   if (!KEY_RE.test(id)) throw new Refusal(`item id must match ${KEY_RE}`);
   const item = d.store.item(id);
   if (!item) throw new Refusal(`no backlog item ${id}`);
   return item;
 }
 
-function openItem(d: Deps, id: string): Item {
+function openItem(d: BacklogDeps, id: string): Item {
   const item = knownItem(d, id);
   if (item.status !== "open") throw new Refusal(`item ${id} is ${item.status}, not open`);
   return item;
 }
 
 /** Records the human's answer: clears the decision and appends the answer to the item's brief. */
-export function backlogDecide(d: Deps, id: string, answer: string): void {
+export function backlogDecide(d: BacklogDeps, id: string, answer: string): void {
   if (!answer.trim()) throw new Refusal("decide needs the answer text");
   const item = openItem(d, id);
   appendFileSync(item.brief, `\n\nDecision on "${item.decision ?? "(none)"}": ${answer.trim()}\n`);
@@ -74,7 +77,18 @@ export function backlogDecide(d: Deps, id: string, answer: string): void {
   log(d, item, "decide", answer);
 }
 
-export function backlogDrop(d: Deps, id: string, why = "dropped"): void {
+/** Moves an open item up (1 is started first) or down the queue. */
+export function backlogPriority(d: BacklogDeps, id: string, priority: number): void {
+  if (!Number.isInteger(priority) || priority < 1 || priority > 9)
+    throw new Refusal("--priority must be 1 (first) to 9 (last)");
+  const item = openItem(d, id);
+  if (item.priority === priority) return;
+  const was = item.priority;
+  item.priority = priority;
+  log(d, item, "priority", `p${was} -> p${priority}`);
+}
+
+export function backlogDrop(d: BacklogDeps, id: string, why = "dropped"): void {
   const item = knownItem(d, id);
   if (item.status === "running") throw new Refusal(`item ${id} is running as a lane; close the lane first`);
   item.status = "dropped";

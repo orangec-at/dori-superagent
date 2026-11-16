@@ -71,6 +71,7 @@ const FLASH: Record<string, string> = {
   held: "전달이 확인되지 않았어요. 다시 누르지 말고 lead 화면을 확인해 주세요(dori inbox list lead).",
   failed: "도리도라에게 보내지 못했어요. 다시 보내 주세요.",
   discord: "Discord에 보냈어요.",
+  backlog: "백로그에 반영했어요.",
   dfailed: "Discord로 보내지 못했어요. 잠시 뒤 다시 보내 주세요.",
 };
 const BAD_FLASH: ReadonlySet<string> = new Set(["held", "failed", "dfailed"]);
@@ -138,7 +139,7 @@ ${open ? "" : flash}${readOnly}${listPane(t.rows, { ...s, links: o.links ?? null
     linksView
       ? linksPane(o.links ?? null, s.avatars)
       : projView
-        ? `${open ? flash : ""}${chan && d ? channelPane(chan, s, d, o.token, now, back) : (proj ?? s.projects[0]) ? projectPane((proj ?? s.projects[0])!, s, d, o.view, now, back) : `<p class="note">진행 중인 프로젝트가 없어요.</p>`}`
+        ? `${open ? flash : ""}${chan && d ? channelPane(chan, s, d, o.token, now, back) : (proj ?? s.projects[0]) ? projectPane((proj ?? s.projects[0])!, s, d, o.view, now, back, o.token) : `<p class="note">진행 중인 프로젝트가 없어요.</p>`}`
         : `${open ? flash : ""}${mission ? missionPane(mission, now, back) : record(t, now, o.token, back, card ? missionCard(card, "inline") : "", rowFace(r, s.avatars))}
 ${composer}`
   }</main>${bare ? "" : `${mission ? missionDetail(mission) : detailPane(r, card, s.routines, s.missions, now, s.avatars)}<label class="dts" for="dt" aria-hidden="true"></label>`}</div><a id="news" href="${esc(hrefOf(o.view))}" hidden>새 소식이 있어요 · 눌러서 보기</a>

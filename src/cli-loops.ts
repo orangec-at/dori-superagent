@@ -1,4 +1,4 @@
-import { backlogAdd, backlogDecide, backlogDrop, backlogImport, IMPORT_LIMIT } from "./backlog.ts";
+import { backlogAdd, backlogDecide, backlogDrop, backlogImport, backlogPriority, IMPORT_LIMIT } from "./backlog.ts";
 import { need, one, textOf, USAGE, type Args } from "./cli-args.ts";
 import { dutyTick } from "./duty.ts";
 import type { Deps } from "./harness.ts";
@@ -192,6 +192,11 @@ export async function runBacklog(d: Deps, a: Args, x: string | undefined): Promi
     const id = need(a.pos[2], "item id");
     backlogDecide(d, id, await textOf(a));
     console.log(`DECIDED ${id}`);
+  } else if (x === "priority") {
+    const id = need(a.pos[2], "item id");
+    const p = Number(need(one(a, "priority"), "--priority"));
+    backlogPriority(d, id, p);
+    console.log(`PRIORITY ${id} p${p}`);
   } else if (x === "drop") {
     const id = need(a.pos[2], "item id");
     backlogDrop(d, id, one(a, "text"));

@@ -15,7 +15,7 @@ export const BADGE_WORD: Record<Badge, string> = {
   rest: "쉬는 중",
 };
 export type Decision = { title: string; sub: string; href: string };
-export type HubEventKind = "start" | "ready" | "done" | "lost" | "backlog" | "merged" | "talk";
+export type HubEventKind = "start" | "ready" | "done" | "lost" | "backlog" | "decide" | "merged" | "talk";
 /** `href`: where the row leads (a talk row opens its Discord channel). */
 export type HubEvent = { at: number; kind: HubEventKind; text: string; href?: string };
 
@@ -84,11 +84,15 @@ export const laneEvents = (l: Pick<Lane, "key" | "log">, now: number): HubEvent[
     return [{ at: e.at, kind, text: say ? `${l.key} — ${say}` : l.key }];
   });
 
-/** A backlog item added in the last week. */
+/** A backlog item added or decided in the last week. */
 export const itemEvents = (i: Pick<Item, "title" | "log">, now: number): HubEvent[] =>
   i.log
-    .filter((e) => e.kind === "add" && now - e.at <= WEEK_MS)
-    .map((e) => ({ at: e.at, kind: "backlog", text: firstLine(i.title) }));
+    .filter((e) => (e.kind === "add" || e.kind === "decide") && now - e.at <= WEEK_MS)
+    .map((e) =>
+      e.kind === "add"
+        ? { at: e.at, kind: "backlog", text: firstLine(i.title) }
+        : { at: e.at, kind: "decide", text: `${firstLine(i.title)} — 결정: ${firstLine(e.text)}` },
+    );
 
 const titles = new Map<string, { mtimeMs: number; head: string | null }>();
 const reEscape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -5,6 +5,7 @@ import { type Ask, markSent, openAsk } from "./asks.ts";
 import type { CertFetch } from "./board-access.ts";
 import { boardAuth, hostnameOf, LOOPBACK_HOSTS } from "./board-auth.ts";
 import { avatarResponse } from "./board-avatars.ts";
+import { backlogPost } from "./board-backlog.ts";
 import { appendChat } from "./board-chat.ts";
 import { discordPost } from "./board-discord.ts";
 import { readLinks } from "./board-links-file.ts";
@@ -74,8 +75,9 @@ const text = (body: string, status: number): Response =>
 /**
  * Serves the phone board. Reads are open to anyone who reaches the loopback port (tailscale serve limits that to the
  * tailnet, Cloudflare Access to its allowed logins). A write (POST /decide, POST /request) is accepted only from a
- * writer board-auth.ts accepts, from that writer's own https origin, with the CSRF token bound to that writer. It only
- * delivers text to the lead and records it in the board's conversation: there is no merge, done or deploy path here.
+ * writer board-auth.ts accepts, from that writer's own https origin, with the CSRF token bound to that writer. It
+ * delivers text to the lead, posts to Discord and edits the backlog (POST /backlog): there is no merge, done or deploy
+ * path here.
  */
 export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
   if (!LOOPBACK_HOSTS.has(o.host))
@@ -90,7 +92,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     return text(why, status);
   };
 
-  async function write(req: Request, kind: "decide" | "request" | "discord"): Promise<Response> {
+  async function write(req: Request, kind: "decide" | "request" | "discord" | "backlog"): Promise<Response> {
     const w = await auth.writer(req);
     if ("code" in w) return reject(kind, w.code, w.why, 403);
     if (req.headers.get("origin") !== w.origin) return reject(kind, "origin", "forbidden: cross-origin request", 403);
@@ -106,12 +108,13 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     const want = Buffer.from(tokenFor(w.id));
     if (given.length !== want.length || !timingSafeEqual(given, want))
       return reject(kind, "csrf", "forbidden: stale page, reload the board", 403);
-    if (kind === "discord")
-      return discordPost(o.discord, form, {
-        reject: (code, why, status) => reject(kind, code, why, status),
-        log,
-        headers: SECURITY_HEADERS,
-      });
+    const out = {
+      reject: (code: string, why: string, n: number) => reject(kind, code, why, n),
+      log,
+      headers: SECURITY_HEADERS,
+    };
+    if (kind === "discord") return discordPost(o.discord, form, out);
+    if (kind === "backlog") return backlogPost(store, o.now(), form, out);
 
     const done = (flash: string, c = "lead"): Response =>
       new Response(null, {
@@ -204,6 +207,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
         if (url.pathname === "/decide") return write(req, "decide");
         if (url.pathname === "/request") return write(req, "request");
         if (url.pathname === "/discord") return write(req, "discord");
+        if (url.pathname === "/backlog") return write(req, "backlog");
         return text("not found", 404);
       }
       if (req.method !== "GET" && req.method !== "HEAD") return text("method not allowed", 405);

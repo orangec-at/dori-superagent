@@ -6,6 +6,7 @@ import { avatar, rowMission, statusPill } from "./board-mission-html.ts";
 import type { Mission, MissionCard } from "./board-mission-types.ts";
 import type { ProjectGroup } from "./board-state.ts";
 import type { Row, Section } from "./board-status.ts";
+import { FILTERS, type TaskFilter } from "./board-tasks.ts";
 import { rowAvatar, strip } from "./board-detail-html.ts";
 import { ago, esc, mark } from "./board-thread-html.ts";
 
@@ -13,14 +14,23 @@ export type Tab = "work" | "agent" | "proj" | "mission" | "pr" | "backlog" | "ma
 export type Filter = "all" | "mine" | "working";
 /**
  * What the page shows: the list tab, its filter, and the selected row or mission (null: the list alone on a phone);
- * on the 프로젝트 tab, the selected project `p` or Discord channel key `d`.
+ * on the 프로젝트 tab, the selected project `p` or Discord channel key `d`, and the project's task filter `k`.
  */
-export type View = { tab: Tab; f: Filter; c: string | null; m: string | null; p: string | null; d: string | null };
+export type View = {
+  tab: Tab;
+  f: Filter;
+  c: string | null;
+  m: string | null;
+  p: string | null;
+  d: string | null;
+  k?: TaskFilter | null;
+};
 const TABS: readonly Tab[] = ["agent", "proj", "mission", "pr", "backlog", "map"];
 
 export function viewOf(params: URLSearchParams): View {
   const tab = params.get("tab");
   const f = params.get("f");
+  const k = params.get("k");
   return {
     tab: TABS.find((t) => t === tab) ?? "work",
     f: f === "mine" || f === "working" ? f : "all",
@@ -28,6 +38,7 @@ export function viewOf(params: URLSearchParams): View {
     m: params.get("m"),
     p: tab === "proj" ? params.get("p") : null,
     d: tab === "proj" ? params.get("d") : null,
+    k: tab === "proj" ? (FILTERS.find(([x]) => x === k)?.[0] ?? null) : null,
   };
 }
 
@@ -40,6 +51,7 @@ export function hrefOf(v: View, over: Partial<View> = {}): string {
   if (n.m) q.set("m", n.m);
   if (n.tab === "proj" && n.p) q.set("p", n.p);
   if (n.tab === "proj" && n.d) q.set("d", n.d);
+  if (n.tab === "proj" && n.k && n.k !== "all") q.set("k", n.k);
   const s = q.toString();
   return s ? `/?${s}` : "/";
 }
