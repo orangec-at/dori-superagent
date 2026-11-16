@@ -10,6 +10,18 @@
   // Only a record opens at its newest message; the list stays at its top, and a #anchor (an ask card) is left to the browser.
   if (document.body.classList.contains("has-c") && !location.hash) window.scrollTo(0, document.body.scrollHeight);
 
+  // A request the board could not send comes back as ?sent=failed: the text is put back in the composer to send again.
+  const DRAFT = "dori-board-draft";
+  try {
+    const sent = new URL(location.href).searchParams.get("sent");
+    const kept = sessionStorage.getItem(DRAFT);
+    if (box && sent === "failed" && kept && box.value === "") box.value = kept;
+    else if (sent !== null) sessionStorage.removeItem(DRAFT);
+    box?.form?.addEventListener("submit", () => sessionStorage.setItem(DRAFT, box.value));
+  } catch {
+    // no sessionStorage (a private window): the failure notice still shows, only the text is not put back
+  }
+
   box?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) box.form?.requestSubmit();
   });

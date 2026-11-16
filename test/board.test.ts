@@ -104,16 +104,20 @@ test("writes are refused without an allowed login, through 127.0.0.1, cross-orig
   ]);
 });
 
-test("a lead that cannot be reached is a 502 and the ask stays unanswered", async () => {
-  const { url, home } = start({
+test("a lead that cannot be reached is not a 5xx: the board says it was not sent and the ask stays unanswered", async () => {
+  const { url, home, logs } = start({
     toLead: async () => {
       throw new Refusal("pane w3:p1 is gone");
     },
   });
   const csrf = await tokenOf(url);
   const res = await post(url, "/decide", { csrf, id: "vg-analytics", choice: "B" }, tailnet());
-  expect(res.status).toBe(502);
+  expect(res.status).toBe(303);
+  expect(res.headers.get("location")).toBe("/?sent=failed");
   expect(readAsk(home, "vg-analytics")?.sent).toBeUndefined();
+  expect(logs.at(-1)).toMatch(/^BOARD_FAILED \S+ decide len=\d+ pane w3:p1 is gone$/);
+  const html = await (await fetch(`${url}/?sent=failed`, { headers: tailnet() })).text();
+  expect(html).toContain('<p class="flash bad">도리도라에게 보내지 못했어요. 다시 보내 주세요.</p>');
 });
 
 test("the board serves the web app manifest and its icons, and only listens on loopback", async () => {

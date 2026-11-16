@@ -143,8 +143,11 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     try {
       result = await o.toLead(envelope);
     } catch (e) {
-      log(`BOARD_FAILED ${stamp()} ${kind} len=${envelope.length}`);
-      return text(`could not reach the lead: ${e instanceof Error ? e.message : String(e)}`, 502);
+      // Not a 5xx: Cloudflare would replace it with its own error page. The board says it was not sent instead.
+      log(
+        `BOARD_FAILED ${stamp()} ${kind} len=${envelope.length} ${(e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ")}`,
+      );
+      return done("failed");
     }
     log(`BOARD_WRITE ${stamp()} ${kind} len=${envelope.length} ${result}`);
     appendChat(store.root, { at: o.now(), from: "operator", text: said, kind, delivery: result });

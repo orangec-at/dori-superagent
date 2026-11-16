@@ -23,10 +23,22 @@ export const isHeld = (m: QueuedMessage): boolean =>
 
 /**
  * Delivers now when the pane can read; otherwise queues it for the duty loop (busy agents are never interrupted).
- * The command-line path: an uncertain delivery is a result, never an error (see settled).
+ * The command-line path: an uncertain delivery is a result, never an error (see settled). Once the message is in the
+ * inbox, a flush that fails before typing anything (a herdr call that failed, say) is `QUEUED` too: the duty loop
+ * delivers it, and a sender who saw an error would send it again. Only a gone pane (Refusal) is still an error.
  */
 export async function send(d: Deps, target: string, text: string, from: string): Promise<SendResult> {
-  return settled(sendOrThrow(d, target, text, from));
+  const ref = resolveTarget(d, target);
+  d.store.enqueue(ref, { at: d.now(), from, text });
+  try {
+    return await settled(flushInbox(d, ref).then((r) => (r === "delivered" ? "DELIVERED" : "QUEUED")));
+  } catch (e) {
+    if (e instanceof Refusal) throw e;
+    process.stderr.write(
+      `dori: delivering to ${refText(ref)} failed after it was queued (${failureDetail(e)}); kept in its inbox for the duty loop\n`,
+    );
+    return "QUEUED";
+  }
 }
 
 /** send for the duty and hourly loops: throws DeliveryUncertain, having recorded it, so they report the failure. */

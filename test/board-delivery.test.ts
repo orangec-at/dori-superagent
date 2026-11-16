@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { askClose, readAsk } from "../src/asks.ts";
 import { boardState } from "../src/board-state.ts";
 import { DEFAULT_BOARD, loadBoardConfig } from "../src/board-config.ts";
+import { chatTail } from "../src/board-chat.ts";
+import { dutyTick } from "../src/duty.ts";
+import { send } from "../src/inbox.ts";
+import { World, href } from "./fake.ts";
 import { BOT_MACHINE, CONFIG, NOW, post, start, tailnet, tokenOf } from "./board-setup.ts";
 
 const decide = (choice: string, csrf: string) => ({ csrf, id: "vg-analytics", choice });
@@ -145,4 +149,27 @@ test("the operator's login from a device not on allowNodes cannot write: a bot m
   }
   expect(sent).toEqual([]);
   expect(logs.every((l) => l.endsWith(" 403 node"))).toBe(true);
+});
+
+test("a request queued for a busy lead is QUEUED even when the flush after it fails; the duty loop delivers it", async () => {
+  const w = new World();
+  const d = w.deps();
+  const lead = w.addPane("w3:p1", "working");
+  d.store.setRole("lead", href("w3:p1"));
+  // 2026-11-16 05:36Z: the message reached the lead's inbox, then a herdr call in the flush failed and the board said 502.
+  w.getHook.set("w3:p1", (n) => {
+    if (n === 1) throw new Error("herdr timed out");
+  });
+  const { url, home, logs } = start({ toLead: (text) => send(d, "lead", text, "board") });
+  const res = await post(url, "/request", { csrf: await tokenOf(url), text: "(bot:endo) 엔도 깨워봐" }, tailnet());
+  expect(res.status).toBe(303);
+  expect(res.headers.get("location")).toBe("/?c=lead&sent=queued#end");
+  expect(logs.at(-1)).toMatch(/^BOARD_WRITE \S+ request len=\d+ QUEUED$/);
+  expect(chatTail(home, 1)[0]).toMatchObject({ from: "operator", text: "(bot:endo) 엔도 깨워봐", delivery: "QUEUED" });
+  expect(d.store.queued(href("w3:p1"))).toHaveLength(1);
+
+  lead.status = "idle";
+  await dutyTick(d);
+  expect(lead.received).toEqual(["[reply=board from=재일-board] (bot:endo) 엔도 깨워봐"]);
+  expect(d.store.queued(href("w3:p1"))).toEqual([]);
 });

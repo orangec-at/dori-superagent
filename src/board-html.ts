@@ -62,7 +62,9 @@ const FLASH: Record<string, string> = {
   request: "도리도라에게 보냈어요. 답은 이 대화에 와요.",
   queued: "도리도라가 일하는 중이라 수신함에 넣었어요. 손이 비면 바로 전달돼요.",
   held: "전달이 확인되지 않았어요. 다시 누르지 말고 lead 화면을 확인해 주세요(dori inbox list lead).",
+  failed: "도리도라에게 보내지 못했어요. 다시 보내 주세요.",
 };
+const BAD_FLASH: ReadonlySet<string> = new Set(["held", "failed"]);
 
 export type PageOptions = { token: string | null; version: string; view: View; flash?: string };
 
@@ -70,7 +72,7 @@ export type PageOptions = { token: string | null; version: string; view: View; f
 export function boardHtml(t: Thread, projects: ProjectGroup[], now: number, o: PageOptions): string {
   const r = t.row;
   const flash =
-    o.flash && FLASH[o.flash] ? `<p class="flash${o.flash === "held" ? " bad" : ""}">${FLASH[o.flash]}</p>` : "";
+    o.flash && FLASH[o.flash] ? `<p class="flash${BAD_FLASH.has(o.flash) ? " bad" : ""}">${FLASH[o.flash]}</p>` : "";
   const readOnly = o.token ? "" : `<p class="note">읽기 전용이에요. 허용된 계정·기기로 열어야 보낼 수 있어요.</p>`;
   const placeholder = r.id === "lead" ? "도리도라에게 메시지…" : `도리도라에게 ${r.title} 관련 메시지…`;
   const composer = form(
