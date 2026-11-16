@@ -8,6 +8,8 @@ import { acquire, release } from "./loop-lock.ts";
 import { onTerm, type Term } from "./loop-term.ts";
 import { autoSelfUpdate, spawnSelfUpdate } from "./self-update-run.ts";
 
+export { runTimer } from "./cli-timer.ts";
+
 /** `newTerm`: how the loop learns it should stop between passes (SIGTERM by default; tests pass their own). */
 export async function runDuty(d: Deps, a: Args, x: string | undefined, newTerm: () => Term = onTerm): Promise<number> {
   if (x === "stop") {

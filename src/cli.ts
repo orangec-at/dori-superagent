@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { resolve } from "node:path";
-import { runBacklog, runDuty, runLoop } from "./cli-loops.ts";
+import { runBacklog, runDuty, runLoop, runTimer } from "./cli-loops.ts";
 import { runBudget } from "./cli-budget.ts";
 import { status, up } from "./cli-up.ts";
 import { done, ready, report, startLane } from "./lanes.ts";
@@ -27,7 +27,7 @@ import { parseRef } from "./runtime/types.ts";
 import type { Role } from "./store-types.ts";
 
 const COMMANDS = new Set(
-  "up role start adopt report ready send inbox duty review merge done status loop backlog budget migrate serve reply agents delegate self-update lead ask board".split(
+  "up role start adopt report ready send inbox duty review merge done status loop backlog budget migrate serve reply agents delegate self-update lead ask board timer".split(
     " ",
   ),
 );
@@ -140,6 +140,8 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       return runBacklog(d, a, x);
     case "budget":
       return runBudget(d, a, x);
+    case "timer":
+      return runTimer(d, a, x);
     case "review": {
       const r = await review(d, need(x, "PR"), one(a, "model"));
       console.log(`REVIEW ${x} head=${r.sha} verdict=${r.verdict}`);

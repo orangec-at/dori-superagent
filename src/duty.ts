@@ -8,6 +8,7 @@ import { Refusal } from "./refusal.ts";
 import { refText } from "./refs.ts";
 import { nudgeText } from "./remote.ts";
 import { tellOwner } from "./standing-route.ts";
+import { fireTimers } from "./timers.ts";
 import type { SessionRef } from "./runtime/types.ts";
 import type { Lane } from "./store-types.ts";
 
@@ -37,6 +38,12 @@ export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
     events.push(...(await leadRotationTick(d)));
   } catch (e) {
     events.push({ pane: "lead", action: "lead-rotate-failed", detail: failureDetail(e) });
+  }
+  // Due follow-up timers before the flush below, so a [TIMER] queued for a busy lead goes out in this same pass.
+  try {
+    events.push(...(await fireTimers(d)).map((e) => ({ pane: "lead", ...e })));
+  } catch (e) {
+    events.push({ pane: "lead", action: "timer-failed", detail: failureDetail(e) });
   }
   for (const ref of d.store.inboxPanes()) {
     const paneId = refText(ref);

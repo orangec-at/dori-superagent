@@ -30,6 +30,10 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
   dori backlog add <id> --brief FILE [--title T] [--priority 1-9] [--cwd DIR] [--decision Q]
   dori backlog list | decide <id> --text ANSWER | drop <id> [--text WHY]
   dori backlog import <owner/repo> [--label dori] [--cwd DIR]   open labelled issues -> items
+  dori timer add <id> --at <ISO|+30m> --text T [--every 30m|2h|1d]
+                                              a follow-up in DORI_HOME/timers.json: once due, the duty loop sends
+                                              [TIMER <id>] T to the lead once (a repeating one moves to its next time)
+  dori timer list [--all] | cancel <id>       pending timers (--all: done and cancelled too) / retire one
   dori review <owner/repo#N> [--model M]      fresh omo reviewer at the exact head -> receipt
   dori merge <owner/repo#N> [--dry-run]       CLEAR receipt at head + green checks -> squash merge
   dori done <key>                             lead closes a READY lane
