@@ -71,6 +71,7 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
   dori agents map                             collect the board's 연결 tab (who runs where, CLI, provider/model, channel
                                               names; other machines over ssh, read-only, no secrets) into
                                               DORI_HOME/board-links.json; UNKNOWN <what> for each value it could not read
+                                              (the hourly loop also refreshes it each run, within 60s)
   dori delegate <name> --text T [--timeout S] run hermes -p <profile> chat -Q -q T on that bot (ssh when it has a host)
                                               and print its answer; DELEGATE_FAILED exit 1, DELEGATE_TIMEOUT exit 124
                                               (default 600s); every run is logged to DORI_HOME/delegations.jsonl

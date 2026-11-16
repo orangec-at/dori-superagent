@@ -7,6 +7,7 @@ import { tellLead } from "./inbox.ts";
 import { startLane } from "./lanes.ts";
 import { audit, HOUR } from "./loop-audit.ts";
 import { checkBoard } from "./loop-board.ts";
+import { refreshLinks } from "./loop-links.ts";
 import { acquire, holds, release } from "./loop-lock.ts";
 import { refText } from "./refs.ts";
 import { markTrialsAsked, routeStanding } from "./standing-loop.ts";
@@ -17,7 +18,15 @@ export const REMIND_HOURS = 6;
 export const MAX_ATTEMPTS = 2;
 export const MEM_FREE_MIN_PCT = 10;
 
-export type LoopOpts = { interval?: number; maxLanes?: number; maxStarts?: number; maxLoad?: number; force?: boolean };
+export type LoopOpts = {
+  interval?: number;
+  maxLanes?: number;
+  maxStarts?: number;
+  maxLoad?: number;
+  force?: boolean;
+  /** Bound on the 연결 map refresh (default LINKS_TIMEOUT_MS). */
+  linksTimeoutMs?: number;
+};
 
 const PR_RE = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/;
 
@@ -198,6 +207,8 @@ export async function loopTick(d: Deps, opts: LoopOpts = {}): Promise<LoopRun> {
     ask(d, run);
     await routeStanding(d, run);
     run.board = await checkBoard(d);
+    const links = await refreshLinks(d, opts.linksTimeoutMs);
+    if (links) run.findings.push(links);
     const items = d.store.items();
     const running = new Set(items.filter((i) => i.status === "running").map((i) => i.id));
     const lanes = d.store.lanes().filter((l) => isOpenLane(l.status));
