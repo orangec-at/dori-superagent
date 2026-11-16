@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { askAdd, askClose } from "../src/asks.ts";
 import { assignmentOf, delegateSummary, firstLine, kstDate } from "../src/board-bots.ts";
-import { boardState, DEFAULT_PROJECTS, projectOf } from "../src/board-state.ts";
+import { boardState } from "../src/board-state.ts";
 import { Store } from "../src/store.ts";
 import type { Item, Lane } from "../src/store-types.ts";
 
@@ -68,21 +68,21 @@ test("the assignment row and the last result line are read per bot; a bot the fi
   expect(kstDate(Date.UTC(2026, 10, 12, 15, 30))).toBe("2026-11-13");
 });
 
-test("the first line of a report drops hermes box drawing; projects are matched by key, cwd or title", () => {
+test("the first line of a report drops hermes box drawing", () => {
   expect(firstLine("╭─ panbungi ─╮\n│ 결과: 초안 1개 │\n╰───╯")).toBe("panbungi");
   expect(firstLine("\n\n  done.  \nmore")).toBe("done.");
   expect(delegateSummary("│ drafts/x.md\r\n│ +# 초안\r\n")).toBe("drafts/x.md");
   expect(delegateSummary("알림 확인했어요.\n")).toBe("알림 확인했어요.");
-  expect(projectOf(DEFAULT_PROJECTS, "vg-umami", "/home/b/workspace/web")).toBe("vibeguard");
-  expect(projectOf(DEFAULT_PROJECTS, "fix-it", "/home/b/workspace/yogaday-worktrees/fix-it")).toBe("yogaday");
-  expect(projectOf(DEFAULT_PROJECTS, "phone-board", "/home/b/workspace/dori-superagent-worktrees/x")).toBe("dori");
-  expect(projectOf(DEFAULT_PROJECTS, "misc", "/tmp")).toBe("기타");
 });
 
 test("board state: open asks, lanes needing the operator, bot cards and lanes grouped by project", () => {
   const root = mkdtempSync(join(tmpdir(), "dori-board-state-"));
   const store = new Store(root);
   writeFileSync(join(root, "agents.json"), JSON.stringify(AGENTS));
+  writeFileSync(
+    join(root, "leads.json"),
+    JSON.stringify([{ domain: "vibeguard", keyPrefixes: ["vg-"], repos: ["vibeguard-run/web"], bots: ["endo"] }]),
+  );
   mkdirSync(join(root, "out"));
   writeFileSync(join(root, "out", `daily-assign-${kstDate(NOW)}.md`), ASSIGN);
   writeFileSync(
@@ -107,12 +107,13 @@ test("board state: open asks, lanes needing the operator, bot cards and lanes gr
   store.saveLane(lane("vg-umami", { status: "ready", final: { text: "PR 준비\n자세히", evidence: [], at: NOW } }));
   store.saveLane(
     lane("phone-board", {
-      cwd: "/w/dori-superagent-worktrees/phone-board",
+      cwd: "/home/b/workspace/dori-superagent-worktrees/phone-board",
+      lastActivityAt: NOW - 120_000,
       log: [{ at: NOW, kind: "report", text: "테스트 통과" }],
     }),
   );
   store.saveLane(lane("yd-old", { status: "done", lastActivityAt: NOW - 2 * 86_400_000 }));
-  store.saveItem(item("coupas-c1", { priority: 2, decision: "숫자 확인?" }));
+  store.saveItem(item("coupas-c1", { priority: 2, decision: "숫자 확인?", cwd: "/home/b/workspace/personal/coupas" }));
   store.saveItem(item("drop-me", { status: "dropped" }));
 
   const s = boardState(store, NOW);
@@ -130,13 +131,22 @@ test("board state: open asks, lanes needing the operator, bot cards and lanes gr
     { name: "endo", label: "엔도", role: "review", today: "배정 없음", result: null, lastDelegate: null },
     { name: "yeondo", label: "연도", role: "research", today: null, result: null, lastDelegate: null },
   ]);
-  expect(s.projects.map((g) => [g.name, g.lanes.map((l) => l.key), g.backlog.map((i) => i.id), g.done.length])).toEqual(
-    [
-      ["vibeguard", ["vg-umami"], [], 0],
-      ["coupas", [], ["coupas-c1"], 0],
-      ["dori", ["phone-board"], [], 0],
-    ],
-  );
+  // Newest activity first and 기타 last; a lane done two days ago is only in the week's `recent`.
+  expect(
+    s.projects.map((g) => [
+      g.name,
+      g.lanes.map((l) => l.key),
+      g.backlog.map((i) => i.id),
+      g.done.length,
+      g.recent.length,
+    ]),
+  ).toEqual([
+    ["coupas", [], ["coupas-c1"], 0, 0],
+    ["vibeguard", ["vg-umami"], [], 0, 0],
+    ["dori-superagent", ["phone-board"], [], 0, 0],
+    ["기타", [], [], 0, 1],
+  ]);
+  expect(s.projects[1]).toMatchObject({ repos: ["vibeguard-run/web"], bots: ["endo"], prefixes: ["vg"] });
 });
 
 test("a home without agents.json, assignment file or delegation log still renders empty bot cards", () => {
