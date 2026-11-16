@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { autopilotTick, IDLE_CHECK_MS, startDelegate } from "../src/autopilot.ts";
+import { autopilotTick, IDLE_CHECK_MS, quietHour, startDelegate } from "../src/autopilot.ts";
 import { readAssignments } from "../src/autopilot-store.ts";
 import { COUPAS, HOUR, NOON_KST, setup } from "./autopilot-setup.ts";
 import { AUTOPILOT_ENV, pinEnv } from "./env-pin.ts";
 
 pinEnv(AUTOPILOT_ENV);
+
+const THREE_AM_KST = Date.parse("2026-11-16T18:00:00Z");
 
 describe("autopilot: idle bots get the next roadmap task", () => {
   test("a bot idle past 2h gets its project's next open task; a busy bot and person-only tasks are skipped", async () => {
@@ -32,9 +34,30 @@ describe("autopilot: idle bots get the next roadmap task", () => {
     expect(launched).toHaveLength(1);
   });
 
-  test("01-08 KST hands out nothing; the stop file turns the autopilot off", async () => {
+  test("by default it runs around the clock: 03:00 KST still hands out work", async () => {
+    const { d, launched, launch, w } = setup({ coupas: COUPAS }, HOUR, ["hongbungi"]);
+    w.clock = THREE_AM_KST;
+    await autopilotTick(d, launch);
+    expect(launched.map((l) => l.bot)).toEqual(["hongbungi"]);
+  });
+
+  test("DORI_QUIET_HOURS: off/none/empty never rest, A-B rests A:00-B:00 KST (wrapping), anything else means 1-8", () => {
+    const at = (h: number) => Date.parse(`2026-11-16T${String((h + 15) % 24).padStart(2, "0")}:00:00Z`);
+    const quiet = (v: string) => {
+      process.env["DORI_QUIET_HOURS"] = v;
+      return [0, 1, 3, 7, 8, 12, 22, 23].filter((h) => quietHour(at(h)));
+    };
+    expect([0, 3, 12].filter((h) => quietHour(at(h)))).toEqual([]);
+    for (const v of ["off", "none", "", " OFF "]) expect(quiet(v)).toEqual([]);
+    expect(quiet("1-8")).toEqual([1, 3, 7]);
+    expect(quiet("22-6")).toEqual([0, 1, 3, 22, 23]);
+    for (const bad of ["1to8", "25-3", "5-5", "-1-8", "night"]) expect(quiet(bad)).toEqual([1, 3, 7]);
+  });
+
+  test("DORI_QUIET_HOURS=1-8 hands out nothing at 03:00 KST; the stop file turns the autopilot off", async () => {
+    process.env["DORI_QUIET_HOURS"] = "1-8";
     const { d, home, launched, launch, w } = setup({ coupas: COUPAS });
-    w.clock = Date.parse("2026-11-16T18:00:00Z");
+    w.clock = THREE_AM_KST;
     expect(await autopilotTick(d, launch)).toEqual([]);
     w.clock = NOON_KST;
     mkdirSync(join(home, "autopilot"), { recursive: true });

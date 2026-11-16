@@ -23,4 +23,5 @@ export const AUTOPILOT_ENV = [
   "DORI_MAX_LOAD",
   "DORI_AUTOSTART",
   "DORI_IDLE_HOURS",
+  "DORI_QUIET_HOURS",
 ];

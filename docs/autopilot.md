@@ -67,13 +67,13 @@ Every 10 minutes a duty pass reads `delegate-runs.jsonl` (starts) and `delegatio
 
 A bot idle for `DORI_IDLE_HOURS` (default 2) gets one task: the first open, unassigned, not person-only delegate task, in project order (by file name), that names it with `@bot` or lists it as an owner. The task runs as `dori delegate <bot> --mission autopilot-<project>` in its own process, so a long answer never holds up the duty loop (output in `autopilot/delegate.log`). The text carries the roadmap goal, done criteria, and this rule: drafts and PRs only; no publishing, merging, deploying, paying, deleting data or posting as 재일 님. The lead gets one `[AUTOPILOT] 유휴 봇 배정: ...` line per pass.
 
-Nothing is handed out from 01:00 to 08:00 KST.
+The autopilot runs 24 hours a day by default. `DORI_QUIET_HOURS=A-B` sets quiet hours from A:00 to B:00 KST (`1-8` is the old 01:00-08:00; `22-6` wraps past midnight): nothing is handed out and no stall is reported then. Unset, empty, `off` or `none` means no quiet hours; any other value falls back to `1-8`.
 
 Each delegation's text opens with `[autopilot <project> <task id>]`, so its start and end lines can be found again. On each idle check, a delegation that ended `failed` or `timeout`, started but never recorded an end, or never started within 15 minutes is released (a `release` line in `assignments.jsonl`), and the lead gets `[AUTOPILOT 실패] ...`. A released task can be handed out again. After 2 failures it stays held (`final`) until a person fixes the task or checks it off.
 
 ## 3. Stalled projects
 
-Once an hour, outside 01:00 to 08:00 KST, each project's newest activity is computed from roadmap edits, matching delegations, autopilot hand-outs, matching lanes, commits in `경로`, and commits and PRs in `저장소`. A project silent for 24 hours gets:
+Once an hour, outside the quiet hours, each project's newest activity is computed from roadmap edits, matching delegations, autopilot hand-outs, matching lanes, commits in `경로`, and commits and PRs in `저장소`. A project silent for 24 hours gets:
 
 - `[REPORT <project> 정체] N시간째 활동 없음 (마지막: <source> <time>). 자동 생성: ...` to the lead,
 - its next open task handed out: a `[pr]` task becomes backlog item `ap-<project>-<task>` (brief in `autopilot/briefs/`, cwd `경로`), which autostart opens in the same pass; any other task is delegated to its `@bot` or the first owner.
