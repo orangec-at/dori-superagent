@@ -53,22 +53,28 @@ const FIELDS: Record<string, "goal" | "owners" | "repo" | "path" | "keywords" | 
   done: "doneWhen",
 };
 
-/** What the autopilot never hands out: these stay drafts until a person acts. */
+/** What the autopilot never hands out: these stay drafts until a person acts. English words match whole words only. */
 const PERSON_ONLY: readonly [RegExp, string][] = [
-  [/게시|발행|업로드|publish|post to|upload/i, "게시"],
-  [/병합|머지|merge/i, "병합"],
-  [/배포|릴리스|deploy|release|ota/i, "배포"],
-  [/결제|구매|payment|purchase|billing/i, "결제"],
-  [/삭제|지우기|delete|drop table|wipe/i, "데이터 삭제"],
-  [/개인 계정|재일 님 계정|personal account/i, "재일 님 개인 계정 글"],
+  [/게시|발행|업로드|\b(?:publish|post to|upload)\b/i, "게시"],
+  [/병합|머지|\bmerge\b/i, "병합"],
+  [/배포|릴리스|\b(?:deploy|release|ota)\b/i, "배포"],
+  [/결제|구매|\b(?:payment|purchase|billing)\b/i, "결제"],
+  [/삭제|지우기|\b(?:delete|drop table|wipe)\b/i, "데이터 삭제"],
+  [/개인 계정|재일 님 계정|\bpersonal account\b/i, "재일 님 개인 계정 글"],
 ];
 
-const NEGATED = /하지 ?마|하지 ?말|말 것|말고|금지|않는다|않기|don't|do not|never/i;
+/** "X하지 말고 Y해": X is forbidden, Y is asked. The split keeps Y, so a request after a prohibition still counts. */
+const BUT_NOT = /하지 ?말고|말고|\binstead of\b/i;
+const NEGATED = /하지 ?마|하지 ?말|말 것|금지|않는다|않기|\bdon'?t\b|\bdo not\b|\bnever\b/i;
 
 /** The person-only action a task asks for; a clause that forbids it ("게시는 하지 마") does not count. */
 export const personOnly = (text: string): string | undefined => {
   const asked = text
     .split(/[.!?\n;]|,\s|\(|\)/)
+    .map((clause) => {
+      const m = BUT_NOT.exec(clause);
+      return m ? clause.slice(m.index + m[0].length) : clause;
+    })
     .filter((clause) => !NEGATED.test(clause))
     .join(" ");
   return PERSON_ONLY.find(([re]) => re.test(asked))?.[1];

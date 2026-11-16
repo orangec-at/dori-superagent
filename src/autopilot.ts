@@ -2,7 +2,7 @@
 // silent for a day is reported to the lead and handed its next task. Every hand-out is recorded, and status.json
 // shows the whole picture to the board. See docs/autopilot.md.
 import { spawn } from "node:child_process";
-import { openSync } from "node:fs";
+import { closeSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { loadAgents } from "./agents.ts";
 import {
@@ -48,7 +48,11 @@ export const spawnDelegate =
     const argv = [CLI, "delegate", bot, "--text", text, "--timeout", String(DELEGATE_TIMEOUT_S)];
     if (mission !== undefined) argv.push("--mission", mission);
     const env = { ...process.env, DORI_HOME: d.store.root };
-    spawn(process.execPath, argv, { detached: true, stdio: ["ignore", log, log], env }).unref();
+    try {
+      spawn(process.execPath, argv, { detached: true, stdio: ["ignore", log, log], env }).unref();
+    } finally {
+      closeSync(log);
+    }
   };
 
 const assignedKeys = (home: string): Set<string> => new Set(readAssignments(home).map((a) => `${a.project}:${a.task}`));
@@ -110,8 +114,10 @@ async function checkStalls(d: Deps, roadmaps: readonly Roadmap[], launch: Launch
   const state = readState(home);
   const runs = delegateRuns(home);
   const out: string[] = [];
-  for (const r of roadmaps) {
-    const act = await lastActivity(d, r, runs, readAssignments(home));
+  const handed = readAssignments(home);
+  const acts = await Promise.all(roadmaps.map((r) => lastActivity(d, r, runs, handed)));
+  for (const [i, r] of roadmaps.entries()) {
+    const act = acts[i]!;
     state.activity[r.project] = act;
     const reported = state.stallReportedAt[r.project];
     if (now - act.at < STALL_HOURS * HOUR || (reported !== undefined && now - reported < STALL_HOURS * HOUR)) continue;

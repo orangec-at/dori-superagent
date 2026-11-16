@@ -1,6 +1,7 @@
 // Stall detection: a project with no commit, PR, delegation, lane or roadmap edit for 24 hours is reported to the lead
 // and gets its next roadmap task handed out: a backlog item (a lane, then a PR) or a delegation (documents, content).
 import { existsSync } from "node:fs";
+import { sep } from "node:path";
 import { backlogAdd } from "./backlog.ts";
 import type { Deps } from "./harness.ts";
 import type { Assignment, DelegateRun, ProjectActivity } from "./autopilot-store.ts";
@@ -13,8 +14,20 @@ export const STALL_HOURS = 24;
 const newer = (a: ProjectActivity, at: number, source: string): ProjectActivity =>
   Number.isFinite(at) && at > a.at ? { at, source } : a;
 
-async function ask(d: Deps, cmd: string, argv: string[]): Promise<string> {
-  const r = await d.exec(cmd, argv).catch(() => ({ code: -1, stdout: "", stderr: "" }));
+/** Bound on one git or gh call, so a hung network never holds up the duty pass that runs the check. */
+export const ASK_TIMEOUT_MS = 10_000;
+
+async function ask(d: Deps, cmd: string, argv: string[], timeoutMs: number): Promise<string> {
+  let proc: { kill(): void } | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const run = d.exec(cmd, argv, { onSpawn: (p) => (proc = p) }).catch(() => ({ code: -1, stdout: "", stderr: "" }));
+  const expired = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), timeoutMs)));
+  const r = await Promise.race([run, expired]);
+  clearTimeout(timer);
+  if (r === "timeout") {
+    proc?.kill();
+    return "";
+  }
   return r.code === 0 ? r.stdout.trim() : "";
 }
 
@@ -24,6 +37,7 @@ export async function lastActivity(
   r: Roadmap,
   runs: readonly DelegateRun[],
   assignments: readonly Assignment[],
+  timeoutMs = ASK_TIMEOUT_MS,
 ): Promise<ProjectActivity> {
   let a: ProjectActivity = { at: r.editedAt, source: "로드맵 수정" };
   const words = r.keywords.map((k) => k.toLowerCase());
@@ -31,37 +45,23 @@ export async function lastActivity(
   for (const run of runs) if (mentions(run.text)) a = newer(a, run.endedAt ?? run.at, `${run.agent} 위임`);
   for (const x of assignments) if (x.project === r.project) a = newer(a, x.at, "autopilot 배정");
   for (const lane of d.store.lanes()) {
-    const ours = mentions(lane.key) || (r.path !== undefined && lane.cwd.startsWith(r.path));
+    const ours =
+      mentions(lane.key) || (r.path !== undefined && (lane.cwd === r.path || lane.cwd.startsWith(r.path + sep)));
     if (ours) a = newer(a, lane.lastActivityAt, `lane ${lane.key}`);
   }
-  if (r.path !== undefined && existsSync(r.path)) {
-    const ct = Number(await ask(d, "git", ["-C", r.path, "log", "-1", "--all", "--format=%ct"]));
-    if (ct > 0) a = newer(a, ct * 1000, "커밋");
-  }
-  if (r.repo !== undefined && /^[\w.-]+\/[\w.-]+$/.test(r.repo)) {
-    const commit = await ask(d, "gh", [
-      "api",
-      `repos/${r.repo}/commits?per_page=1`,
-      "--jq",
-      ".[0].commit.committer.date",
-    ]);
-    a = newer(a, Date.parse(commit), "커밋");
-    const pr = await ask(d, "gh", [
-      "pr",
-      "list",
-      "--repo",
-      r.repo,
-      "--state",
-      "all",
-      "--limit",
-      "1",
-      "--json",
-      "updatedAt",
-      "--jq",
-      ".[0].updatedAt",
-    ]);
-    a = newer(a, Date.parse(pr), "PR");
-  }
+  const local = r.path !== undefined && existsSync(r.path);
+  const remote = r.repo !== undefined && /^[\w.-]+\/[\w.-]+$/.test(r.repo);
+  const prArgs = ["pr", "list", "--repo", String(r.repo), "--state", "all", "--limit", "1"];
+  const [ct, commit, pr] = await Promise.all([
+    local ? ask(d, "git", ["-C", r.path!, "log", "-1", "--all", "--format=%ct"], timeoutMs) : "",
+    remote
+      ? ask(d, "gh", ["api", `repos/${r.repo}/commits?per_page=1`, "--jq", ".[0].commit.committer.date"], timeoutMs)
+      : "",
+    remote ? ask(d, "gh", [...prArgs, "--json", "updatedAt", "--jq", ".[0].updatedAt"], timeoutMs) : "",
+  ]);
+  if (Number(ct) > 0) a = newer(a, Number(ct) * 1000, "커밋");
+  a = newer(a, Date.parse(commit), "커밋");
+  a = newer(a, Date.parse(pr), "PR");
   return a;
 }
 

@@ -6,6 +6,9 @@ import { acquire, release } from "./loop-lock.ts";
 import { type PullLimits, pull, pullCandidates } from "./loop-pull.ts";
 import type { LoopRun } from "./store-types.ts";
 
+/** A start that failed is tried again by autostart after this long; the hourly loop still counts its own tries. */
+export const RETRY_AFTER_MS = 60 * 60_000;
+
 const envNumber = (name: string, fallback: number | undefined): number | undefined => {
   const v = Number(process.env[name]);
   return process.env[name] !== undefined && Number.isFinite(v) && v >= 0 ? v : fallback;
@@ -29,7 +32,7 @@ export async function startNow(d: Deps, by: string, limits: PullLimits = envLimi
   if ("holder" in lock) return [];
   try {
     const run: LoopRun = { at: d.now(), synced: [], findings: [], started: [], held: [], asked: [] };
-    await pull(d, run, limits, lock.nonce, by);
+    await pull(d, run, limits, lock.nonce, { by, retryAfterMs: RETRY_AFTER_MS });
     return [...run.started.map((s) => `started ${s}`), ...run.findings];
   } finally {
     release(d, lock.nonce);

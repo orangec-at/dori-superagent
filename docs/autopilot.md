@@ -58,6 +58,8 @@ Tasks are `- [ ]` (open) and `- [x]` (done) lines anywhere in the file:
 
 `dori loop stop` stops autostart too. `DORI_AUTOSTART=off` turns autostart off alone.
 
+A start that fails under autostart is logged on the item but not counted toward the hourly loop's 2 tries (`MAX_ATTEMPTS`, sized for one try an hour), so a one-minute herdr outage cannot turn an item into a question. Autostart tries that item again after an hour, and the hourly loop's own tries still count as before.
+
 ## 2. Idle bots
 
 Every 10 minutes a duty pass reads `delegate-runs.jsonl` (starts) and `delegations.jsonl` (ends, now with `endedAt`). A bot is busy while a run has neither ended nor passed its timeout. Otherwise it is idle since its newest end, or since the newest task the autopilot handed it.
@@ -73,7 +75,7 @@ Once an hour, outside 01:00 to 08:00 KST, each project's newest activity is comp
 - `[REPORT <project> 정체] N시간째 활동 없음 (마지막: <source> <time>). 자동 생성: ...` to the lead,
 - its next open task handed out: a `[pr]` task becomes backlog item `ap-<project>-<task>` (brief in `autopilot/briefs/`, cwd `경로`), which autostart opens in the same pass; any other task is delegated to its `@bot` or the first owner.
 
-A stall is reported at most once a day. Sources that fail (gh down, no checkout) are skipped. Posts made outside dori are not visible yet. Note them by editing the roadmap, since an edit counts as activity.
+A stall is reported at most once a day. Each git or gh call is killed after 10 seconds, and the projects are checked in parallel, so a hung network holds a duty pass for seconds, not minutes. Sources that fail (gh down, no checkout, timeout) are skipped. Posts made outside dori are not visible yet. Note them by editing the roadmap, since an edit counts as activity.
 
 ## Files and the board
 

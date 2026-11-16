@@ -5,7 +5,7 @@ import type { Deps } from "./harness.ts";
 import { startLane } from "./lanes.ts";
 import { holds } from "./loop-lock.ts";
 import { refText } from "./refs.ts";
-import type { LoopRun } from "./store-types.ts";
+import type { Item, LoopRun } from "./store-types.ts";
 
 export const MAX_ATTEMPTS = 2;
 export const MEM_FREE_MIN_PCT = 10;
@@ -36,8 +36,19 @@ export const pullCandidates = (d: Deps) =>
 
 export type PullLimits = { maxLanes: number; maxStarts: number; maxLoad: number | undefined };
 
-/** `by`: who opened the lane, for the item's log ("the hourly loop", "autostart after backlog add", ...). */
-export async function pull(d: Deps, run: LoopRun, lim: PullLimits, nonce: string, by = "the hourly loop") {
+/**
+ * `by`: who opened the lane, for the item's log ("the hourly loop", "autostart after backlog add", ...).
+ * `retryAfterMs`: for callers that pull every minute (autostart). A failed start is then not counted toward
+ * MAX_ATTEMPTS, which is sized for one try an hour, and the item is not tried again until this much time has passed.
+ */
+export type PullOpts = { readonly by?: string; readonly retryAfterMs?: number };
+
+const lastFailedStart = (item: Item): number =>
+  item.log.findLast((e) => e.kind === "start" && e.text.startsWith("failed"))?.at ?? Number.NEGATIVE_INFINITY;
+
+export async function pull(d: Deps, run: LoopRun, lim: PullLimits, nonce: string, opts: PullOpts = {}) {
+  const by = opts.by ?? "the hourly loop";
+  const retry = opts.retryAfterMs;
   if (!d.store.roles().lead) {
     run.held.push("no lead pane registered");
     return;
@@ -45,7 +56,7 @@ export async function pull(d: Deps, run: LoopRun, lim: PullLimits, nonce: string
   const host = d.host();
   const open = busyLanes(d);
   let starts = Math.max(0, Math.min(lim.maxLanes - open, lim.maxStarts));
-  const candidates = pullCandidates(d);
+  const candidates = pullCandidates(d).filter((i) => retry === undefined || d.now() - lastFailedStart(i) >= retry);
   const maxLoad = lim.maxLoad ?? host.cores;
   if (candidates.length > 0 && (host.load1 > maxLoad || host.memFreePct < MEM_FREE_MIN_PCT)) {
     run.held.push(`host busy: load ${host.load1.toFixed(1)} (limit ${maxLoad}), mem free ${host.memFreePct}%`);
@@ -65,6 +76,11 @@ export async function pull(d: Deps, run: LoopRun, lim: PullLimits, nonce: string
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
       const lane = d.store.lane(item.id);
+      if ((!lane || !isOpenLane(lane.status) || lane.createdAt < run.at) && retry !== undefined) {
+        log(d, item, "start", `failed (${by}; not counted, retried after ${Math.round(retry / 60_000)}m): ${why}`);
+        run.findings.push(`start ${item.id} failed: ${why}`);
+        continue;
+      }
       if (!lane || !isOpenLane(lane.status) || lane.createdAt < run.at) {
         item.startFailures = (item.startFailures ?? 0) + 1;
         if (item.startFailures >= MAX_ATTEMPTS)

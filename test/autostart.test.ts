@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { doneThenStart, startNow } from "../src/autostart.ts";
+import { doneThenStart, RETRY_AFTER_MS, startNow } from "../src/autostart.ts";
 import { main } from "../src/cli.ts";
 import { dutyTick } from "../src/duty.ts";
 import { ready } from "../src/lanes.ts";
+import { AUTOPILOT_ENV, pinEnv } from "./env-pin.ts";
 import { setup } from "./loop-setup.ts";
+
+pinEnv(AUTOPILOT_ENV);
 
 describe("autostart: a free slot goes to the next item without waiting for the hourly loop", () => {
   test("dori backlog add starts the item at once", async () => {
@@ -39,5 +42,27 @@ describe("autostart: a free slot goes to the next item without waiting for the h
     d.store.clearStop();
     expect(await dutyTick(d)).toContainEqual({ action: "autostart", detail: "started later (p5)" });
     expect(d.store.item("later")!.status).toBe("running");
+  });
+
+  test("a failed autostart is not counted toward MAX_ATTEMPTS and waits an hour before the next try", async () => {
+    let failing = true;
+    const { w, d, add } = setup({
+      exec: (inner) => async (cmd, argv, o) =>
+        failing && cmd === "herdr" && argv.includes("create")
+          ? { code: 1, stdout: "", stderr: "herdr down" }
+          : inner(cmd, argv, o),
+    });
+    add("flaky");
+    expect((await startNow(d, "test"))[0]).toContain("start flaky failed");
+    w.clock += 60_000;
+    expect(await startNow(d, "test")).toEqual([]);
+    w.clock += 60_000;
+    expect(await startNow(d, "test")).toEqual([]);
+    const item = d.store.item("flaky")!;
+    expect(item.startFailures ?? 0).toBe(0);
+    expect(item.decision).toBeUndefined();
+    failing = false;
+    w.clock += RETRY_AFTER_MS;
+    expect(await startNow(d, "test")).toEqual(["started flaky (p5)"]);
   });
 });
