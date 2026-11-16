@@ -166,6 +166,7 @@ test("a home without agents.json, assignment file or delegation log still render
     routines: expect.any(Array),
     avatars: {},
     hub: null,
+    agents: [expect.objectContaining({ id: "lead", state: null, line: null, at: null })],
   });
   expect(boardState(store, NOW).routines.map((r) => [r.name, r.last])).toEqual([
     ["아침 배정", null],
