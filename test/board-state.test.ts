@@ -151,7 +151,15 @@ test("a home without agents.json, assignment file or delegation log still render
     attention: [],
     bots: [],
     projects: [],
+    missions: [],
+    cards: {},
+    routines: expect.any(Array),
   });
+  expect(boardState(store, NOW).routines.map((r) => [r.name, r.last])).toEqual([
+    ["아침 배정", null],
+    ["정시 루프", null],
+    ["duty 점검", null],
+  ]);
   writeFileSync(join(root, "agents.json"), JSON.stringify(AGENTS.slice(1, 2)));
   expect(boardState(store, NOW).bots).toEqual([
     { name: "endo", label: "엔도", role: "review", today: null, result: null, lastDelegate: null },

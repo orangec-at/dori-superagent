@@ -201,7 +201,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
         const now = o.now();
         const view = viewOf(url.searchParams);
         const state = boardState(store, now);
-        const html = boardHtml(threadOf(store, state, view.c ?? "lead"), state.projects, now, {
+        const html = boardHtml(threadOf(store, state, view.c ?? "lead"), state, now, {
           token: "code" in w ? null : tokenFor(w.id),
           version: versionOf(state),
           view,

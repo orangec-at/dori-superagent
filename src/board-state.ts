@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { type Ask, asks } from "./asks.ts";
 import { type BotCard, botCards, firstLine } from "./board-bots.ts";
 import { type ChatMessage, chatTail } from "./board-chat.ts";
+import { missionState } from "./board-missions.ts";
+import { routines } from "./board-mission-sources.ts";
+import type { Mission, MissionCard, Routine } from "./board-mission-types.ts";
 import { lanePrs, type Pr } from "./board-prs.ts";
 import { type StandingCard, standingCards } from "./board-status.ts";
 import { NUDGE_MINUTES } from "./duty.ts";
@@ -40,6 +43,10 @@ export type BoardState = {
   standingError: string | null;
   /** The newest messages between the operator and the lead, oldest first. */
   chat: ChatMessage[];
+  /** Work several bots took part in, newest first, and the mission card of each bot, standing lead and lane row. */
+  missions: Mission[];
+  cards: Record<string, MissionCard>;
+  routines: Routine[];
 };
 
 /** Default project names and the words that put a lane's key, cwd or a backlog item's id/title/cwd into them. */
@@ -136,14 +143,17 @@ export function boardState(store: Store, now: number): BoardState {
     g.backlog.sort((a, b) => a.priority - b.priority);
   }
   const standing = standingCards(store, now);
+  const bots = botCards(store.root, now);
   return {
+    ...missionState(store, bots, standing.cards, now),
+    routines: routines(store.root),
     generatedAt: now,
     standing: standing.cards,
     standingError: standing.error,
     chat: chatTail(store.root, CHAT_SHOWN),
     asks: asks(store.root).filter((a) => a.status === "open"),
     attention: attention.sort((a, b) => b.at - a.at),
-    bots: botCards(store.root, now),
+    bots,
     projects: sorted,
   };
 }

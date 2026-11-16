@@ -68,11 +68,17 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       return 0;
     }
     case "start": {
-      const [cwd, workspace, machine] = [one(a, "cwd"), one(a, "workspace"), one(a, "machine")];
+      const [cwd, workspace, machine, mission] = [
+        one(a, "cwd"),
+        one(a, "workspace"),
+        one(a, "machine"),
+        one(a, "mission"),
+      ];
       const lane = await startLane(d, need(x, "lane key"), need(one(a, "brief"), "--brief"), {
         ...(cwd !== undefined ? { cwd } : {}),
         ...(workspace !== undefined ? { group: workspace } : {}),
         ...(machine !== undefined ? { machine } : {}),
+        ...(mission !== undefined ? { mission } : {}),
       });
       console.log(`STARTED ${lane.key} pane=${refText(lane.sessionRef)} brief=${lane.brief}`);
       return 0;
@@ -196,7 +202,13 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       const seconds = Number(one(a, "timeout") ?? "600");
       if (!(seconds > 0)) throw new Refusal("--timeout must be a positive number of seconds");
       const text = await textOf(a);
-      const r = await delegate(d.exec, name, text, { home: d.store.root, timeoutMs: seconds * 1000, now: d.now });
+      const mission = one(a, "mission");
+      const r = await delegate(d.exec, name, text, {
+        home: d.store.root,
+        timeoutMs: seconds * 1000,
+        now: d.now,
+        ...(mission !== undefined ? { mission } : {}),
+      });
       if (r.outcome === "ok") process.stdout.write(r.output);
       else console.error(`DELEGATE_${r.outcome.toUpperCase()} ${name}: ${r.output}`);
       return DELEGATE_EXIT[r.outcome];

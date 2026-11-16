@@ -67,7 +67,7 @@ export function delegateSummary(output: string): string {
 /** The last lines of delegations.jsonl; a line cut by the tail or not JSON is skipped. */
 export function delegations(
   home: string,
-): { at: string; agent: string; outcome: string; text: string; output: string }[] {
+): { at: string; agent: string; outcome: string; text: string; output: string; mission?: string }[] {
   const path = join(home, "delegations.jsonl");
   if (!existsSync(path)) return [];
   const size = statSync(path).size;
@@ -93,6 +93,7 @@ export function delegations(
                 outcome: String(v["outcome"] ?? ""),
                 text: String(v["text"] ?? ""),
                 output: String(v["output"] ?? ""),
+                ...(typeof v["mission"] === "string" ? { mission: v["mission"] } : {}),
               },
             ]
           : [];

@@ -30,9 +30,10 @@ export async function startLane(
   d: Deps,
   key: string,
   briefFile: string,
-  opts: { cwd?: string; group?: string; machine?: string } = {},
+  opts: { cwd?: string; group?: string; machine?: string; mission?: string } = {},
 ): Promise<Lane> {
   checkNewKey(d, key);
+  if (opts.mission !== undefined && !KEY_RE.test(opts.mission)) throw new Refusal(`--mission must match ${KEY_RE}`);
   const { machine } = opts;
   const rt = d.runtimes.default;
   if (machine !== undefined && rt.kind !== "herdr") throw new Refusal("--machine needs the herdr runtime");
@@ -75,6 +76,7 @@ export async function startLane(
     lastActivityAt: now,
     nudges: 0,
     log: [{ at: now, kind: "start", text: briefFile }],
+    ...(opts.mission !== undefined ? { mission: opts.mission } : {}),
   };
   d.store.saveLane(lane);
   await tellOwner(d, key, `[START ${key}] lane opened in ${refText(ref)}`, key);

@@ -79,8 +79,8 @@ function item(i: ThreadItem, now: number, token: string | null): string {
   }
 }
 
-/** The record of the selected row: header, what waits on the operator, its PRs, then its timeline. */
-export function record(t: Thread, now: number, token: string | null, back: string): string {
+/** The record of the selected row: header, `top` (its mission card), what waits on the operator, its PRs, then its timeline. */
+export function record(t: Thread, now: number, token: string | null, back: string, top = ""): string {
   const r = t.row;
   const items = (list: ThreadItem[]): string => list.map((i) => item(i, now, token)).join("\n");
   const waiting = t.waiting.length
@@ -93,5 +93,5 @@ export function record(t: Thread, now: number, token: string | null, back: strin
     : "";
   return `<header class="rec-h"><a class="back" href="${esc(back)}" aria-label="목록으로">←</a>${mark(r)}
 <div class="title"><b>${esc(r.title)}</b><span class="meta">${esc(r.project)} · <span class="w s-${r.section}">${esc(r.word)}</span>${r.at ? ` · ${ago(now, r.at)}` : ""}</span></div></header>
-<section class="thread" id="chat">${waiting}${prs}${items(t.items)}<span id="end"></span></section>`;
+<section class="thread" id="chat">${top}${waiting}${prs}${items(t.items)}<span id="end"></span></section>`;
 }
