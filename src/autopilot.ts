@@ -34,10 +34,26 @@ export const idleHours = (): number => {
   return Number.isFinite(v) && v > 0 ? v : 2;
 };
 
-/** 01:00-08:00 in Korea: nobody is handed work and no stall is reported. */
+/**
+ * Quiet hours in Korea, from DORI_QUIET_HOURS: unset, "", "off" or "none" means none (the default: 24 hours a day);
+ * "A-B" means A:00 to B:00 KST, wrapping past midnight when A > B ("22-6"). Any other value falls back to "1-8".
+ */
+export const quietHours = (): [number, number] | undefined => {
+  const v = (process.env["DORI_QUIET_HOURS"] ?? "").trim().toLowerCase();
+  if (v === "" || v === "off" || v === "none") return undefined;
+  const m = /^(\d{1,2})-(\d{1,2})$/.exec(v);
+  const from = Number(m?.[1]);
+  const to = Number(m?.[2]);
+  return from <= 23 && to <= 24 && from !== to ? [from, to] : [1, 8];
+};
+
+/** Inside the quiet hours nobody is handed work and no stall is reported. */
 export const quietHour = (now: number): boolean => {
+  const q = quietHours();
+  if (!q) return false;
   const h = (new Date(now).getUTCHours() + 9) % 24;
-  return h >= 1 && h < 8;
+  const [from, to] = q;
+  return from < to ? h >= from && h < to : h >= from || h < to;
 };
 
 export type Launch = (bot: string, text: string, mission?: string) => void;
