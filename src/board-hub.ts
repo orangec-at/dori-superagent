@@ -19,6 +19,8 @@ export type MetricDef = { project: string; name: string; cmd: string | null; fil
 export const HUB_EVERY_MS = 10 * 60_000;
 export const HUB_TIMEOUT_MS = 60_000;
 export const METRIC_TIMEOUT_MS = 20_000;
+const KILL_AFTER_S = 2;
+const KILL_GRACE_MS = (KILL_AFTER_S + 1) * 1000;
 const VALUE_MAX = 80;
 const PR_WINDOW_MS = 14 * 86_400_000;
 const hubPath = (home: string): string => join(home, "board-hub.json");
@@ -54,14 +56,19 @@ const firstLine = (s: string): string | null =>
 
 type Spawned = ExecOptions["onSpawn"];
 
-/** Runs `cmd` with `sh -c`; past `timeoutMs` the process is killed and the value is unknown (null). */
+/**
+ * Runs `cmd` with `sh -c` under GNU `timeout`, which leads its own process group: past `timeoutMs` it signals the whole
+ * group (SIGKILL 2 s later), so the pipes and ssh a compound command started die with `sh`. A `timeout` that does not
+ * return within the grace is killed too, and it passes that signal on to the group. Either way the value is null.
+ */
 async function runMetric(exec: Exec, cmd: string, timeoutMs: number, onSpawn?: Spawned): Promise<string | null> {
   const procs: { kill(): void }[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), timeoutMs);
+    timer = setTimeout(() => resolve(null), timeoutMs + KILL_GRACE_MS);
   });
-  const run = exec("sh", ["-c", cmd], {
+  const limit = ["-k", String(KILL_AFTER_S), (timeoutMs / 1000).toFixed(3)];
+  const run = exec("timeout", [...limit, "sh", "-c", cmd], {
     onSpawn: (p) => {
       procs.push(p);
       onSpawn?.(p);
@@ -97,11 +104,15 @@ function prRepos(store: Store, now: number): string[] {
 
 export type CollectHubOptions = { now: number; metricTimeoutMs?: number; onSpawn?: Spawned };
 
-/** One `gh pr list` per repo and every metric; a repo gh cannot read keeps the states `last` had for it. */
+/**
+ * One `gh pr list` per repo and every metric. A PR this read does not return (gh failed, or it is older than the newest
+ * 200) keeps the state `last` had for it.
+ */
 export async function collectHub(exec: Exec, store: Store, last: Hub | null, o: CollectHubOptions): Promise<Hub> {
   const prs: Record<string, HubPr> = {};
   await Promise.all(
     prRepos(store, o.now).map(async (repo) => {
+      for (const [k, v] of Object.entries(last?.prs ?? {})) if (k.startsWith(`${repo}#`)) prs[k] = v;
       const argv = ["pr", "list", "--repo", repo, "--state", "all", "--limit", "200"];
       const r = await exec("gh", [...argv, "--json", "number,state,mergedAt,closedAt"], {
         ...(o.onSpawn ? { onSpawn: o.onSpawn } : {}),
@@ -112,11 +123,7 @@ export async function collectHub(exec: Exec, store: Store, last: Hub | null, o: 
       } catch {
         list = null;
       }
-      if (!list) {
-        for (const [k, v] of Object.entries(last?.prs ?? {})) if (k.startsWith(`${repo}#`)) prs[k] = v;
-        return;
-      }
-      for (const p of list) {
+      for (const p of list ?? []) {
         const state = p.state === "MERGED" || p.state === "CLOSED" ? p.state : "OPEN";
         prs[prKey(repo, p.number)] = { state, mergedAt: time(p.mergedAt), closedAt: time(p.closedAt) };
       }

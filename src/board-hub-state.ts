@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import type { Ask } from "./asks.ts";
 import { firstLine } from "./board-bots.ts";
 import { type Hub, type HubPr, prKey } from "./board-hub.ts";
@@ -19,7 +19,7 @@ export type HubEventKind = "start" | "ready" | "done" | "lost" | "backlog" | "me
 export type HubEvent = { at: number; kind: HubEventKind; text: string };
 
 const WEEK_MS = 7 * 86_400_000;
-const NEXT_MAX = 3;
+const NEXT_LANES = 2;
 const LANE_KINDS: Partial<Record<Lane["log"][number]["kind"], HubEventKind>> = {
   start: "start",
   adopt: "start",
@@ -43,11 +43,11 @@ export function badgeOf(g: Pick<ProjectGroup, "lanes" | "backlog" | "asks">): Ba
   return g.lanes.length || g.backlog.some((i) => i.status === "running") ? "active" : "rest";
 }
 
-/** The newest open lanes' latest reports, then the highest-priority open backlog item that needs no decision. */
+/** The latest report of up to two lanes at work, then the highest-priority open backlog item that needs no decision. */
 export function nextSteps(g: Pick<ProjectGroup, "lanes" | "backlog">): string[] {
   const lanes = g.lanes.filter((l) => l.status === "working").map((l) => `${l.key} — ${l.first}`);
   const item = g.backlog.find((i) => i.status === "open" && !i.decision);
-  return [...lanes.slice(0, item ? NEXT_MAX - 1 : NEXT_MAX), ...(item ? [`다음: ${firstLine(item.title)}`] : [])];
+  return [...lanes.slice(0, NEXT_LANES), ...(item ? [`다음: ${firstLine(item.title)}`] : [])];
 }
 
 /** The open asks, backlog decisions and lanes that wait on the operator, in that order. */
@@ -89,20 +89,31 @@ export const itemEvents = (i: Pick<Item, "title" | "log">, now: number): HubEven
     .filter((e) => e.kind === "add" && now - e.at <= WEEK_MS)
     .map((e) => ({ at: e.at, kind: "backlog", text: firstLine(i.title) }));
 
-/** The brief's `# ` title without the lane key it starts with: the project's purpose when board.json has no note. */
+const titles = new Map<string, { mtimeMs: number; head: string | null }>();
+const reEscape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The brief's `# ` title without the `Lane <key>:` it starts with: the project's purpose when board.json has no note.
+ * The heading is read again only when the file's mtime changes, so a poll costs one stat per project.
+ */
 export function briefTitle(path: string, key: string): string | null {
+  let head: string | null;
   try {
-    const h = readFileSync(path, "utf8")
-      .split("\n")
-      .find((l) => l.startsWith("# "));
-    const t = h
-      ?.slice(2)
-      .replace(new RegExp(`^(?:lane\\s+)?${key}\\s*[:—-]\\s*`, "i"), "")
-      .trim();
-    return t || null;
+    const { mtimeMs } = statSync(path);
+    const known = titles.get(path);
+    head =
+      known?.mtimeMs === mtimeMs
+        ? known.head
+        : (readFileSync(path, "utf8")
+            .split("\n")
+            .find((l) => l.startsWith("# "))
+            ?.slice(2) ?? null);
+    titles.set(path, { mtimeMs, head });
   } catch {
     return null;
   }
+  const t = head?.replace(new RegExp(`^(?:lane\\s+)?${reEscape(key)}\\s*[:—-]\\s*`, "i"), "").trim();
+  return t || null;
 }
 
 export type PrState = HubPr["state"] | null;

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { askAdd } from "../src/asks.ts";
 import { saveHub } from "../src/board-hub.ts";
+import { briefTitle, nextSteps } from "../src/board-hub-state.ts";
 import { viewOf } from "../src/board-list-html.ts";
 import { projectPane, projectsList } from "../src/board-projects-html.ts";
 import { boardState } from "../src/board-state.ts";
@@ -177,4 +178,22 @@ test("without a note the purpose is the newest lane's brief title, its key prefi
   const store = new Store(h);
   store.saveLane(lane("coupas-sales", "working", NOW - 600_000, [], brief));
   expect(page(store)).toContain('<p class="hb-p">판매 숫자를 보드에 붙인다</p>');
+});
+
+test("next steps take at most two lanes; a brief title strips a key even with regex characters", () => {
+  const working = (key: string) => ({
+    key,
+    status: "working" as const,
+    at: 0,
+    first: "보고",
+    full: "",
+    prs: [],
+    escalated: false,
+  });
+  const lanes = ["a-1", "a-2", "a-3"].map(working);
+  expect(nextSteps({ lanes, backlog: [] })).toEqual(["a-1 — 보고", "a-2 — 보고"]);
+  const f = join(mkdtempSync(join(tmpdir(), "dori-hub-title-")), "b.md");
+  writeFileSync(f, "# Lane a(b+: 목적\n");
+  expect(briefTitle(f, "a(b+")).toBe("목적");
+  expect(briefTitle(f, "x.y")).toBe("Lane a(b+: 목적");
 });

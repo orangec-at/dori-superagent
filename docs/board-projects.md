@@ -27,7 +27,6 @@ no activity they sort after the active ones, and their page says `진행 중인 
 | `dirs`  | `string[]`                     | work whose cwd sits in `~/workspace/<dir>` belongs to it        |
 | `note`  | `string`                       | one line shown in the list and on the project's page            |
 | `links` | `{ "label", "url" }[]` (http/https) | shown on the project's page                                 |
-
 | `metrics` | `{ "name", "cmd" \| "file" }[]` | numbers shown on the project's status card (below)          |
 
 Every field is optional. An entry of another shape, or with a field of the wrong type (a non-`owner/repo` repo, a
@@ -58,11 +57,12 @@ collection); open ones, ones merged this week and unread ones of an open lane ar
 ### PR states and metrics are cached
 
 `dori board` collects them when it starts and every 10 minutes into `$DORI_HOME/board-hub.json`; a page load or a
-poll only reads that file, so it never runs `gh` or a metric command. One `gh pr list` per repo named by a PR of a
-lane active in the last two weeks; a repo gh cannot read keeps its last states. The whole collection stops after 60
-seconds, killing what still runs, and keeps the last file.
+poll only reads that file, so it never runs `gh` or a metric command. One `gh pr list` (the newest 200) per repo named
+by a PR of a lane active in the last two weeks; a PR that read does not return (gh failed, or the PR is older) keeps
+its last state. The whole collection stops after 60 seconds, killing what still runs, and keeps the last file.
 
-A metric is either `cmd`, run with `sh -c` (20 seconds at most, then killed), or `file`, read (relative to
+A metric is either `cmd`, run with `sh -c` under `timeout` (20 seconds at most, then its whole process group, pipes
+and ssh included, is signalled and killed 2 seconds later), or `file`, read (relative to
 `$DORI_HOME` unless absolute). Its value is the first non-empty line of the output or file, up to 80 characters; a
 failure, an empty output or a timeout shows `알 수 없음`. Only what board.json names runs: the page never takes a
 command, and the command itself is never shown. Keep secrets out of what the command prints.

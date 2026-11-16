@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import type { ProjectGroup } from "./board-state.ts";
 import { Refusal } from "./refusal.ts";
 import { loadLeads } from "./standing.ts";
 
@@ -171,4 +172,17 @@ export function projectResolver(seeds: Seed[], all: Subject[]): (s: Subject) => 
     if (!t) return OTHER;
     return alias.get(t) ?? (known.has(t) ? t : OTHER);
   };
+}
+
+/** The project a message or question names: by project name or a key prefix, else by one of its lanes' keys. */
+export function messageProject(text: string, projects: ProjectGroup[]): string | null {
+  const t = text.toLowerCase();
+  const live = projects.filter((g) => g.name !== OTHER);
+  return (
+    live.find(
+      (g) => (g.name.length >= 4 && t.includes(g.name)) || g.prefixes.some((p) => p.length >= 3 && t.includes(p)),
+    )?.name ??
+    live.find((g) => [...g.lanes, ...g.recent].some((l) => l.key.length >= 5 && t.includes(l.key)))?.name ??
+    null
+  );
 }

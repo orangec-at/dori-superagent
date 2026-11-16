@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectHub, metricDefs, readHub, refreshHub, saveHub } from "../src/board-hub.ts";
-import type { Exec } from "../src/runtime/exec.ts";
+import { type Exec, spawnExec } from "../src/runtime/exec.ts";
 import { Store } from "../src/store.ts";
 
 const NOW = Date.UTC(2026, 10, 16, 9, 0, 0);
@@ -29,15 +29,21 @@ function home(projects: unknown): Store {
   return store;
 }
 
-/** gh lists the repo's PRs; `sh -c` answers per command; `hang` never answers until killed. */
+/**
+ * gh lists the repo's PRs; a metric arrives as `timeout -k 2 <s> sh -c <cmd>` and answers per command, `sleep 999`
+ * like timeout itself (exit 124 at its limit); `hang` gh never answers until killed.
+ */
 function machine(o: { gh?: "ok" | "fail" | "hang" } = {}) {
   const calls: string[] = [];
   const killed: string[] = [];
   const exec: Exec = async (cmd, argv, options) => {
-    const what = cmd === "sh" ? argv[1]! : `${cmd} ${argv.slice(0, 4).join(" ")}`;
-    calls.push(what);
-    const hang = (cmd === "gh" && o.gh === "hang") || what === "sleep 999";
-    if (hang)
+    const what = cmd === "timeout" ? argv[5]! : `${cmd} ${argv.slice(0, 4).join(" ")}`;
+    calls.push(cmd === "timeout" ? `timeout ${argv.slice(0, 5).join(" ")} ${what}` : what);
+    if (what === "sleep 999")
+      return new Promise((resolve) =>
+        setTimeout(() => resolve({ code: 124, stdout: "", stderr: "" }), Number(argv[2]) * 1000),
+      );
+    if (cmd === "gh" && o.gh === "hang")
       return new Promise((resolve) =>
         options?.onSpawn?.({
           kill: () => {
@@ -93,9 +99,13 @@ test("one gh call per repo gives each PR's state; a metric shows its first line,
   const store = home(METRICS);
   writeFileSync(join(store.root, "posts.txt"), "\n17\n");
   const m = machine();
-  const h = await collectHub(m.exec, store, null, { now: NOW, metricTimeoutMs: 30 });
+  const old = { state: "MERGED" as const, mergedAt: NOW - 30 * DAY, closedAt: NOW - 30 * DAY };
+  const last = { generatedAt: NOW - DAY, prs: { "orangec-at/coupas#1": old }, metrics: {} };
+  const h = await collectHub(m.exec, store, last, { now: NOW, metricTimeoutMs: 30 });
   expect(m.calls.filter((c) => c.startsWith("gh"))).toEqual(["gh pr list --repo orangec-at/coupas"]);
+  expect(m.calls).toContain("timeout -k 2 0.030 sh -c sleep 999");
   expect(h.prs).toEqual({
+    "orangec-at/coupas#1": old,
     "orangec-at/coupas#5": { state: "OPEN", mergedAt: null, closedAt: null },
     "orangec-at/coupas#3": {
       state: "MERGED",
@@ -109,10 +119,24 @@ test("one gh call per repo gives each PR's state; a metric shows its first line,
     ["실패", null],
     ["멈춤", null],
   ]);
-  expect(m.killed).toEqual(["sleep 999"]);
 });
 
-test("a repo gh cannot read keeps the states the last collection had", async () => {
+test("a metric past its limit leaves no process behind, the pipe's other end included", async () => {
+  const store = new Store(mkdtempSync(join(tmpdir(), "dori-hub-real-")));
+  const marker = `sleep 37.${process.pid % 1000}`;
+  writeFileSync(
+    join(store.root, "board.json"),
+    JSON.stringify({ projects: { p: { metrics: [{ name: "멈춤", cmd: `${marker} | cat` }] } } }),
+  );
+  const h = await collectHub(spawnExec, store, null, { now: NOW, metricTimeoutMs: 200 });
+  expect(h.metrics["p"]?.[0]?.value).toBeNull();
+  const alive = async (): Promise<boolean> => (await spawnExec("pgrep", ["-f", `^${marker}$`])).code === 0;
+  const deadline = Date.now() + 3000;
+  while ((await alive()) && Date.now() < deadline) await Bun.sleep(50);
+  expect(await alive()).toBe(false);
+});
+
+test("a repo gh cannot read keeps the states the last collection had; another repo's are dropped", async () => {
   const store = home({});
   const last = {
     generatedAt: NOW - DAY,

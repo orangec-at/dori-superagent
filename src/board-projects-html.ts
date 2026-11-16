@@ -3,7 +3,7 @@ import { badgeOf, type HubEvent } from "./board-hub-state.ts";
 import { hrefOf, type View } from "./board-list-html.ts";
 import { avatar } from "./board-mission-html.ts";
 import type { Mission } from "./board-mission-types.ts";
-import { OTHER } from "./board-projects.ts";
+import { messageProject, OTHER } from "./board-projects.ts";
 import type { BoardState, ProjectGroup, ProjectLane } from "./board-state.ts";
 import { laneStatus } from "./board-status.ts";
 import { ago, esc, form, mark } from "./board-thread-html.ts";
@@ -37,18 +37,6 @@ export function channelProject(name: string, s: Pick<BoardState, "projects" | "b
     live.find((g) => g.name === n || g.prefixes.some((p) => n.startsWith(p)))?.name ??
     (bot ? live.find((g) => g.bots.includes(bot))?.name : undefined) ??
     live.find((g) => [...g.lanes, ...g.recent].some((l) => word(l.key) === n))?.name ??
-    null
-  );
-}
-
-export function messageProject(text: string, projects: ProjectGroup[]): string | null {
-  const t = text.toLowerCase();
-  const live = projects.filter((g) => g.name !== OTHER);
-  return (
-    live.find(
-      (g) => (g.name.length >= 4 && t.includes(g.name)) || g.prefixes.some((p) => p.length >= 3 && t.includes(p)),
-    )?.name ??
-    live.find((g) => [...g.lanes, ...g.recent].some((l) => l.key.length >= 5 && t.includes(l.key)))?.name ??
     null
   );
 }

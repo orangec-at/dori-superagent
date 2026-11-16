@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { projectResolver, projectSeeds, repoOfCwd, type Subject } from "../src/board-projects.ts";
-import { channelProject, messageProject } from "../src/board-projects-html.ts";
+import { messageProject, projectResolver, projectSeeds, repoOfCwd, type Subject } from "../src/board-projects.ts";
+import { channelProject } from "../src/board-projects-html.ts";
 import type { ProjectGroup } from "../src/board-state.ts";
 
 const W = "/home/b/workspace";

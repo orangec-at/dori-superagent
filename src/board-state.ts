@@ -7,8 +7,7 @@ import { askText, briefTitle, type HubEvent, itemEvents, laneEvents } from "./bo
 import { missionState } from "./board-missions.ts";
 import { routines } from "./board-mission-sources.ts";
 import type { Mission, MissionCard, Routine } from "./board-mission-types.ts";
-import { type Link, OTHER, projectResolver, projectSeeds, type Subject } from "./board-projects.ts";
-import { messageProject } from "./board-projects-html.ts";
+import { type Link, messageProject, OTHER, projectResolver, projectSeeds, type Subject } from "./board-projects.ts";
 import { lanePrs, type Pr } from "./board-prs.ts";
 import { type StandingCard, standingCards } from "./board-status.ts";
 import { NUDGE_MINUTES } from "./duty.ts";
