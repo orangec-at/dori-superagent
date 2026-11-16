@@ -1,0 +1,14 @@
+[
+  {
+    "domain": "vibeguard",
+    "repos": ["vibeguard-run/web", "vibeguard-run/mcp"],
+    "keyPrefixes": ["vg-issue-", "vibeguard", "fmv-"],
+    "cwds": ["~/workspace/vibeguard.run", "~/workspace/vibeguard.run-worktrees"],
+    "bots": ["panbungi", "endo", "yeondo"],
+    "rules": [
+      "Never merge a vibeguard site PR, or ask the lead to, before endo has reviewed it and the site owner has approved it in the #fmv approval thread <thread-id>; put \"needs site-owner approval in #fmv <thread-id>\" on its MERGE line."
+    ],
+    "trialDays": 7,
+    "cwd": "~/workspace/vibeguard.run"
+  }
+]

@@ -2,6 +2,8 @@ import { limitFor, loadBudgets } from "./budget.ts";
 import { inboxRefs } from "./inbox-files.ts";
 import { refText, sameSession } from "./refs.ts";
 import type { SessionRef } from "./runtime/types.ts";
+import { Refusal } from "./refusal.ts";
+import { DAY, isOn, leadState, loadLeads, ownedLanes, type StandingLead } from "./standing.ts";
 import type { Store } from "./store.ts";
 import type { ItemStatus, LaneStatus, Role } from "./store-types.ts";
 
@@ -28,7 +30,20 @@ export type DashboardState = {
   inboxes: { pane: string; owner: string | null; queued: number; typed: number; held: number }[];
   receipts: { pr: string; sha: string; verdict: "CLEAR" | "BLOCK"; at: number }[];
   stops: { duty: { at: number; reason: string } | null; loop: { at: number; reason: string } | null };
+  /** Standing leads from leads.json: running or not, whole trial days left (null when off), open lanes it owns. */
+  leads: { domain: string; on: boolean; pane: string | null; trialDaysLeft: number | null; lanes: number }[];
+  /** Why leads.json could not be read; every lane then reports to the lead. */
+  leadsError: string | null;
 };
+
+function readLeads(home: string): { defs: StandingLead[]; error: string | null } {
+  try {
+    return { defs: loadLeads(home), error: null };
+  } catch (e) {
+    if (!(e instanceof Refusal)) throw e;
+    return { defs: [], error: e.message };
+  }
+}
 
 const LOG_LINES = 5;
 
@@ -36,6 +51,7 @@ export function dashboardState(store: Store, now: number): DashboardState {
   const lanes = store.lanes();
   const budgets = loadBudgets(store.root);
   const roles = Object.entries(store.roles()) as [Role, SessionRef][];
+  const standing = readLeads(store.root);
   const ownerOf = (ref: SessionRef): string | null =>
     roles.find(([, r]) => sameSession(r, ref))?.[0] ??
     lanes.find((l) => l.status !== "done" && sameSession(l.sessionRef, ref))?.key ??
@@ -76,5 +92,17 @@ export function dashboardState(store: Store, now: number): DashboardState {
     }),
     receipts: store.receipts().map((r) => ({ pr: r.pr, sha: r.sha, verdict: r.verdict, at: r.at })),
     stops: { duty: store.stop("duty") ?? null, loop: store.stop("loop") ?? null },
+    leadsError: standing.error,
+    leads: standing.defs.map((def) => {
+      const s = leadState(store.root, def.domain);
+      const on = isOn(s);
+      return {
+        domain: def.domain,
+        on,
+        pane: on ? refText(s.sessionRef) : null,
+        trialDaysLeft: on ? Math.max(0, Math.ceil((s.trialEndsAt - now) / DAY)) : null,
+        lanes: ownedLanes(store, def),
+      };
+    }),
   };
 }
