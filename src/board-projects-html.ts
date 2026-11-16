@@ -115,8 +115,8 @@ function laneRow(l: ProjectLane, now: number): string {
 <span class="rs"><span class="w s-${section}">${esc(w)}</span> · ${esc(l.first)}</span></span></a>`;
 }
 
-/** The project's recent Discord talk of the last week as timeline events. */
-const talkEvents = (talk: Talk[], now: number): HubEvent[] =>
+/** The project's recent Discord talk of the last week as timeline events, each linking to its channel. */
+const talkEvents = (talk: Talk[], v: View, now: number): HubEvent[] =>
   talk
     .filter((m) => now - m.at <= WEEK_MS)
     .map((m) => {
@@ -125,6 +125,7 @@ const talkEvents = (talk: Talk[], now: number): HubEvent[] =>
         at: m.at,
         kind: "talk",
         text: `${m.author} · ${chanLabel(m.channel)}: ${t.length > TALK_CHARS ? `${t.slice(0, TALK_CHARS)}…` : t}`,
+        href: `${hrefOf(v, { d: m.channel.key, p: null, c: null, m: null })}#end`,
       };
     });
 
@@ -143,7 +144,7 @@ export function projectPane(
   const sec = (label: string, n: number, body: string, needs = false): string =>
     n ? `<h3 class="sec"><span class="${needs ? "needs" : ""}">${label} <span>${n}</span></span></h3>${body}` : "";
   const missions = missionsOf(g, s.missions);
-  const talk = talkEvents(talkOf(g, s, d), now);
+  const talk = talkEvents(talkOf(g, s, d), v, now);
   const meta = [g.repos.join(", "), g.bots.length ? `봇 ${g.bots.join(", ")}` : ""].filter(Boolean).join(" · ");
   const ext = (href: string, label: string, sub: string): string =>
     `<li><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a> <span class="meta">${sub}</span></li>`;

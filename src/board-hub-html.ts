@@ -27,7 +27,7 @@ export const HUB_STYLE = `.hub{background:var(--panel);border:1px solid var(--li
 .mt b{font-size:15px}.mt b.unk{color:var(--muted);font-weight:500}
 .ptl{list-style:none;margin:0;padding:0 6px}.ptl li{display:flex;gap:8px;align-items:baseline;padding:3px 0;font-size:13.5px;min-width:0}
 .ptl .ti{flex:none;width:20px;text-align:center}.ptl .tt{flex:none;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
-.ptl .tx{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.k-ready .ti,.k-merged .ti{color:var(--green)}.k-lost .ti{color:var(--red)}
+.ptl .tx{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ptl a.tx{color:inherit;text-decoration:underline dotted}.k-ready .ti,.k-merged .ti{color:var(--green)}.k-lost .ti{color:var(--red)}
 .st{font-size:11.5px;padding:0 7px;border-radius:999px;white-space:nowrap}.st-OPEN{background:color-mix(in srgb,var(--blue) 20%,transparent);color:var(--blue)}
 .st-MERGED{background:color-mix(in srgb,var(--green) 20%,transparent);color:var(--green)}.st-CLOSED,.st-x{background:var(--on);color:var(--muted)}
 .pjm .st{margin-right:4px}.pjd ul.pjm{margin:2px 0;padding-left:20px}`;
@@ -79,7 +79,7 @@ export function timelineHtml(g: ProjectGroup, hub: Hub | null, talk: HubEvent[],
   const rows = ev
     .map(
       (e) =>
-        `<li class="k-${e.kind}"><span class="ti" aria-hidden="true">${ICON[e.kind]}</span><span class="tt">${kst(e.at)}</span><span class="tx" title="${esc(e.text)}">${esc(e.text)}</span></li>`,
+        `<li class="k-${e.kind}"><span class="ti" aria-hidden="true">${ICON[e.kind]}</span><span class="tt">${kst(e.at)}</span>${e.href ? `<a class="tx" href="${esc(e.href)}"` : `<span class="tx"`} title="${esc(e.text)}">${esc(e.text)}${e.href ? "</a>" : "</span>"}</li>`,
     )
     .join("");
   return `<h3 class="sec"><span>진행 흐름 · 7일 <span>${ev.length}</span></span></h3><ol class="ptl">${rows}</ol>`;

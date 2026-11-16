@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { lanePrs } from "./board-prs.ts";
 import type { Exec, ExecOptions } from "./runtime/exec.ts";
 import type { Store } from "./store.ts";
@@ -23,6 +23,8 @@ const KILL_AFTER_S = 2;
 const KILL_GRACE_MS = (KILL_AFTER_S + 1) * 1000;
 const VALUE_MAX = 80;
 const PR_WINDOW_MS = 14 * 86_400_000;
+/** At most this many PRs per repo are read one by one (`gh pr view`) in one collection when the list missed them. */
+const PR_VIEW_MAX = 20;
 const hubPath = (home: string): string => join(home, "board-hub.json");
 export const prKey = (repo: string, num: number): string => `${repo.toLowerCase()}#${num}`;
 
@@ -60,6 +62,7 @@ type Spawned = ExecOptions["onSpawn"];
  * Runs `cmd` with `sh -c` under GNU `timeout`, which leads its own process group: past `timeoutMs` it signals the whole
  * group (SIGKILL 2 s later), so the pipes and ssh a compound command started die with `sh`. A `timeout` that does not
  * return within the grace is killed too, and it passes that signal on to the group. Either way the value is null.
+ * GNU coreutils `timeout` is required (Linux has it; stock macOS does not, and there every `cmd` metric is null).
  */
 async function runMetric(exec: Exec, cmd: string, timeoutMs: number, onSpawn?: Spawned): Promise<string | null> {
   const procs: { kill(): void }[] = [];
@@ -85,9 +88,13 @@ async function runMetric(exec: Exec, cmd: string, timeoutMs: number, onSpawn?: S
   }
 }
 
+/** A `file` metric is read only inside DORI_HOME (links resolved), so board.json cannot put any file on the board. */
 function readMetricFile(home: string, file: string): string | null {
   try {
-    return firstLine(readFileSync(file.startsWith("/") ? file : join(home, file), "utf8"));
+    const root = realpathSync(home);
+    const path = realpathSync(resolve(root, file));
+    if (!path.startsWith(root + sep)) return null;
+    return firstLine(readFileSync(path, "utf8"));
   } catch {
     return null;
   }
@@ -96,37 +103,58 @@ function readMetricFile(home: string, file: string): string | null {
 type GhPr = { number: number; state: string; mergedAt: string | null; closedAt: string | null };
 const time = (s: string | null): number | null => (s ? Date.parse(s) || null : null);
 
-/** The repos of the PRs that lanes active in the last two weeks name. */
-function prRepos(store: Store, now: number): string[] {
-  const lanes = store.lanes().filter((l) => l.status !== "done" || now - l.lastActivityAt < PR_WINDOW_MS);
-  return [...new Set(lanes.flatMap((l) => lanePrs(l).flatMap((p) => (p.repo ? [p.repo.toLowerCase()] : []))))];
+/** The PRs that lanes active in the last two weeks name, by repo. */
+function prRepos(store: Store, now: number): Map<string, Set<number>> {
+  const repos = new Map<string, Set<number>>();
+  for (const l of store.lanes().filter((l) => l.status !== "done" || now - l.lastActivityAt < PR_WINDOW_MS))
+    for (const p of lanePrs(l)) {
+      if (!p.repo) continue;
+      const repo = p.repo.toLowerCase();
+      repos.set(repo, (repos.get(repo) ?? new Set()).add(p.num));
+    }
+  return repos;
+}
+
+const hubPr = (p: GhPr): HubPr => ({
+  state: p.state === "MERGED" || p.state === "CLOSED" ? p.state : "OPEN",
+  mergedAt: time(p.mergedAt),
+  closedAt: time(p.closedAt),
+});
+
+async function ghJson<T>(exec: Exec, argv: string[], onSpawn?: Spawned): Promise<T | null> {
+  const r = await exec("gh", argv, { ...(onSpawn ? { onSpawn } : {}) }).catch(() => null);
+  try {
+    return r && r.code === 0 ? (JSON.parse(r.stdout) as T) : null;
+  } catch {
+    return null;
+  }
 }
 
 export type CollectHubOptions = { now: number; metricTimeoutMs?: number; onSpawn?: Spawned };
 
 /**
- * One `gh pr list` per repo and every metric. A PR this read does not return (gh failed, or it is older than the newest
- * 200) keeps the state `last` had for it.
+ * One `gh pr list` per repo and every metric. A lane's PR the list does not return (older than the newest 200) and
+ * not known closed or merged is read with `gh pr view` (up to PR_VIEW_MAX per repo); a PR no read returns (gh failed)
+ * keeps the state `last` had for it.
  */
 export async function collectHub(exec: Exec, store: Store, last: Hub | null, o: CollectHubOptions): Promise<Hub> {
   const prs: Record<string, HubPr> = {};
   await Promise.all(
-    prRepos(store, o.now).map(async (repo) => {
+    [...prRepos(store, o.now)].map(async ([repo, nums]) => {
       for (const [k, v] of Object.entries(last?.prs ?? {})) if (k.startsWith(`${repo}#`)) prs[k] = v;
-      const argv = ["pr", "list", "--repo", repo, "--state", "all", "--limit", "200"];
-      const r = await exec("gh", [...argv, "--json", "number,state,mergedAt,closedAt"], {
-        ...(o.onSpawn ? { onSpawn: o.onSpawn } : {}),
-      }).catch(() => null);
-      let list: GhPr[] | null = null;
-      try {
-        list = r && r.code === 0 ? (JSON.parse(r.stdout) as GhPr[]) : null;
-      } catch {
-        list = null;
-      }
-      for (const p of list ?? []) {
-        const state = p.state === "MERGED" || p.state === "CLOSED" ? p.state : "OPEN";
-        prs[prKey(repo, p.number)] = { state, mergedAt: time(p.mergedAt), closedAt: time(p.closedAt) };
-      }
+      const fields = ["--json", "number,state,mergedAt,closedAt"];
+      const argv = ["pr", "list", "--repo", repo, "--state", "all", "--limit", "200", ...fields];
+      const list = await ghJson<GhPr[]>(exec, argv, o.onSpawn);
+      if (!list) return;
+      const listed = new Set(list.map((p) => p.number));
+      for (const p of list) prs[prKey(repo, p.number)] = hubPr(p);
+      const missed = [...nums]
+        .filter((n) => !listed.has(n) && (prs[prKey(repo, n)]?.state ?? "OPEN") === "OPEN")
+        .slice(0, PR_VIEW_MAX);
+      const views = await Promise.all(
+        missed.map((n) => ghJson<GhPr>(exec, ["pr", "view", String(n), "--repo", repo, ...fields], o.onSpawn)),
+      );
+      for (const p of views) if (p) prs[prKey(repo, p.number)] = hubPr(p);
     }),
   );
   const metrics: Record<string, HubMetric[]> = {};
