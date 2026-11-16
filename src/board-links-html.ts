@@ -1,4 +1,5 @@
 import { type LinkActor, type LinkChannel, type LinkDir, type LinkSnapshot, UNKNOWN } from "./board-links.ts";
+import type { LinksRead } from "./board-links-file.ts";
 import { esc } from "./board-thread-html.ts";
 
 /**
@@ -25,14 +26,18 @@ const KIND: Record<LinkActor["kind"], string> = {
   standing: "상설 lead",
   lane: "lane",
   bot: "봇",
+  relay: "중계 봇",
 };
+const BROKEN = `<p class="note">연결 정보 파일(board-links.json)이 손상돼서 그릴 수 없어요. lead가 dori agents map 을 다시 실행하거나 다음 매시 loop가 돌면 새로 모아요.</p>`;
 const clip = (s: string, n: number): string => ([...s].length > n ? `${[...s].slice(0, n - 1).join("")}…` : s);
 const modelOf = (a: LinkActor): string => `${a.model ?? UNKNOWN} · ${a.provider ?? UNKNOWN}`;
 const chanText = (c: LinkChannel): string => `${ARROW[c.dir]} ${c.with} · ${c.name}`;
 const kst = (at: number): string => new Date(at + 9 * 3_600_000).toISOString().slice(5, 16).replace("T", " ");
 const avatarName = (a: LinkActor): string | null => (a.id === "lead" ? "lead" : a.kind === "bot" ? a.id : null);
 const hue = (id: string): number => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
-const rowHref = (a: LinkActor): string | null => (a.kind === "duty" ? null : `/?c=${encodeURIComponent(a.id)}`);
+/** Only actors that are board rows link to one; duty, relays and unlisted hermes profiles have no row. */
+const rowHref = (a: LinkActor): string | null =>
+  /^(lead$|bot:|lane:|standing:)/.test(a.id) ? `/?c=${encodeURIComponent(a.id)}` : null;
 
 /** Computers in map order: the lead's first, then by name. */
 function byComputer(actors: LinkActor[]): [string, LinkActor[]][] {
@@ -52,7 +57,8 @@ function face(a: LinkActor, imgs: Record<string, string>): string {
 }
 
 /** The phone list (also the list column on wide screens): the operator's channels, then each actor as a card. */
-export function linksList(s: LinkSnapshot | null, imgs: Record<string, string>): string {
+export function linksList(s: LinksRead, imgs: Record<string, string>): string {
+  if (s === "broken") return BROKEN;
   if (!s)
     return `<p class="note">아직 연결 정보를 모으지 않았어요. 매시 loop가 돌거나 lead가 dori agents map 을 실행하면 보여요.</p>`;
   const lead = s.actors.find((a) => a.kind === "lead");
@@ -68,9 +74,10 @@ export function linksList(s: LinkSnapshot | null, imgs: Record<string, string>):
     const href = rowHref(a);
     return href ? `<a class="lkc" href="${esc(href)}">${body}</a>` : `<div class="lkc">${body}</div>`;
   };
-  const top = [lead, ...s.actors.filter((a) => a.kind === "duty" || a.kind === "standing")].filter(
-    (a): a is LinkActor => a !== undefined,
-  );
+  const top = [
+    lead,
+    ...s.actors.filter((a) => a.kind === "duty" || a.kind === "standing" || a.kind === "relay"),
+  ].filter((a): a is LinkActor => a !== undefined);
   const groups = byComputer(s.actors)
     .map(([c, list]) => `<h3 class="sec">🖥 ${esc(c)} <span>${list.length}</span></h3>${list.map(card).join("")}`)
     .join("");
@@ -83,8 +90,9 @@ export function linksList(s: LinkSnapshot | null, imgs: Record<string, string>):
 const NODE_H = 78;
 const CH_H = 40;
 const X = { person: 16, chan: 196, lead: 440, work: 744 };
-const WIDTH = { person: 140, chan: 196, lead: 240, work: 340 };
-const SVG_W = X.work + WIDTH.work + 16;
+const WIDTH = { person: 140, chan: 196, lead: 240, work: 340, relay: 280 };
+/** With a relay the lead and work columns move right by this, and the relay sits where the lead would be. */
+const RELAY_SHIFT = WIDTH.relay + 48;
 
 type Box = { x: number; y: number; w: number; h: number };
 const mid = (b: Box, side: "l" | "r"): [number, number] => [side === "l" ? b.x : b.x + b.w, b.y + b.h / 2];
@@ -118,6 +126,9 @@ function node(a: LinkActor, b: Box, imgs: Record<string, string>, i: number): st
 
 export function linksMap(s: LinkSnapshot, imgs: Record<string, string>): string {
   const groups = byComputer(s.actors);
+  const relays = s.actors.filter((a) => a.kind === "relay");
+  const shift = relays.length ? RELAY_SHIFT : 0;
+  const [xLead, xWork] = [X.lead + shift, X.work + shift];
   const boxes = new Map<string, Box>();
   const parts: string[] = [];
   let y = 12;
@@ -125,25 +136,35 @@ export function linksMap(s: LinkSnapshot, imgs: Record<string, string>): string 
     const top = y;
     y += 30;
     for (const a of list) {
-      boxes.set(a.id, { x: X.work + 12, y, w: WIDTH.work - 24, h: NODE_H });
+      boxes.set(a.id, { x: xWork + 12, y, w: WIDTH.work - 24, h: NODE_H });
       y += NODE_H + 8;
     }
     parts.push(
-      `<rect class="gp" x="${X.work}" y="${top}" width="${WIDTH.work}" height="${y - top + 4}" rx="16"/><text class="mu" x="${X.work + 14}" y="${top + 20}" font-size="12.5">🖥 ${esc(computer)} · ${list.length}</text>`,
+      `<rect class="gp" x="${xWork}" y="${top}" width="${WIDTH.work}" height="${y - top + 4}" rx="16"/><text class="mu" x="${xWork + 14}" y="${top + 20}" font-size="12.5">🖥 ${esc(computer)} · ${list.length}</text>`,
     );
     y += 18;
   }
   const leads = s.actors.filter((a) => a.kind === "lead" || a.kind === "duty" || a.kind === "standing");
   const lead = leads.find((a) => a.kind === "lead");
   const chans = (lead?.channels ?? []).filter((c) => c.with === "재일 님" || c.with === "Muse");
-  const height = Math.max(y, leads.length * (NODE_H + 16) + 40, chans.length * (CH_H + 12) + 40);
+  const height = Math.max(
+    y,
+    leads.length * (NODE_H + 16) + 40,
+    chans.length * (CH_H + 12) + 40,
+    chans.length * (CH_H + 12) + 40 + 2 * relays.length * (NODE_H + 16),
+  );
   let ly = (height - leads.length * (NODE_H + 16)) / 2;
   for (const a of leads) {
-    boxes.set(a.id, { x: X.lead, y: ly, w: WIDTH.lead, h: NODE_H });
+    boxes.set(a.id, { x: xLead, y: ly, w: WIDTH.lead, h: NODE_H });
     ly += NODE_H + 16;
   }
   const leadBox = boxes.get("lead");
   const top = (height - chans.length * (CH_H + 12)) / 2;
+  // Relays stand between the operator's Slack channel and the lead, below the channels so no other line runs under them.
+  const slack = chans.findIndex((c) => c.name.startsWith("Slack"));
+  const ry0 = top + chans.length * (CH_H + 12) + 8;
+  for (const [i, a] of relays.entries())
+    boxes.set(a.id, { x: X.lead, y: ry0 + i * (NODE_H + 16), w: WIDTH.relay, h: NODE_H });
   const chanBox = (i: number): Box => ({ x: X.chan, y: top + i * (CH_H + 12), w: WIDTH.chan, h: CH_H });
   const people = new Map<string, Box>();
   for (const who of new Set(chans.map((c) => c.with))) {
@@ -156,9 +177,14 @@ export function linksMap(s: LinkSnapshot, imgs: Record<string, string>): string 
     parts.push(
       `<rect class="ch" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="12"/><text x="${b.x + 14}" y="${b.y + 25}" font-size="13">${esc(c.name)}</text>`,
       edge(p, b, c.dir === "out" ? "in" : c.dir === "in" ? "out" : "both"),
-      ...(leadBox ? [edge(b, leadBox, c.dir === "out" ? "out" : c.dir === "in" ? "in" : "both")] : []),
+      ...(i === slack && relays.length
+        ? relays.map((r) => edge(b, boxes.get(r.id)!, "both"))
+        : leadBox
+          ? [edge(b, leadBox, c.dir === "out" ? "out" : c.dir === "in" ? "in" : "both")]
+          : []),
     );
   });
+  if (leadBox) for (const r of relays) parts.push(edge(boxes.get(r.id)!, leadBox, "in"));
   for (const [who, p] of people)
     parts.push(
       `<rect class="nd" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="24"/><text x="${p.x + p.w / 2}" y="${p.y + 29}" text-anchor="middle" font-size="14" font-weight="600">${who === "재일 님" ? "🙋 " : ""}${esc(who)}</text>`,
@@ -173,13 +199,14 @@ export function linksMap(s: LinkSnapshot, imgs: Record<string, string>): string 
     const b = boxes.get(a.id);
     return b ? [node(a, b, imgs, i)] : [];
   });
-  return `<div class="lkm"><svg viewBox="0 0 ${SVG_W} ${Math.ceil(height)}" role="img" aria-label="연결 지도">${parts.join("")}${nodes.join("")}</svg></div>`;
+  return `<div class="lkm"><svg viewBox="0 0 ${xWork + WIDTH.work + 16} ${Math.ceil(height)}" role="img" aria-label="연결 지도">${parts.join("")}${nodes.join("")}</svg></div>`;
 }
 
-export function linksPane(s: LinkSnapshot | null, imgs: Record<string, string>): string {
-  const head = `<header class="rec-h"><div class="title"><b>연결 지도</b><span class="meta">재일 님 → 채널 → 도리도라 → lane·봇 (컴퓨터별) · ${s ? `${kst(s.generatedAt)} KST 기준` : "아직 모으지 않음"}</span></div></header>`;
+export function linksPane(read: LinksRead, imgs: Record<string, string>): string {
+  const s = read === "broken" ? null : read;
+  const head = `<header class="rec-h"><div class="title"><b>연결 지도</b><span class="meta">재일 님 → 채널 → 도리도라 → lane·봇 (컴퓨터별) · ${s ? `${kst(s.generatedAt)} KST 기준` : read === "broken" ? "파일 손상" : "아직 모으지 않음"}</span></div></header>`;
   const unknown = s?.unknown.length
     ? `<details class="work"><summary>알 수 없음 ${s.unknown.length}</summary><ul class="lku">${s.unknown.map((u) => `<li>${esc(u)}</li>`).join("")}</ul></details>`
     : "";
-  return `${head}<section class="thread lkt">${s ? linksMap(s, imgs) : linksList(null, imgs)}${unknown}<p class="note">실선: 도리도라가 일을 넘김 · 점선: 상설 lead가 넘김 · 화살표: 메시지 방향</p></section>`;
+  return `${head}<section class="thread lkt">${s ? linksMap(s, imgs) : linksList(read, imgs)}${unknown}<p class="note">실선: 도리도라가 일을 넘김 · 점선: 상설 lead가 넘김 · 화살표: 메시지 방향</p></section>`;
 }

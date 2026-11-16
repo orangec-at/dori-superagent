@@ -1,4 +1,4 @@
-import type { LinkSnapshot } from "./board-links.ts";
+import type { LinksRead } from "./board-links-file.ts";
 import { linksList } from "./board-links-html.ts";
 import { avatar, rowMission, statusPill } from "./board-mission-html.ts";
 import type { Mission, MissionCard } from "./board-mission-types.ts";
@@ -162,7 +162,7 @@ export function listPane(
     missions: Mission[];
     cards: Record<string, MissionCard>;
     avatars: Record<string, string>;
-    links?: LinkSnapshot | null;
+    links?: LinksRead;
     /** The 프로젝트 tab's body, rendered by the page (it needs the Discord copy). */
     proj?: string;
   },

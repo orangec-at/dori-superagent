@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { readLinks, saveLinks } from "../src/board-links.ts";
+import { readLinks, saveLinks } from "../src/board-links-file.ts";
 import { HOUR } from "../src/loop.ts";
 import type { Exec } from "../src/runtime/exec.ts";
 import { setup } from "./loop-setup.ts";
@@ -30,7 +30,13 @@ function machines(o: { hang?: boolean } = {}) {
   return { killed, ...setup({ exec }) };
 }
 
-const laneIds = (home: string) => (readLinks(home)?.actors ?? []).filter((a) => a.kind === "lane").map((a) => a.id);
+/** The saved map; a broken file fails the test here. */
+const links = (home: string) => {
+  const s = readLinks(home);
+  if (s === "broken") throw new Error("board-links.json is broken");
+  return s;
+};
+const laneIds = (home: string) => (links(home)?.actors ?? []).filter((a) => a.kind === "lane").map((a) => a.id);
 
 describe("hourly loop: 연결 map refresh", () => {
   test("each run rewrites board-links.json, and a lane opened or closed shows on the next run", async () => {
@@ -41,15 +47,15 @@ describe("hourly loop: 연결 map refresh", () => {
     add("links-one");
     const first = await tick();
     expect(first.started).toEqual(["links-one (p5)"]);
-    expect(readLinks(home)?.generatedAt).toBe(first.at);
-    expect(readLinks(home)?.actors.find((a) => a.id === "lead")).toMatchObject({ model: "claude-opus-5-5" });
+    expect(links(home)?.generatedAt).toBe(first.at);
+    expect(links(home)?.actors.find((a) => a.id === "lead")).toMatchObject({ model: "claude-opus-5-5" });
     expect(laneIds(home)).toEqual(["lane:links-one"]);
 
     d.store.saveLane({ ...d.store.lane("links-one")!, status: "done" });
     add("links-two");
     w.clock += HOUR;
     const second = await tick();
-    expect(readLinks(home)?.generatedAt).toBe(second.at);
+    expect(links(home)?.generatedAt).toBe(second.at);
     expect(second.at).toBeGreaterThan(first.at);
     expect(laneIds(home)).toEqual(["lane:links-two"]);
     expect(second.findings.filter((f) => f.startsWith("links:"))).toEqual([]);
@@ -66,8 +72,9 @@ describe("hourly loop: 연결 map refresh", () => {
 
     const run = await tick({ linksTimeoutMs: 50 });
     expect(run.findings).toContain("links: 연결도 갱신 시간 초과 (1초), 지난 연결도를 그대로 둠");
-    expect(killed).toEqual(["ubuntu"]);
-    expect(readLinks(home)?.generatedAt).toBe(1);
+    // The bot's profile and the machine's hermes profiles: both reads hang and both are killed.
+    expect(killed).toEqual(["ubuntu", "ubuntu"]);
+    expect(links(home)?.generatedAt).toBe(1);
     expect(d.store.lastRun()!.at).toBe(run.at);
   });
 });

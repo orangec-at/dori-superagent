@@ -1,10 +1,9 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { basename, join } from "node:path";
-import type { Agent } from "./agents.ts";
-import { agentsOrNone } from "./board-avatars.ts";
-import { hermesScript, OMO_SCRIPT, parseHermes, parseOmo } from "./board-links-read.ts";
-import { boardRepo } from "./loop-board.ts";
+import { type Agent, isSshHost, loadAgents } from "./agents.ts";
+import { BOT_CHANNELS, LEAD, leadChannels, ruleThreads, unlistedProfile } from "./board-links-channels.ts";
+import { HERMES_SCAN, hermesScript, OMO_SCRIPT, parseHermes, parseHermesScan, parseOmo } from "./board-links-read.ts";
 import type { Exec, ExecOptions } from "./runtime/exec.ts";
 import { isOn, leadState, loadLeads, type StandingLead } from "./standing.ts";
 import type { Store } from "./store.ts";
@@ -19,7 +18,8 @@ import type { Store } from "./store.ts";
 /** Seen from the actor: `in` comes to it, `out` goes from it, `both` either way. */
 export type LinkDir = "both" | "in" | "out";
 export type LinkChannel = { name: string; with: string; dir: LinkDir };
-export type LinkKind = "lead" | "duty" | "standing" | "lane" | "bot";
+/** `relay`: a hermes profile that carries the operator's Slack threads to the lead. */
+export type LinkKind = "lead" | "duty" | "standing" | "lane" | "bot" | "relay";
 export type LinkActor = {
   /** The board row id (`lead`, `bot:<name>`, `lane:<key>`, `standing:<domain>`) or `duty`. */
   id: string;
@@ -40,51 +40,20 @@ export type LinkActor = {
 export type LinkSnapshot = { generatedAt: number; actors: LinkActor[]; unknown: string[] };
 
 export const UNKNOWN = "알 수 없음";
-const OPERATOR = "재일 님";
-const LEAD = "도리도라";
-const linksPath = (home: string): string => join(home, "board-links.json");
 
 /** The machine's name in the map: an ssh destination without its user (`mac@mac-macmini` -> mac-macmini). */
 export const computerOf = (host: string, local: string): string => (host === "" ? local : host.replace(/^.*@/, ""));
 
 type Run = (host: string, script: string) => Promise<string | null>;
+/** A host that is not a plain `[user@]host` (a lane's machine is free text) is never handed to ssh: read as unknown. */
 const runner =
   (exec: Exec, onSpawn?: ExecOptions["onSpawn"]): Run =>
   async (host, script) => {
+    if (host !== "" && !isSshHost(host)) return null;
     const argv = host === "" ? ["-c", script] : ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host, script];
     const r = await exec(host === "" ? "sh" : "ssh", argv, onSpawn ? { onSpawn } : undefined).catch(() => null);
     return r && r.code === 0 ? r.stdout : null;
   };
-
-const BOT_CHANNELS: [string, LinkChannel][] = [
-  ["DISCORD_BOT_TOKEN", { name: "Discord 봇 (DM·서버)", with: OPERATOR, dir: "both" }],
-  ["SLACK_BOT_TOKEN", { name: "Slack 봇", with: OPERATOR, dir: "both" }],
-  ["TELEGRAM_BOT_TOKEN", { name: "Telegram 봇", with: OPERATOR, dir: "both" }],
-  ["GH_TOKEN", { name: "GitHub (gh)", with: "GitHub", dir: "out" }],
-  ["TEAM_BOARD", { name: "GitHub 이슈 (team-board)", with: LEAD, dir: "both" }],
-];
-
-/** The lead's channels: its front ends in DORI_HOME/bin and the board itself, names only. */
-function leadChannels(home: string): LinkChannel[] {
-  const bin = (f: string): boolean => existsSync(join(home, "bin", f));
-  const repo = boardRepo(home);
-  return [
-    ...(bin("dori-reply") || existsSync(join(home, "discord"))
-      ? [{ name: "Discord DM", with: OPERATOR, dir: "both" } as const]
-      : []),
-    ...(bin("dori-notify") ? [{ name: "Discord 알림", with: OPERATOR, dir: "out" } as const] : []),
-    ...(bin("dori-slack-reply") ? [{ name: "Slack 스레드", with: OPERATOR, dir: "both" } as const] : []),
-    { name: "보드 대화", with: OPERATOR, dir: "both" },
-    ...(bin("dori-muse-reply") ? [{ name: "Muse 요청", with: "Muse", dir: "both" } as const] : []),
-    ...(repo ? [{ name: `GitHub 이슈 (${repo.split("/").pop()})`, with: "봇", dir: "both" } as const] : []),
-  ];
-}
-
-/** A standing lead's own Discord threads, by name from its rules (`#fmv approval thread 123` -> Discord #fmv 스레드). */
-const ruleThreads = (l: StandingLead): LinkChannel[] =>
-  [...new Set(l.rules.flatMap((r) => [...r.matchAll(/#([a-z][\w-]*)\b[^.]*?\bthread/gi)].map((m) => m[1]!)))].map(
-    (c) => ({ name: `Discord #${c} 스레드`, with: OPERATOR, dir: "both" }),
-  );
 
 function standingLeads(home: string): StandingLead[] {
   try {
@@ -94,12 +63,54 @@ function standingLeads(home: string): StandingLead[] {
   }
 }
 
-/** `onSpawn` gets every sh/ssh process it starts, so a caller that gives up can kill them. */
-export type CollectOptions = { now: number; agentCmd: string; local?: string; onSpawn?: ExecOptions["onSpawn"] };
+/** The bound on one whole collection; past it every sh/ssh still running is killed and what it would read is unknown. */
+export const COLLECT_DEADLINE_MS = 45_000;
+
+/**
+ * `onSpawn` gets every sh/ssh process it starts, so a caller that gives up can kill them. `deadlineMs`: the whole
+ * collection's bound (COLLECT_DEADLINE_MS).
+ */
+export type CollectOptions = {
+  now: number;
+  agentCmd: string;
+  local?: string;
+  onSpawn?: ExecOptions["onSpawn"];
+  deadlineMs?: number;
+};
+
+function agentsOrBroken(home: string): Agent[] | null {
+  try {
+    return loadAgents(home);
+  } catch {
+    return null;
+  }
+}
 
 /** Reads every actor's machine once and returns the map; nothing is written. */
 export async function collectLinks(exec: Exec, store: Store, o: CollectOptions): Promise<LinkSnapshot> {
-  const run = runner(exec, o.onSpawn);
+  const procs = new Set<{ kill(): void }>();
+  let expired = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      expired = true;
+      for (const p of procs) p.kill();
+      resolve(null);
+    }, o.deadlineMs ?? COLLECT_DEADLINE_MS);
+  });
+  const read = runner(exec, (p) => {
+    procs.add(p);
+    o.onSpawn?.(p);
+  });
+  const run: Run = (host, script) => (expired ? Promise.resolve(null) : Promise.race([read(host, script), deadline]));
+  try {
+    return await collect(run, store, o, () => expired);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function collect(run: Run, store: Store, o: CollectOptions, expired: () => boolean): Promise<LinkSnapshot> {
   const home = store.root;
   const local = o.local ?? hostname().split(".")[0]!;
   const cli = basename(o.agentCmd.split(" ")[0] ?? o.agentCmd);
@@ -127,7 +138,8 @@ export async function collectLinks(exec: Exec, store: Store, o: CollectOptions):
 
   const standing = standingLeads(home);
   const lanes = store.lanes().filter((l) => l.status !== "done");
-  const agents: Agent[] = agentsOrNone(home);
+  const listed = agentsOrBroken(home);
+  const agents: Agent[] = listed ?? [];
   const roles = (() => {
     try {
       return JSON.parse(readFileSync(join(home, "roles.json"), "utf8")) as Record<string, unknown>;
@@ -197,27 +209,24 @@ export async function collectLinks(exec: Exec, store: Store, o: CollectOptions):
         channels: BOT_CHANNELS.filter(([k]) => h?.has.has(k)).map(([, c]) => c),
       };
     }),
-  ]);
-  const unknown = actors.flatMap((a) => {
-    const missing = [a.provider ? "" : "provider", a.model ? "" : "모델"].filter(Boolean);
-    return missing.length ? [`${a.label}: ${missing.join("·")} (${a.source})`] : [];
-  });
+    ...[...new Set(["", ...agents.map((a) => a.host)])].map(async (host): Promise<LinkActor[]> => {
+      const scan = parseHermesScan(await run(host, HERMES_SCAN));
+      const computer = computerOf(host, local);
+      const known = new Set(agents.filter((a) => computerOf(a.host, local) === computer).map((a) => a.profile));
+      return (scan?.profiles ?? [])
+        .filter((p) => !known.has(p.name))
+        .map((p) => unlistedProfile(p.name, p.read, computer, scan!.gateway));
+    }),
+  ]).then((all) => all.flat());
+  const unknown = [
+    ...(listed === null ? [`봇 목록: ${UNKNOWN} (agents.json을 읽지 못함)`] : []),
+    ...(expired()
+      ? [`수집 시간 초과 (${Math.ceil((o.deadlineMs ?? COLLECT_DEADLINE_MS) / 1000)}초): 그 뒤 답은 받지 않음`]
+      : []),
+    ...actors.flatMap((a) => {
+      const missing = [a.provider ? "" : "provider", a.model ? "" : "모델"].filter(Boolean);
+      return missing.length ? [`${a.label}: ${missing.join("·")} (${a.source})`] : [];
+    }),
+  ];
   return { generatedAt: o.now, actors, unknown };
-}
-
-export function saveLinks(home: string, s: LinkSnapshot): string {
-  const path = linksPath(home);
-  writeFileSync(`${path}.tmp`, `${JSON.stringify(s, null, 1)}\n`);
-  renameSync(`${path}.tmp`, path);
-  return path;
-}
-
-/** The last collected map, or null when it was never collected or cannot be read. */
-export function readLinks(home: string): LinkSnapshot | null {
-  try {
-    const v = JSON.parse(readFileSync(linksPath(home), "utf8")) as LinkSnapshot;
-    return Array.isArray(v.actors) && typeof v.generatedAt === "number" ? v : null;
-  } catch {
-    return null;
-  }
 }
