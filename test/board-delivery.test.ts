@@ -173,3 +173,41 @@ test("a request queued for a busy lead is QUEUED even when the flush after it fa
   expect(lead.received).toEqual(["[reply=board from=재일-board] (bot:endo) 엔도 깨워봐"]);
   expect(d.store.queued(href("w3:p1"))).toEqual([]);
 });
+
+test("a lead pane found gone after the request was queued is HELD on the board, never offered to send again", async () => {
+  const w = new World();
+  const d = w.deps();
+  d.store.setRole("lead", href("w3:p1"));
+  const { url, home, logs } = start({ toLead: (text) => send(d, "lead", text, "board") });
+  const res = await post(url, "/request", { csrf: await tokenOf(url), text: "아무도 없어?" }, tailnet());
+  expect(res.headers.get("location")).toBe("/?c=lead&sent=held#end");
+  expect(logs.at(-2)).toMatch(
+    /^BOARD_FAILED \S+ request len=\d+ pane w3:p1 is gone; 1 message\(s\) kept in its inbox$/,
+  );
+  expect(logs.at(-1)).toMatch(/^BOARD_WRITE \S+ request len=\d+ HELD$/);
+  expect(chatTail(home, 1)[0]).toMatchObject({ text: "아무도 없어?", delivery: "HELD" });
+  expect(d.store.queued(href("w3:p1"))).toHaveLength(1);
+});
+
+test("a request that could not be queued from a lane conversation comes back to that conversation as failed", async () => {
+  const { url, store } = start({
+    toLead: async () => {
+      throw new Error("no lead pane registered");
+    },
+  });
+  store.saveLane({
+    key: "fix-x",
+    sessionRef: { runtime: "herdr", id: "w1:p2", container: "w1:t9" },
+    paneId: "w1:p2",
+    tabId: "w1:t9",
+    brief: "/dev/null",
+    cwd: "/",
+    status: "working",
+    createdAt: NOW,
+    lastActivityAt: NOW,
+    nudges: 0,
+    log: [],
+  });
+  const res = await post(url, "/request", { csrf: await tokenOf(url), c: "lane:fix-x", text: "상태?" }, tailnet());
+  expect(res.headers.get("location")).toBe("/?c=lane%3Afix-x&sent=failed#end");
+});

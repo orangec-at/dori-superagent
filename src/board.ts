@@ -11,7 +11,8 @@ import { viewOf } from "./board-list-html.ts";
 import { type BoardState, boardState } from "./board-state.ts";
 import { rows } from "./board-status.ts";
 import { threadOf } from "./board-thread.ts";
-import { Refusal } from "./refusal.ts";
+import { failureDetail } from "./delivery.ts";
+import { PaneGone, Refusal } from "./refusal.ts";
 import type { Store } from "./store.ts";
 
 const BODY_MAX = 8 * 1024;
@@ -100,11 +101,11 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     if (given.length !== want.length || !timingSafeEqual(given, want))
       return reject(kind, "csrf", "forbidden: stale page, reload the board", 403);
 
-    const done = (flash: string): Response =>
+    const done = (flash: string, c = "lead"): Response =>
       new Response(null, {
         status: 303,
         headers: {
-          location: kind === "request" ? `/?c=lead&sent=${flash}#end` : `/?sent=${flash}`,
+          location: kind === "request" ? `/?c=${encodeURIComponent(c)}&sent=${flash}#end` : `/?sent=${flash}`,
           ...SECURITY_HEADERS,
         },
       });
@@ -112,6 +113,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     let said: string;
     let id = "";
     let choice = "";
+    let thread = "lead";
     if (kind === "decide") {
       id = form.get("id") ?? "";
       choice = form.get("choice") ?? "";
@@ -138,16 +140,17 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
       const about = form.get("c") ?? "lead";
       const known = about !== "lead" && rows(boardState(store, o.now()), o.now()).some((r) => r.id === about);
       envelope = requestEnvelope(known ? `(${about}) ${said}` : said);
+      if (known) thread = about;
     }
     let result: string;
     try {
       result = await o.toLead(envelope);
     } catch (e) {
-      // Not a 5xx: Cloudflare would replace it with its own error page. The board says it was not sent instead.
-      log(
-        `BOARD_FAILED ${stamp()} ${kind} len=${envelope.length} ${(e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ")}`,
-      );
-      return done("failed");
+      log(`BOARD_FAILED ${stamp()} ${kind} len=${envelope.length} ${failureDetail(e)}`);
+      // Not a 5xx: Cloudflare would replace it with its own error page. Nothing was queued: the board asks to send again.
+      if (!(e instanceof PaneGone)) return done("failed", thread);
+      // The lead's pane is gone but the message waits in its inbox: like HELD, it must not be sent again.
+      result = "HELD";
     }
     log(`BOARD_WRITE ${stamp()} ${kind} len=${envelope.length} ${result}`);
     appendChat(store.root, { at: o.now(), from: "operator", text: said, kind, delivery: result });

@@ -6,6 +6,21 @@ import { report, startLane } from "../src/lanes.ts";
 import { setup } from "./harness-setup.ts";
 import { href } from "./fake.ts";
 
+/** Runs fn with process.stderr.write captured. */
+async function stderrOf<T>(fn: () => Promise<T>): Promise<{ value: T; err: string }> {
+  const write = process.stderr.write;
+  let err = "";
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    err += String(chunk);
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    return { value: await fn(), err };
+  } finally {
+    process.stderr.write = write;
+  }
+}
+
 const lead1 = href("w1:p1");
 
 describe("pane messaging", () => {
@@ -92,5 +107,42 @@ describe("pane messaging", () => {
   test("unknown targets are refused instead of guessed", async () => {
     const { d } = setup();
     await expect(send(d, "nobody", "hi", "cli")).rejects.toThrow("unknown target");
+  });
+});
+
+describe("a flush that fails after the message was queued", () => {
+  test("send is QUEUED with one stderr line, and the duty loop delivers the message", async () => {
+    const { w, d, lead } = setup();
+    lead.received.length = 0;
+    w.getHook.set("w1:p1", (n) => {
+      if (n === 1) throw new Error("herdr socket closed");
+    });
+    const { value, err } = await stderrOf(() => send(d, "lead", "still here", "cli"));
+    expect(value).toBe("QUEUED");
+    expect(err).toBe(
+      "dori: delivering to w1:p1 failed after it was queued (herdr socket closed); kept in its inbox for the duty loop\n",
+    );
+    expect(d.store.queued(lead1)).toHaveLength(1);
+    await dutyTick(d);
+    expect(lead.received).toEqual(["still here"]);
+  });
+
+  test("dori send prints QUEUED and exits 0 instead of failing", async () => {
+    const { w, d } = setup();
+    w.getHook.set("w1:p1", (n) => {
+      if (n === 1) throw new Error("herdr socket closed");
+    });
+    const out: string[] = [];
+    const log = console.log;
+    console.log = (...a: unknown[]) => {
+      out.push(a.join(" "));
+    };
+    try {
+      const { value } = await stderrOf(() => main(["send", "lead", "--text", "still here"], d));
+      expect(value).toBe(0);
+    } finally {
+      console.log = log;
+    }
+    expect(out).toEqual(["QUEUED lead"]);
   });
 });

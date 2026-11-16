@@ -10,14 +10,17 @@
   // Only a record opens at its newest message; the list stays at its top, and a #anchor (an ask card) is left to the browser.
   if (document.body.classList.contains("has-c") && !location.hash) window.scrollTo(0, document.body.scrollHeight);
 
-  // A request the board could not send comes back as ?sent=failed: the text is put back in the composer to send again.
+  // A request the board could not send comes back as ?c=<its conversation>&sent=failed: its text is put back in that
+  // conversation's composer to send again. Any other answer to a write drops the kept text.
   const DRAFT = "dori-board-draft";
   try {
-    const sent = new URL(location.href).searchParams.get("sent");
-    const kept = sessionStorage.getItem(DRAFT);
-    if (box && sent === "failed" && kept && box.value === "") box.value = kept;
-    else if (sent !== null) sessionStorage.removeItem(DRAFT);
-    box?.form?.addEventListener("submit", () => sessionStorage.setItem(DRAFT, box.value));
+    const params = new URL(location.href).searchParams;
+    const c = box?.form?.elements.namedItem("c")?.value ?? "";
+    const kept = JSON.parse(sessionStorage.getItem(DRAFT) ?? "null");
+    if (box && params.get("sent") === "failed" && params.get("c") === c && kept?.c === c && box.value === "")
+      box.value = kept.text ?? "";
+    else if (params.has("sent")) sessionStorage.removeItem(DRAFT);
+    box?.form?.addEventListener("submit", () => sessionStorage.setItem(DRAFT, JSON.stringify({ c, text: box.value })));
   } catch {
     // no sessionStorage (a private window): the failure notice still shows, only the text is not put back
   }
