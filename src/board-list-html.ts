@@ -42,10 +42,17 @@ const SECTIONS: [Section, string][] = [
 
 const rowTarget = (r: Row): string => (r.kind === "ask" ? "lead" : r.id);
 
-function rowLink(r: Row, v: View, now: number, selected: string | null, card?: MissionCard): string {
+function rowLink(
+  r: Row,
+  v: View,
+  now: number,
+  selected: string | null,
+  imgs: Record<string, string>,
+  card?: MissionCard,
+): string {
   const target = rowTarget(r);
   const anchor = r.kind === "ask" ? `#${esc(r.id.replace(":", "-"))}` : "";
-  return `<a class="row${target === selected && r.kind !== "ask" ? " on" : ""}" href="${esc(hrefOf(v, { c: target, m: null }))}${anchor}">${rowAvatar(r)}<span class="rb">
+  return `<a class="row${target === selected && r.kind !== "ask" ? " on" : ""}" href="${esc(hrefOf(v, { c: target, m: null }))}${anchor}">${rowAvatar(r, imgs)}<span class="rb">
 <span class="rt"><b>${esc(r.title)}</b>${r.prs[0] ? `<span class="pr">⑂ #${r.prs[0].num}</span>` : ""}<span class="ago">${r.at ? ago(now, r.at) : ""}</span></span>
 <span class="rs"><span class="proj">${esc(r.project)}</span> <span class="w s-${r.section}">${esc(r.word)}</span> · ${esc(r.line)}</span>${rowMission(card)}</span></a>`;
 }
@@ -72,6 +79,7 @@ function workTab(
   now: number,
   selected: string | null,
   cards: Record<string, MissionCard>,
+  imgs: Record<string, string>,
 ): string {
   const [lead, ...rest] = rows;
   const mine = rest.filter((r) => r.section === "needs");
@@ -84,13 +92,13 @@ function workTab(
     const list = shown.filter((r) => r.section === s);
     if (!list.length) return "";
     const head = `<span class="${s === "needs" ? "needs" : ""}">${label} <span>${list.length}</span></span>`;
-    const links = list.map((r) => rowLink(r, v, now, selected, cards[r.id])).join("");
+    const links = list.map((r) => rowLink(r, v, now, selected, imgs, cards[r.id])).join("");
     return s === "idle"
       ? `<details class="sec"><summary>${head}</summary>${links}</details>`
       : `<h3 class="sec">${head}</h3>${links}`;
   }).join("");
   const empty = v.f === "mine" && !mine.length ? `<p class="note">지금은 재일 님 차례가 없어요.</p>` : "";
-  return `${strip(rows, (c) => hrefOf(v, { c, m: null }))}${chips}${lead ? rowLink(lead, v, now, selected) : ""}${sections}${empty}`;
+  return `${strip(rows, (c) => hrefOf(v, { c, m: null }), imgs)}${chips}${lead ? rowLink(lead, v, now, selected, imgs) : ""}${sections}${empty}`;
 }
 
 function prTab(rows: Row[], v: View, now: number, selected: string | null): string {
@@ -139,7 +147,12 @@ function backlogTab(projects: ProjectGroup[]): string {
 /** The list pane: tabs, then the work rows (with the My-turn filter), the missions, the PRs lanes opened, or the backlog. */
 export function listPane(
   rows: Row[],
-  s: { projects: ProjectGroup[]; missions: Mission[]; cards: Record<string, MissionCard> },
+  s: {
+    projects: ProjectGroup[];
+    missions: Mission[];
+    cards: Record<string, MissionCard>;
+    avatars: Record<string, string>;
+  },
   v: View,
   now: number,
   selected: string | null,
@@ -156,7 +169,7 @@ export function listPane(
         ? prTab(rows, v, now, selected)
         : v.tab === "backlog"
           ? backlogTab(projects)
-          : workTab(rows, v, now, selected, s.cards);
+          : workTab(rows, v, now, selected, s.cards, s.avatars);
   const active = s.missions.filter((m) => m.status !== "완료").length;
   return `<nav class="tabs">${tab("work", "작업", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}</nav>${body}`;
 }

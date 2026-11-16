@@ -10,7 +10,7 @@ import { ago, esc } from "./board-thread-html.ts";
 const STEPS_SHOWN = 60;
 
 export const MISSION_STYLE = `.av{flex:none;display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;font:600 12px/1 system-ui;
-color:#0d1214;background:hsl(var(--h) 62% 68%)}.av.sm{width:20px;height:20px;font-size:10.5px}.avs{display:inline-flex}.avs .av{margin-left:-6px;border:2px solid var(--list)}
+color:#0d1214;background:hsl(var(--h) 62% 68%)}img.av{object-fit:cover;background:var(--panel)}.av.sm{width:20px;height:20px;font-size:10.5px}.avs{display:inline-flex}.avs .av{margin-left:-6px;border:2px solid var(--list)}
 .avs .av:first-child{margin-left:0}.st{font-size:12px;padding:1px 8px;border-radius:999px;background:var(--panel);white-space:nowrap}
 .st-run{color:var(--blue)}.st-ok{color:var(--green)}.st-stuck{color:var(--red)}.st-idle{color:var(--muted)}.st-needs{color:var(--needs)}
 .rm{display:block;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -41,8 +41,11 @@ const STATUS_CLASS: Record<MissionStatus, string> = { 대기: "idle", 진행: "r
 export const statusPill = (s: MissionStatus): string => `<span class="st st-${STATUS_CLASS[s]}">${s}</span>`;
 
 const hue = (id: string): number => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+/** The participant's picture when it has one, else a letter circle in a colour of its own. */
 export const avatar = (a: Actor, size = ""): string =>
-  `<span class="av${size ? ` ${size}` : ""}" style="--h:${hue(a.id)}" title="${esc(a.label)}">${esc([...a.label][0] ?? "?")}</span>`;
+  a.img
+    ? `<img class="av${size ? ` ${size}` : ""}" src="${esc(a.img)}" alt="" title="${esc(a.label)}">`
+    : `<span class="av${size ? ` ${size}` : ""}" style="--h:${hue(a.id)}" title="${esc(a.label)}">${esc([...a.label][0] ?? "?")}</span>`;
 
 const isRow = (id: string): boolean => id === "lead" || /^(bot|lane|standing):/.test(id);
 const rowHref = (id: string): string => `/?c=${encodeURIComponent(id)}`;

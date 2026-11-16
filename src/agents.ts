@@ -15,6 +15,8 @@ export type Agent = {
   readonly profile: string;
   readonly role: string;
   readonly description: string;
+  /** A picture for the board: a path, absolute, `~/…` or relative to DORI_HOME (see board-avatars.ts). */
+  readonly avatar?: string;
 };
 
 const WORD = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -48,11 +50,13 @@ export function loadAgents(home: string): Agent[] {
       role: field("role"),
       description: field("description"),
     };
+    if (e["avatar"] !== undefined && typeof e["avatar"] !== "string")
+      throw new Refusal(`${path} entry ${i}: avatar must be a string`);
     if (!WORD.test(agent.name)) throw new Refusal(`${path} entry ${i}: name must match ${WORD}`);
     if (!WORD.test(agent.profile)) throw new Refusal(`${path} entry ${i}: profile must match ${WORD}`);
     if (agent.host !== "" && !HOST.test(agent.host))
       throw new Refusal(`${path} entry ${i}: host must be empty (this machine) or [user@]host`);
-    return agent;
+    return typeof e["avatar"] === "string" && e["avatar"] !== "" ? { ...agent, avatar: e["avatar"] } : agent;
   });
 }
 

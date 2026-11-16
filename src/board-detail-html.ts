@@ -31,19 +31,23 @@ const LEAD_CARD: MissionCard = {
   missionId: null,
 };
 
-const actorOf = (r: Pick<Row, "id" | "title">) => ({ id: r.id, label: r.title, sub: "" });
+type Imgs = Record<string, string>;
+const actorOf = (r: Pick<Row, "id" | "title">, imgs: Imgs) => {
+  const img = imgs[r.id];
+  return img ? { id: r.id, label: r.title, sub: "", img } : { id: r.id, label: r.title, sub: "" };
+};
 
 /** A list row's avatar with its status mark as a badge; an ask keeps the plain mark. */
-export const rowAvatar = (r: Row): string =>
-  r.kind === "ask" ? mark(r) : `<span class="ra">${avatar(actorOf(r))}${mark(r)}</span>`;
+export const rowAvatar = (r: Row, imgs: Imgs): string =>
+  r.kind === "ask" ? mark(r) : `<span class="ra">${avatar(actorOf(r, imgs))}${mark(r)}</span>`;
 
 /** A phone's row of big bot avatars above the list, as in a bot-chat app. */
-export function strip(rows: Row[], href: (id: string) => string): string {
+export function strip(rows: Row[], href: (id: string) => string, imgs: Imgs): string {
   const who = rows.filter((r) => r.kind === "lead" || r.kind === "bot" || r.kind === "standing");
   return `<nav class="strip" aria-label="봇">${who
     .map(
       (r) =>
-        `<a class="sa" href="${esc(href(r.id))}">${avatar(actorOf(r), "lg")}${mark(r)}<span>${esc(r.title)}</span></a>`,
+        `<a class="sa" href="${esc(href(r.id))}">${avatar(actorOf(r, imgs), "lg")}${mark(r)}<span>${esc(r.title)}</span></a>`,
     )
     .join("")}</nav>`;
 }
@@ -63,6 +67,7 @@ export function detailPane(
   routines: Routine[],
   missions: Mission[],
   now: number,
+  imgs: Imgs,
 ): string {
   const mine = missions.filter((m) => m.actors.some((a) => a.id === r.id)).slice(0, 6);
   const list = mine.length
@@ -74,7 +79,7 @@ export function detailPane(
         .join("")}`
     : "";
   const own = routines.filter((x) => x.for.includes(r.kind));
-  return `<aside class="detail" aria-label="상세"><div class="dh">${avatar(actorOf(r), "xl")}<b>${esc(r.title)}</b><span class="meta">${esc(r.project)}</span></div>
+  return `<aside class="detail" aria-label="상세"><div class="dh">${avatar(actorOf(r, imgs), "xl")}<b>${esc(r.title)}</b><span class="meta">${esc(r.project)}</span></div>
 ${missionCard(card ?? (r.kind === "lead" ? LEAD_CARD : { ...LEAD_CARD, role: r.project, mission: r.line, status: "대기" }))}${own.length ? routineList(own, now) : ""}${list}</aside>`;
 }
 

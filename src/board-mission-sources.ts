@@ -20,17 +20,22 @@ const machineOf = (host: string): string => (host === "" ? "fedora" : (host.spli
 
 /** The name and machine (or kind) shown for a participant id. */
 export const actorOf =
-  (agents: Agent[]) =>
+  (agents: Agent[], imgs: Record<string, string> = {}) =>
   (id: string): Actor => {
-    const [kind, name = ""] = id.split(/:(.*)/s);
-    const agent = agents.find((a) => a.name === name);
-    if (id === "lead") return { id, label: "도리도라", sub: "lead" };
-    if (kind === "bot") return { id, label: agent ? botLabel(agent) : name, sub: agent ? machineOf(agent.host) : "봇" };
-    if (kind === "standing") return { id, label: `${name} 리드`, sub: "상시 리드" };
-    if (kind === "lane") return { id, label: name, sub: "lane" };
-    if (kind === "gh") return { id, label: name.split("/")[1] ?? name, sub: "GitHub" };
-    return { id, label: "Muse", sub: "게시" };
+    const img = imgs[id];
+    return img ? { ...plainActor(agents, id), img } : plainActor(agents, id);
   };
+
+const plainActor = (agents: Agent[], id: string): Actor => {
+  const [kind, name = ""] = id.split(/:(.*)/s);
+  const agent = agents.find((a) => a.name === name);
+  if (id === "lead") return { id, label: "도리도라", sub: "lead" };
+  if (kind === "bot") return { id, label: agent ? botLabel(agent) : name, sub: agent ? machineOf(agent.host) : "봇" };
+  if (kind === "standing") return { id, label: `${name} 리드`, sub: "상시 리드" };
+  if (kind === "lane") return { id, label: name, sub: "lane" };
+  if (kind === "gh") return { id, label: name.split("/")[1] ?? name, sub: "GitHub" };
+  return { id, label: "Muse", sub: "게시" };
+};
 
 /** `[아침 배정 2026-11-16] ...` -> `아침 배정 2026-11-16`: the tag the lead puts in front of a delegate instruction. */
 export const tagOf = (text: string): string | null => TAG_RE.exec(text)?.[1]?.trim() || null;

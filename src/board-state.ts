@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { type Ask, asks } from "./asks.ts";
 import { type BotCard, botCards, firstLine } from "./board-bots.ts";
 import { type ChatMessage, chatTail } from "./board-chat.ts";
+import { agentsOrNone, avatarUrls } from "./board-avatars.ts";
 import { missionState } from "./board-missions.ts";
 import { routines } from "./board-mission-sources.ts";
 import type { Mission, MissionCard, Routine } from "./board-mission-types.ts";
@@ -47,6 +48,8 @@ export type BoardState = {
   missions: Mission[];
   cards: Record<string, MissionCard>;
   routines: Routine[];
+  /** Row id -> its picture URL (/avatar/<name>); a row without one keeps its letter circle. */
+  avatars: Record<string, string>;
 };
 
 /** Default project names and the words that put a lane's key, cwd or a backlog item's id/title/cwd into them. */
@@ -144,9 +147,11 @@ export function boardState(store: Store, now: number): BoardState {
   }
   const standing = standingCards(store, now);
   const bots = botCards(store.root, now);
+  const avatars = avatarUrls(store.root, agentsOrNone(store.root));
   return {
-    ...missionState(store, bots, standing.cards, now),
+    ...missionState(store, bots, standing.cards, now, avatars),
     routines: routines(store.root),
+    avatars,
     generatedAt: now,
     standing: standing.cards,
     standingError: standing.error,

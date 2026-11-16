@@ -112,7 +112,7 @@ export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions)
 <div class="app"><aside class="list" aria-label="작업 목록"><header class="lh"><b>도리 보드</b><a class="meta" href="${esc(hrefOf(o.view))}">${kst} KST</a></header>
 ${open ? "" : flash}${readOnly}${listPane(t.rows, s, o.view, now, mission ? null : (o.view.c ?? "lead"))}</aside>
 <main class="pane">${open ? flash : ""}${mission ? missionPane(mission, now, back) : record(t, now, o.token, back, card ? missionCard(card, "inline") : "")}
-${composer}</main>${mission ? missionDetail(mission) : detailPane(r, card, s.routines, s.missions, now)}</div><a id="news" href="${esc(hrefOf(o.view))}" hidden>새 소식이 있어요 · 눌러서 보기</a>
+${composer}</main>${mission ? missionDetail(mission) : detailPane(r, card, s.routines, s.missions, now, s.avatars)}</div><a id="news" href="${esc(hrefOf(o.view))}" hidden>새 소식이 있어요 · 눌러서 보기</a>
 </body></html>
 `;
 }

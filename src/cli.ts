@@ -21,6 +21,7 @@ import { refuseForStanding, runLead } from "./cli-lead.ts";
 import { ReplyError, reply } from "./reply.ts";
 import { refText } from "./refs.ts";
 import { agentLine, agentsPath, DELEGATE_EXIT, delegate, loadAgents } from "./agents.ts";
+import { syncAvatars } from "./board-avatars.ts";
 import { ConfigError as RuntimeConfigError, RuntimeChoiceError } from "./runtime/select.ts";
 import { parseRef } from "./runtime/types.ts";
 import type { Role } from "./store-types.ts";
@@ -193,6 +194,8 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
     }
     case "agents": {
       const agents = loadAgents(d.store.root);
+      if (x === "avatars") for (const line of await syncAvatars(d.exec, d.store.root, agents)) console.log(line);
+      if (x === "avatars") return 0;
       if (agents.length === 0) console.log(`NO_AGENTS ${agentsPath(d.store.root)}`);
       for (const agent of agents) console.log(agentLine(agent));
       return 0;

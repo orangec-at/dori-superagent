@@ -154,6 +154,7 @@ test("a home without agents.json, assignment file or delegation log still render
     missions: [],
     cards: {},
     routines: expect.any(Array),
+    avatars: {},
   });
   expect(boardState(store, NOW).routines.map((r) => [r.name, r.last])).toEqual([
     ["아침 배정", null],

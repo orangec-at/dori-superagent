@@ -65,6 +65,7 @@ export function missionState(
   bots: BotCard[],
   standing: StandingCard[],
   now: number,
+  imgs: Record<string, string> = {},
 ): { missions: Mission[]; cards: Record<string, MissionCard> } {
   const home = store.root;
   let agents: Agent[] = [];
@@ -75,7 +76,7 @@ export function missionState(
   try {
     leads = loadLeads(home);
   } catch {}
-  const actor = actorOf(agents);
+  const actor = actorOf(agents, imgs);
   const drafts = new Map<string, Draft>();
   const draft = (id: string, title: string): Draft => {
     const found = drafts.get(id);
