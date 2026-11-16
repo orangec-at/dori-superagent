@@ -28,6 +28,16 @@ function fakeCopy(result: "sent" | "failed" = "sent") {
         ],
       },
       { key: "dm-Jaeil Lee", name: "Jaeil Lee", kind: "dm", messages: [] },
+      {
+        key: "t-vg",
+        name: "vibeguard 승인",
+        kind: "thread",
+        parent: "fmv",
+        archived: false,
+        locked: false,
+        messages: [{ at: Date.UTC(2026, 10, 13, 0, 45), author: "엔도", mine: false, bot: true, text: "승인 요청" }],
+      },
+      { key: "t-old", name: "지난 승인", kind: "thread", parent: "fmv", archived: true, locked: true, messages: [] },
     ],
   };
   const discord: DiscordBoard = {
@@ -55,6 +65,50 @@ test("the 프로젝트 tab lists projects, channels and DMs by name; a channel o
   expect(chan).toContain('action="/discord"');
   expect(chan).toContain('name="d" value="fmv"');
   expect(chan).not.toMatch(/\d{17,}/);
+});
+
+test("a thread is listed under its parent channel and opens like a channel, posting into the thread", async () => {
+  const { discord, sends } = fakeCopy();
+  const b = start({ discord });
+  const list = await (await fetch(`${b.url}/?tab=proj`, { headers: tailnet() })).text();
+  const [fmv = -1, thread = -1, dm = -1] = [">#fmv<", ">vibeguard 승인<", ">DM · Jaeil Lee<"].map((t) =>
+    list.indexOf(t),
+  );
+  expect(fmv).toBeGreaterThan(-1);
+  expect(thread).toBeGreaterThan(fmv);
+  expect(dm).toBeGreaterThan(thread);
+  expect(list).toMatch(/class="row sub"[^>]*href="[^"]*d=t-vg/);
+  const pane = await (await fetch(`${b.url}/?tab=proj&d=t-vg`, { headers: tailnet() })).text();
+  expect(pane).toContain("#fmv › vibeguard 승인");
+  expect(pane).toContain("승인 요청");
+  expect(pane).toContain('name="d" value="t-vg"');
+  const res = await post(b.url, "/discord", { csrf: await tokenOf(b.url), d: "t-vg", text: "확인" }, tailnet());
+  expect(res.headers.get("location")).toBe("/?tab=proj&d=t-vg&sent=discord#end");
+  expect(sends).toEqual([["t-vg", "확인"]]);
+});
+
+test("a thread post that fails the board's write checks is refused before Discord is called", async () => {
+  const { discord, sends } = fakeCopy();
+  const b = start({ discord });
+  const form = { csrf: await tokenOf(b.url), d: "t-vg", text: "hi" };
+  const refused = [
+    await post(b.url, "/discord", form, tailnet({ "x-forwarded-for": BOT_MACHINE })),
+    await post(b.url, "/discord", form, tailnet({ "tailscale-user-login": "someone@example.com" })),
+    await post(b.url, "/discord", { ...form, csrf: "0".repeat(64) }, tailnet()),
+  ];
+  expect(refused.map((r) => r.status)).toEqual([403, 403, 403]);
+  expect(sends).toEqual([]);
+});
+
+test("a locked thread shows why it has no composer and refuses a post before Discord is called", async () => {
+  const { discord, sends } = fakeCopy();
+  const b = start({ discord });
+  const pane = await (await fetch(`${b.url}/?tab=proj&d=t-old`, { headers: tailnet() })).text();
+  expect(pane).toContain("잠긴 스레드라 보드에서 보낼 수 없어요");
+  expect(pane).not.toContain('action="/discord"');
+  const res = await post(b.url, "/discord", { csrf: await tokenOf(b.url), d: "t-old", text: "x" }, tailnet());
+  expect(res.status).toBe(409);
+  expect(sends).toEqual([]);
 });
 
 test("the page version follows the Discord copy, so open pages reload when a message arrives", async () => {
@@ -127,6 +181,7 @@ test("a viewer who may not write sees no Discord channel or DM, only why", async
     ).text();
     expect(html).not.toContain("vg-umami 올렸어요");
     expect(html).not.toContain("보드 확인");
+    expect(html).not.toContain("승인 요청");
     expect(html).not.toContain("DM · Jaeil Lee");
     expect(html).not.toContain('action="/discord"');
   }

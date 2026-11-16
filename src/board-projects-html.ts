@@ -11,16 +11,17 @@ import { type DiscordChannel, type DiscordMessage, type DiscordView, SEND_MAX } 
 
 /**
  * The 프로젝트 tab: every project with its lanes, PRs, backlog, missions, bots and recent Discord talk, and every
- * Discord channel and DM of the board's copy. A channel belongs to the project it is named after (by project name, a
- * lead's key prefix, one of its bots or the first word of its lanes' keys); a message to the project its text names,
- * else its channel's.
+ * Discord channel and DM of the board's copy, each channel's threads under it. A channel belongs to the project it is
+ * named after (by project name, a lead's key prefix, one of its bots or the first word of its lanes' keys), a thread to
+ * its parent's (else the one its name gives), and a projects.json alias for the id overrides both; a message belongs to
+ * the project its text names, else its channel's.
  */
 export const PROJECTS_STYLE = `.pjm{display:flex;flex-direction:column;gap:2px}.pjd .sec{margin:18px 0 4px}.pjd .row{padding:7px 6px}
 .chan{flex:none;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--panel);color:var(--muted);font-weight:700}
 .tag{font-size:12px;padding:0 7px;border-radius:999px;background:var(--panel);color:var(--muted);white-space:nowrap}.dmsg .who{font-weight:600;font-size:13px;padding:0}
 .dmsg .meta{margin-left:6px}.tabs{overflow-x:auto;scrollbar-width:none}.tab{white-space:nowrap;flex:1 0 auto;padding:7px 8px}
 .unr{flex:none;min-width:18px;padding:0 6px;border-radius:999px;background:#e5484d;color:#fff;font-size:12px;font-weight:700;text-align:center}.unr[hidden]{display:none}
-.pjn{margin:12px 0 4px}.pjm a{color:inherit}
+.pjn{margin:12px 0 4px}.pjm a{color:inherit}.row.sub{padding-left:26px}.row.sub .chan{width:24px;height:24px;font-size:13px}
 @media (min-width:768px){.tabs{flex-wrap:wrap}}
 @media (min-width:1024px){.app.pj{grid-template-columns:320px minmax(0,1fr)}}${HUB_STYLE}`;
 
@@ -41,13 +42,23 @@ export function channelProject(name: string, s: Pick<BoardState, "projects" | "b
   );
 }
 
+type Owners = Pick<BoardState, "projects" | "bots">;
+const parentOf = (c: DiscordChannel, d: DiscordView): DiscordChannel | undefined =>
+  c.parent ? d.channels.find((p) => p.key === c.parent) : undefined;
+
+/** The project a channel, DM or thread belongs to: its alias, else a thread's parent's, else its name's. */
+export function chanProject(c: DiscordChannel, d: DiscordView, s: Owners): string | null {
+  const parent = parentOf(c, d);
+  return c.project ?? (parent ? chanProject(parent, d, s) : null) ?? channelProject(c.name, s);
+}
+
 type Talk = DiscordMessage & { channel: DiscordChannel };
 
 function talkOf(g: ProjectGroup, s: BoardState, d: DiscordView | null): Talk[] {
   if (!d) return [];
   return d.channels
     .flatMap((c) => {
-      const home = channelProject(c.name, s);
+      const home = chanProject(c, d, s);
       return c.messages
         .filter((m) => (messageProject(m.text, s.projects) ?? home) === g.name)
         .map((m) => ({ ...m, channel: c }));
@@ -61,7 +72,13 @@ const missionsOf = (g: ProjectGroup, missions: Mission[]): Mission[] => {
   return missions.filter((m) => m.actors.some((a) => ids.has(a.id)));
 };
 
-const chanLabel = (c: DiscordChannel): string => (c.kind === "dm" ? `DM · ${c.name}` : `#${c.name}`);
+const chanLabel = (c: DiscordChannel, d?: DiscordView): string => {
+  if (c.kind === "dm") return `DM · ${c.name}`;
+  const parent = d ? parentOf(c, d) : undefined;
+  return c.kind === "thread" ? `${parent ? `#${parent.name} › ` : ""}${c.name}` : `#${c.name}`;
+};
+const threadTags = (c: DiscordChannel): string =>
+  `${c.archived ? '<span class="tag">보관</span>' : ""}${c.locked ? '<span class="tag">잠김</span>' : ""}`;
 
 /**
  * When a channel's new messages arrived: the others' messages after the operator's last one there. board.js keeps only
@@ -88,23 +105,36 @@ export function projectsList(s: BoardState, d: DiscordView | "locked" | null, v:
 <span class="rt"><b>${esc(g.name)}</b>${badgeHtml(badgeOf(g))}<span class="ago">${g.at ? ago(now, g.at) : ""}</span></span><span class="rs">${esc(rowLine(g))}</span></span></a>`,
     )
     .join("");
-  const chans = (kind: "channel" | "dm"): string =>
-    (d && d !== "locked" ? d.channels : [])
-      .filter((c) => c.kind === kind)
-      .map((c) => {
-        const last = c.messages.at(-1);
-        const proj = channelProject(c.name, s);
-        return `<a class="row${v.d === c.key ? " on" : ""}" href="${esc(hrefOf(v, { d: c.key, p: null, c: null, m: null }))}#end"><span class="chan">${kind === "dm" ? "@" : "#"}</span><span class="rb">
-<span class="rt"><b>${esc(chanLabel(c))}</b>${proj ? `<span class="tag">${esc(proj)}</span>` : ""}${unreadBadge(c)}<span class="ago">${last ? ago(now, last.at) : ""}</span></span>
+  const all = d && d !== "locked" ? d.channels : [];
+  const row = (c: DiscordChannel, dv: DiscordView): string => {
+    const last = c.messages.at(-1);
+    const proj = chanProject(c, dv, s);
+    const icon = c.kind === "dm" ? "@" : c.kind === "thread" ? "↳" : "#";
+    return `<a class="row${c.kind === "thread" ? " sub" : ""}${v.d === c.key ? " on" : ""}" href="${esc(hrefOf(v, { d: c.key, p: null, c: null, m: null }))}#end"><span class="chan">${icon}</span><span class="rb">
+<span class="rt"><b>${esc(chanLabel(c))}</b>${threadTags(c)}${proj ? `<span class="tag">${esc(proj)}</span>` : ""}${unreadBadge(c)}<span class="ago">${last ? ago(now, last.at) : ""}</span></span>
 <span class="rs">${last ? `${esc(last.author)}: ${esc(last.text.replace(/\s+/g, " ").slice(0, 120))}` : "아직 메시지가 없어요"}</span></span></a>`;
-      })
-      .join("");
+  };
+  // A channel's threads follow it, in the copy's order (active first, then the newest archived).
+  const chans = (kind: "channel" | "dm"): string =>
+    d && d !== "locked"
+      ? all
+          .filter((c) => c.kind === kind)
+          .map(
+            (c) =>
+              row(c, d) +
+              all
+                .filter((t) => t.kind === "thread" && t.parent === c.key)
+                .map((t) => row(t, d))
+                .join(""),
+          )
+          .join("")
+      : "";
   const discord = !d
     ? `<p class="note">Discord가 이 보드에 연결되지 않았어요.</p>`
     : d === "locked"
       ? `<p class="note">Discord 채널·DM은 허용된 계정·기기로 열어야 보여요.</p>`
       : `${d.error ? `<p class="note">${esc(d.error)} · 마지막 동기화 ${d.syncedAt ? ago(now, d.syncedAt) : "없음"}</p>` : ""}${d.skipped.length ? `<p class="note">못 읽은 곳: ${esc(d.skipped.join(", "))} · 나머지는 계속 동기화해요</p>` : ""}${chans("channel") + chans("dm") || `<p class="note">읽을 수 있는 채널이 없어요.</p>`}`;
-  const count = d && d !== "locked" ? ` <span>${d.channels.length}</span>` : "";
+  const count = d && d !== "locked" ? ` <span>${all.filter((c) => c.kind !== "thread").length}</span>` : "";
   // Channels first: what was said is what the operator reads most; the projects follow.
   return `<h3 class="sec"><span>채널${count}</span></h3>${discord}<h3 class="sec"><span>프로젝트 <span>${s.projects.length}</span></span></h3>${projects || `<p class="note">진행 중인 프로젝트가 없어요.</p>`}`;
 }
@@ -116,7 +146,7 @@ function laneRow(l: ProjectLane, now: number): string {
 }
 
 /** The project's recent Discord talk of the last week as timeline events, each linking to its channel. */
-const talkEvents = (talk: Talk[], v: View, now: number): HubEvent[] =>
+const talkEvents = (talk: Talk[], d: DiscordView | null, v: View, now: number): HubEvent[] =>
   talk
     .filter((m) => now - m.at <= WEEK_MS)
     .map((m) => {
@@ -124,7 +154,7 @@ const talkEvents = (talk: Talk[], v: View, now: number): HubEvent[] =>
       return {
         at: m.at,
         kind: "talk",
-        text: `${m.author} · ${chanLabel(m.channel)}: ${t.length > TALK_CHARS ? `${t.slice(0, TALK_CHARS)}…` : t}`,
+        text: `${m.author} · ${chanLabel(m.channel, d ?? undefined)}: ${t.length > TALK_CHARS ? `${t.slice(0, TALK_CHARS)}…` : t}`,
         href: `${hrefOf(v, { d: m.channel.key, p: null, c: null, m: null })}#end`,
       };
     });
@@ -144,7 +174,7 @@ export function projectPane(
   const sec = (label: string, n: number, body: string, needs = false): string =>
     n ? `<h3 class="sec"><span class="${needs ? "needs" : ""}">${label} <span>${n}</span></span></h3>${body}` : "";
   const missions = missionsOf(g, s.missions);
-  const talk = talkEvents(talkOf(g, s, d), v, now);
+  const talk = talkEvents(talkOf(g, s, d), d, v, now);
   const meta = [g.repos.join(", "), g.bots.length ? `봇 ${g.bots.join(", ")}` : ""].filter(Boolean).join(" · ");
   const ext = (href: string, label: string, sub: string): string =>
     `<li><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a> <span class="meta">${sub}</span></li>`;
@@ -179,7 +209,7 @@ export function channelPane(
   now: number,
   back: string,
 ): string {
-  const proj = channelProject(c.name, s);
+  const proj = chanProject(c, d, s);
   const msgs = c.messages
     .map((m) =>
       m.mine
@@ -188,14 +218,22 @@ export function channelPane(
     )
     .join("\n");
   const synced = d.syncedAt ? `동기화 ${ago(now, d.syncedAt)}` : "동기화 전";
-  const composer = form(
-    "/discord",
-    token,
-    `<input type="hidden" name="d" value="${esc(c.key)}"><div class="box"><textarea name="text" rows="1" maxlength="${SEND_MAX}" required placeholder="${esc(`${chanLabel(c)}에 보내기…`)}" aria-label="Discord 메시지"></textarea><button class="send" aria-label="보내기">↑</button></div>`,
-    "composer",
-  );
-  return `<header class="rec-h"><a class="back" href="${esc(back)}" aria-label="목록으로">←</a><span class="chan">${c.kind === "dm" ? "@" : "#"}</span>
-<div class="title"><b>${esc(chanLabel(c))}</b><span class="meta">${proj ? `${esc(proj)} · ` : ""}Discord · ${synced}</span></div></header>
+  // Discord reopens an archived thread a message is posted to, and refuses one in a locked thread.
+  const note = c.locked
+    ? `<p class="note">잠긴 스레드라 보드에서 보낼 수 없어요.</p>`
+    : c.archived
+      ? `<p class="note">보관된 스레드예요. 보내면 Discord에서 다시 열려요.</p>`
+      : "";
+  const composer = c.locked
+    ? ""
+    : form(
+        "/discord",
+        token,
+        `<input type="hidden" name="d" value="${esc(c.key)}"><div class="box"><textarea name="text" rows="1" maxlength="${SEND_MAX}" required placeholder="${esc(`${chanLabel(c, d)}에 보내기…`)}" aria-label="Discord 메시지"></textarea><button class="send" aria-label="보내기">↑</button></div>`,
+        "composer",
+      );
+  return `<header class="rec-h"><a class="back" href="${esc(back)}" aria-label="목록으로">←</a><span class="chan">${c.kind === "dm" ? "@" : c.kind === "thread" ? "↳" : "#"}</span>
+<div class="title"><b>${esc(chanLabel(c, d))}</b><span class="meta">${proj ? `${esc(proj)} · ` : ""}${c.kind === "thread" ? `스레드${c.archived ? " · 보관됨" : ""}${c.locked ? " · 잠김" : ""} · ` : ""}Discord · ${synced}</span></div></header>
 <section class="thread" id="chat" data-seen="${esc(c.key)}" data-at="${c.messages.at(-1)?.at ?? 0}">${msgs || `<p class="note">아직 메시지가 없어요.</p>`}<span id="end"></span></section>
-${composer}`;
+${note}${composer}`;
 }

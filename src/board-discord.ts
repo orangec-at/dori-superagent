@@ -14,7 +14,9 @@ export async function discordPost(
   const key = form.get("d") ?? "";
   const said = (form.get("text") ?? "").trim();
   if (!d) return o.reject("discord-off", "Discord is not connected to this board", 409);
-  if (!d.view().channels.some((c) => c.key === key)) return o.reject("channel", "unknown channel", 404);
+  const ch = d.view().channels.find((c) => c.key === key);
+  if (!ch) return o.reject("channel", "unknown channel", 404);
+  if (ch.locked) return o.reject("locked", "locked thread", 409);
   if (said === "") return o.reject("empty", "empty message", 400);
   if (said.length > SEND_MAX) return o.reject("length", `message longer than ${SEND_MAX} characters`, 413);
   const result = await d.send(key, said);

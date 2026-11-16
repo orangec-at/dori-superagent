@@ -1,18 +1,36 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { projectAliases } from "./board-projects.ts";
 import type { DiscordAnswer, DiscordCall } from "./discord-api.ts";
 import { everyoneSees, type GuildChannel, type GuildRole } from "./discord-perms.ts";
+import { type DiscordMessage, mergeMessages, nameOf, type Raw } from "./discord-text.ts";
+import { activeThreads, archivedThreads, capThreads, type FoundThread } from "./discord-threads.ts";
+
+export type { DiscordMessage } from "./discord-text.ts";
 
 /**
- * The board's copy of the Discord server's text channels and the operator's DMs. One timer tick makes at most one
- * call: the channel list is re-read every DISCOVER_MS, otherwise the next channel in turn is asked only for the
- * messages after the newest one it already has. Page loads and polls read this copy and never call Discord. A view
- * names a channel by its key (a hash of its id), never its id, and message text has ids, webhook URLs and mentions
- * masked. A server or DM that cannot be listed is skipped (its copy kept) and named in `skipped`; the rest still syncs.
+ * The board's copy of the Discord server's text channels, their public threads and the operator's DMs. A listing tick
+ * (every DISCOVER_MS) calls once per server for its roles, channels and active threads, once per copied channel for
+ * its archived threads (a 429 there stops only those, keeping the archived threads already copied), and once per DM;
+ * every other tick makes one call, asking the next channel or thread in turn only for the messages after the newest one
+ * it has (an archived thread is read once: it changes only when reopened, and the next listing then finds it active). Page loads and polls read this copy and never call Discord. A
+ * view names a channel by its key (a hash of its id), never its id, and message text has ids, webhook URLs and mentions
+ * masked. A server, DM or thread listing that fails is skipped (its copy kept) and named in `skipped`; the rest still
+ * syncs. A thread names its parent channel by key; `project` is the ~/.dori/projects.json alias for its id, read at
+ * each listing.
  */
-export type DiscordMessage = { at: number; author: string; mine: boolean; bot: boolean; text: string };
-export type DiscordChannel = { key: string; name: string; kind: "channel" | "dm"; messages: DiscordMessage[] };
+type Kind = "channel" | "dm" | "thread";
+export type DiscordChannel = {
+  key: string;
+  name: string;
+  kind: Kind;
+  parent?: string;
+  archived?: boolean;
+  locked?: boolean;
+  project?: string;
+  messages: DiscordMessage[];
+};
 export type DiscordView = {
   channels: DiscordChannel[];
   syncedAt: number | null;
@@ -27,62 +45,31 @@ export type DiscordBoard = {
   send(key: string, text: string): Promise<SendResult>;
 };
 
-type Stored = DiscordMessage & { id: string };
-type Kept = {
+type Kept = Omit<Partial<FoundThread>, "id" | "name"> & {
   key: string;
   name: string;
-  kind: "channel" | "dm";
+  kind: Kind;
   id: string;
   /** The guild (`guild:<id>`) or DM recipient (`dm:<id>`) it was listed under; a failed listing keeps that scope's copy. */
   scope?: string;
   after: string | null;
   denied: boolean;
-  messages: Stored[];
+  messages: (DiscordMessage & { id: string })[];
 };
-type Raw = {
-  id: string;
-  content?: string;
-  timestamp?: string;
-  author?: { id?: string; username?: string; global_name?: string | null; bot?: boolean };
-  mentions?: { id: string; username?: string; global_name?: string | null }[];
-  attachments?: { filename?: string }[];
-  embeds?: { title?: string; description?: string }[];
-};
+type Found = Omit<Kept, "key" | "after" | "denied" | "messages">;
 
 export const TICK_MS = 4_000;
 const DISCOVER_MS = 10 * 60_000;
 const RETRY_MS = 60_000;
-const KEEP = 100;
 const PAGE = 50;
-const TEXT_MAX = 4_000;
 export const SEND_MAX = 1_900;
 
-const later = (a: string, b: string): boolean => BigInt(a) > BigInt(b);
 /** A channel's key: a hash of its id, so it does not move with list order or a rename and never shows the id. */
-export const keyOf = (kind: "channel" | "dm", id: string): string =>
-  `${kind === "dm" ? "dm" : "c"}-${createHash("sha256").update(id).digest("hex").slice(0, 10)}`;
+export const keyOf = (kind: Kind, id: string): string =>
+  `${kind === "dm" ? "dm" : kind === "thread" ? "t" : "c"}-${createHash("sha256").update(id).digest("hex").slice(0, 10)}`;
 const good = (a: DiscordAnswer): boolean => a.status >= 200 && a.status < 300;
-const shape = (cs: Kept[]): string => JSON.stringify(cs.map((c) => [c.id, c.name, c.key, c.kind, c.denied]));
-const nameOf = (u: { username?: string; global_name?: string | null } | undefined): string =>
-  u?.global_name || u?.username || "알 수 없음";
-
-/** Message text a page may show: mentions as names, custom emoji as :name:, every id-like number and webhook masked. */
-export function maskText(m: Raw, channelNames: Map<string, string>): string {
-  const users = new Map((m.mentions ?? []).map((u) => [u.id, nameOf(u)]));
-  let t = m.content ?? "";
-  for (const a of m.attachments ?? []) t += `\n[첨부] ${a.filename ?? "파일"}`;
-  for (const e of m.embeds ?? [])
-    if (e.title || e.description) t += `\n[카드] ${[e.title, e.description].filter(Boolean).join(" · ")}`;
-  return t
-    .replace(/<@!?(\d+)>/g, (_, id: string) => `@${users.get(id) ?? "누군가"}`)
-    .replace(/<@&\d+>/g, "@역할")
-    .replace(/<#(\d+)>/g, (_, id: string) => `#${channelNames.get(id) ?? "채널"}`)
-    .replace(/<a?:(\w+):\d+>/g, ":$1:")
-    .replace(/https?:\/\/\S*discord(?:app)?\.com\/api\/webhooks\/\S+/gi, "(webhook)")
-    .replace(/\b\d{17,20}\b/g, "(ID)")
-    .trim()
-    .slice(0, TEXT_MAX);
-}
+const shape = (cs: Kept[]): string =>
+  JSON.stringify(cs.map((c) => [c.id, c.name, c.key, c.kind, c.denied, c.parent, c.archived, c.locked]));
 
 export function discordSync(
   home: string,
@@ -108,6 +95,7 @@ export function discordSync(
   let syncedAt: number | null = null;
   let error: string | null = null;
   let skipped: string[] = [];
+  let alias = projectAliases(home);
 
   const save = (): void => {
     version++;
@@ -123,32 +111,20 @@ export function discordSync(
     return false;
   };
   const names = (): Map<string, string> => new Map(channels.map((c) => [c.id, c.name]));
-
-  /** A message the board sent must not move the read cursor (`advance`): messages posted before it would be skipped. */
-  function merge(ch: Kept, raws: Raw[], advance: boolean): boolean {
-    const have = new Set(ch.messages.map((m) => m.id));
-    const fresh = raws.filter((r) => typeof r.id === "string" && !have.has(r.id));
-    for (const r of raws) if (advance && (ch.after === null || later(r.id, ch.after))) ch.after = r.id;
-    if (!fresh.length) return false;
-    const n = names();
-    for (const r of fresh)
-      ch.messages.push({
-        id: r.id,
-        at: Date.parse(r.timestamp ?? "") || o.now(),
-        author: nameOf(r.author),
-        mine: o.users.includes(r.author?.id ?? ""),
-        bot: r.author?.bot === true,
-        text: maskText(r, n),
-      });
-    ch.messages.sort((a, b) => (later(a.id, b.id) ? 1 : -1));
-    ch.messages = ch.messages.slice(-KEEP);
-    return true;
-  }
+  const merge = (ch: Kept, raws: Raw[], advance: boolean): boolean =>
+    mergeMessages(ch, raws, advance, { names: names(), users: o.users, now: o.now() });
+  /** A listed channel, DM or thread, keeping the messages and read cursor its copy already has. */
+  const kept = (f: Found): Kept => {
+    const old = channels.find((c) => c.id === f.id);
+    return { ...f, key: keyOf(f.kind, f.id), after: old?.after ?? null, denied: false, messages: old?.messages ?? [] };
+  };
 
   async function discover(): Promise<void> {
     discoveredAt = o.now();
-    const found: Pick<Kept, "id" | "name" | "kind" | "scope">[] = [];
+    alias = projectAliases(home);
+    const found: Found[] = [];
     const failed: string[] = [];
+    let limited = false;
     /** A 429 ends the listing (every call would wait); any other failure skips only this server or DM. */
     const skip = (what: string, a: DiscordAnswer, scope: string): boolean => {
       if (a.status === 429) return ok(a);
@@ -171,6 +147,24 @@ export function discordSync(
         .filter((c) => (c.type === 0 || c.type === 5) && everyoneSees(c, g.id, roles.body as GuildRole[]))
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
       for (const c of text) found.push({ id: c.id, name: c.name, kind: "channel", scope });
+      const ids = text.map((c) => c.id);
+      const t = await activeThreads(call, g.id, ids);
+      if (t.answer.status === 429) return void ok(t.answer);
+      // A failed listing keeps the threads already copied: all of them, or that channel's archived ones.
+      const old = channels.filter((c) => c.scope === scope && c.kind === "thread" && ids.includes(c.parent ?? ""));
+      if (!t.threads) {
+        skip("스레드", t.answer, `${scope}:none`);
+        found.push(...old);
+        continue;
+      }
+      const live = new Set(t.threads.map((x) => x.id));
+      for (const id of ids) {
+        const a: FoundThread[] | DiscordAnswer | null = limited ? null : await archivedThreads(call, id);
+        if (a && !Array.isArray(a) && a.status === 429) limited = !ok(a);
+        const got = Array.isArray(a) ? a : old.filter((c) => c.archived && c.parent === id);
+        found.push(...got.filter((x) => !live.has(x.id)).map((x) => ({ ...x, kind: "thread" as const, scope })));
+      }
+      found.push(...t.threads.map((x) => ({ ...x, kind: "thread" as const, scope })));
     }
     for (const user of o.users) {
       const scope = `dm:${user}`;
@@ -183,11 +177,7 @@ export function discordSync(
       found.push({ id: b.id, name: nameOf(b.recipients?.[0]), kind: "dm", scope });
     }
     const before = shape(channels);
-    channels = found.map((f) => {
-      const old = channels.find((c) => c.id === f.id);
-      const key = keyOf(f.kind, f.id);
-      return { ...f, key, after: old?.after ?? null, denied: false, messages: old?.messages ?? [] };
-    });
+    channels = capThreads(found.map(kept));
     skipped = failed;
     error = null;
     if (shape(channels) !== before) save();
@@ -211,7 +201,7 @@ export function discordSync(
     try {
       if (o.now() - discoveredAt > (channels.length ? DISCOVER_MS : RETRY_MS)) await discover();
       else {
-        const live = channels.filter((c) => !c.denied);
+        const live = channels.filter((c) => !c.denied && !(c.archived && c.after !== null));
         if (live.length) await poll(live[cursor++ % live.length]!);
       }
       if (!error) syncedAt = o.now();
@@ -223,7 +213,7 @@ export function discordSync(
   }
 
   async function send(key: string, text: string): Promise<SendResult> {
-    const ch = channels.find((c) => c.key === key && !c.denied);
+    const ch = channels.find((c) => c.key === key && !c.denied && !c.locked);
     if (!ch || o.now() < pausedUntil) return "failed";
     try {
       const body = { content: `**재일 (보드)** ${text}`.slice(0, 2000), allowed_mentions: { parse: [] } };
@@ -236,13 +226,23 @@ export function discordSync(
     }
   }
 
-  const view = (): DiscordView => ({
-    channels: channels
-      .filter((c) => !c.denied)
-      .map((c) => ({ key: c.key, name: c.name, kind: c.kind, messages: c.messages.map(({ id: _, ...m }) => m) })),
-    syncedAt,
-    error,
-    skipped,
-  });
+  const view = (): DiscordView => {
+    const keys = new Map(channels.map((c) => [c.id, c.key]));
+    // A thread whose parent is no longer copied has no row to sit under; it is left out.
+    const shown = (c: Kept): DiscordChannel | [] => {
+      const parent = keys.get(c.parent ?? "");
+      if (c.kind === "thread" && !parent) return [];
+      const project = alias.get(c.id);
+      return {
+        key: c.key,
+        name: c.name,
+        kind: c.kind,
+        ...(parent ? { parent, archived: c.archived === true, locked: c.locked === true } : {}),
+        ...(project ? { project } : {}),
+        messages: c.messages.map(({ id: _, ...m }) => m),
+      };
+    };
+    return { channels: channels.filter((c) => !c.denied).flatMap(shown), syncedAt, error, skipped };
+  };
   return { tick, send, view, stamp: () => version };
 }
