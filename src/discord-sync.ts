@@ -2,17 +2,30 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { DiscordAnswer, DiscordCall } from "./discord-api.ts";
+import { projectAliases } from "./board-projects.ts";
 import { everyoneSees, type GuildChannel, type GuildRole } from "./discord-perms.ts";
+import { nameOf, type Raw, maskText } from "./discord-text.ts";
+import { listThreads } from "./discord-threads.ts";
 
 /**
- * The board's copy of the Discord server's text channels and the operator's DMs. One timer tick makes at most one
- * call: the channel list is re-read every DISCOVER_MS, otherwise the next channel in turn is asked only for the
- * messages after the newest one it already has. Page loads and polls read this copy and never call Discord. A view
+ * The board's copy of the Discord server's text channels, their threads and the operator's DMs. One timer tick makes
+ * at most one call: the channel list is re-read every DISCOVER_MS, otherwise the next channel in turn is asked only for
+ * the messages after the newest one it already has. Page loads and polls read this copy and never call Discord. A view
  * names a channel by its key (a hash of its id), never its id, and message text has ids, webhook URLs and mentions
  * masked. A server or DM that cannot be listed is skipped (its copy kept) and named in `skipped`; the rest still syncs.
+ * A thread names its parent channel by key; `project` is the ~/.dori/projects.json alias given to its id.
  */
 export type DiscordMessage = { at: number; author: string; mine: boolean; bot: boolean; text: string };
-export type DiscordChannel = { key: string; name: string; kind: "channel" | "dm"; messages: DiscordMessage[] };
+type Kind = "channel" | "dm" | "thread";
+/** A thread's parent channel: its key in a view, its id in the copy. */
+type Threaded = { parent?: string; private?: boolean; archived?: boolean };
+export type DiscordChannel = Threaded & {
+  key: string;
+  name: string;
+  kind: Kind;
+  project?: string;
+  messages: DiscordMessage[];
+};
 export type DiscordView = {
   channels: DiscordChannel[];
   syncedAt: number | null;
@@ -28,10 +41,10 @@ export type DiscordBoard = {
 };
 
 type Stored = DiscordMessage & { id: string };
-type Kept = {
+type Kept = Threaded & {
   key: string;
   name: string;
-  kind: "channel" | "dm";
+  kind: Kind;
   id: string;
   /** The guild (`guild:<id>`) or DM recipient (`dm:<id>`) it was listed under; a failed listing keeps that scope's copy. */
   scope?: string;
@@ -39,50 +52,21 @@ type Kept = {
   denied: boolean;
   messages: Stored[];
 };
-type Raw = {
-  id: string;
-  content?: string;
-  timestamp?: string;
-  author?: { id?: string; username?: string; global_name?: string | null; bot?: boolean };
-  mentions?: { id: string; username?: string; global_name?: string | null }[];
-  attachments?: { filename?: string }[];
-  embeds?: { title?: string; description?: string }[];
-};
 
 export const TICK_MS = 4_000;
 const DISCOVER_MS = 10 * 60_000;
 const RETRY_MS = 60_000;
 const KEEP = 100;
 const PAGE = 50;
-const TEXT_MAX = 4_000;
 export const SEND_MAX = 1_900;
 
 const later = (a: string, b: string): boolean => BigInt(a) > BigInt(b);
 /** A channel's key: a hash of its id, so it does not move with list order or a rename and never shows the id. */
-export const keyOf = (kind: "channel" | "dm", id: string): string =>
-  `${kind === "dm" ? "dm" : "c"}-${createHash("sha256").update(id).digest("hex").slice(0, 10)}`;
+export const keyOf = (kind: Kind, id: string): string =>
+  `${kind === "dm" ? "dm" : kind === "thread" ? "t" : "c"}-${createHash("sha256").update(id).digest("hex").slice(0, 10)}`;
 const good = (a: DiscordAnswer): boolean => a.status >= 200 && a.status < 300;
-const shape = (cs: Kept[]): string => JSON.stringify(cs.map((c) => [c.id, c.name, c.key, c.kind, c.denied]));
-const nameOf = (u: { username?: string; global_name?: string | null } | undefined): string =>
-  u?.global_name || u?.username || "알 수 없음";
-
-/** Message text a page may show: mentions as names, custom emoji as :name:, every id-like number and webhook masked. */
-export function maskText(m: Raw, channelNames: Map<string, string>): string {
-  const users = new Map((m.mentions ?? []).map((u) => [u.id, nameOf(u)]));
-  let t = m.content ?? "";
-  for (const a of m.attachments ?? []) t += `\n[첨부] ${a.filename ?? "파일"}`;
-  for (const e of m.embeds ?? [])
-    if (e.title || e.description) t += `\n[카드] ${[e.title, e.description].filter(Boolean).join(" · ")}`;
-  return t
-    .replace(/<@!?(\d+)>/g, (_, id: string) => `@${users.get(id) ?? "누군가"}`)
-    .replace(/<@&\d+>/g, "@역할")
-    .replace(/<#(\d+)>/g, (_, id: string) => `#${channelNames.get(id) ?? "채널"}`)
-    .replace(/<a?:(\w+):\d+>/g, ":$1:")
-    .replace(/https?:\/\/\S*discord(?:app)?\.com\/api\/webhooks\/\S+/gi, "(webhook)")
-    .replace(/\b\d{17,20}\b/g, "(ID)")
-    .trim()
-    .slice(0, TEXT_MAX);
-}
+const shape = (cs: Kept[]): string =>
+  JSON.stringify(cs.map((c) => [c.id, c.name, c.key, c.kind, c.denied, c.parent, c.private, c.archived]));
 
 export function discordSync(
   home: string,
@@ -147,7 +131,7 @@ export function discordSync(
 
   async function discover(): Promise<void> {
     discoveredAt = o.now();
-    const found: Pick<Kept, "id" | "name" | "kind" | "scope">[] = [];
+    const found: Omit<Kept, "key" | "after" | "denied" | "messages">[] = [];
     const failed: string[] = [];
     /** A 429 ends the listing (every call would wait); any other failure skips only this server or DM. */
     const skip = (what: string, a: DiscordAnswer, scope: string): boolean => {
@@ -171,6 +155,12 @@ export function discordSync(
         .filter((c) => (c.type === 0 || c.type === 5) && everyoneSees(c, g.id, roles.body as GuildRole[]))
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
       for (const c of text) found.push({ id: c.id, name: c.name, kind: "channel", scope });
+      const ids = text.map((c) => c.id);
+      const t = await listThreads(call, g.id, ids);
+      if (t.limited) return void ok(t.limited);
+      if (t.failed) log(`DISCORD_SKIP 스레드 ${t.failed.status}`);
+      const kept = channels.filter((c) => c.scope === scope && c.kind === "thread");
+      found.push(...(t.failed ? kept : t.threads.map((x) => ({ ...x, kind: "thread" as const, scope }))));
     }
     for (const user of o.users) {
       const scope = `dm:${user}`;
@@ -236,13 +226,22 @@ export function discordSync(
     }
   }
 
-  const view = (): DiscordView => ({
-    channels: channels
-      .filter((c) => !c.denied)
-      .map((c) => ({ key: c.key, name: c.name, kind: c.kind, messages: c.messages.map(({ id: _, ...m }) => m) })),
-    syncedAt,
-    error,
-    skipped,
-  });
+  const view = (): DiscordView => {
+    const alias = projectAliases(home);
+    const keys = new Map(channels.map((c) => [c.id, c.key]));
+    const shown = (c: Kept): DiscordChannel => {
+      const parent = keys.get(c.parent ?? "");
+      const project = alias.get(c.id);
+      return {
+        key: c.key,
+        name: c.name,
+        kind: c.kind,
+        ...(parent ? { parent, private: c.private === true, archived: c.archived === true } : {}),
+        ...(project ? { project } : {}),
+        messages: c.messages.map(({ id: _, ...m }) => m),
+      };
+    };
+    return { channels: channels.filter((c) => !c.denied).map(shown), syncedAt, error, skipped };
+  };
   return { tick, send, view, stamp: () => version };
 }

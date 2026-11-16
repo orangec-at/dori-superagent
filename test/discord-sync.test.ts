@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discordSync, keyOf, maskText } from "../src/discord-sync.ts";
+import { discordSync, keyOf } from "../src/discord-sync.ts";
+import { maskText } from "../src/discord-text.ts";
 import { BASE, DM, DORI, FMV, fakeDiscord, GUILD, ME, msg, ok } from "./discord-fake.ts";
 
 test("mentions, channel links, custom emoji, ids and webhook URLs never reach the page", () => {
@@ -31,14 +32,20 @@ test("one call per tick: the channel list first, then each channel in turn, aski
   });
   const s = discordSync(home, d.call, { now: () => 1_000, users: [ME] });
   await s.tick();
-  expect(d.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+  const listed = () => d.calls.filter((c) => !c.path.includes("/threads/"));
+  expect(d.calls.map((c) => `${c.method} ${c.path}`)).toContain(`GET /guilds/${GUILD}/threads/active`);
+  expect(listed().map((c) => `${c.method} ${c.path}`)).toEqual([
     "GET /users/@me/guilds",
     `GET /guilds/${GUILD}/roles`,
     `GET /guilds/${GUILD}/channels`,
     "POST /users/@me/channels",
   ]);
   for (let i = 0; i < 4; i++) await s.tick();
-  expect(d.calls.slice(4).map((c) => c.path)).toEqual([
+  expect(
+    listed()
+      .slice(4)
+      .map((c) => c.path),
+  ).toEqual([
     `/channels/${DORI}/messages?limit=50`,
     `/channels/${FMV}/messages?limit=50`,
     `/channels/${DM}/messages?limit=50`,

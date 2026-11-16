@@ -10,7 +10,7 @@ import {
   repoOfCwd,
   type Subject,
 } from "../src/board-projects.ts";
-import { channelProject } from "../src/board-projects-html.ts";
+import { chanProject, channelProject } from "../src/board-projects-html.ts";
 import type { ProjectGroup } from "../src/board-state.ts";
 
 const W = "/home/b/workspace";
@@ -170,4 +170,32 @@ test("a channel belongs to the project named by its name, a prefix, a bot of it 
   expect(messageProject("fmv 승인 스레드 확인", projects)).toBe("vibeguard");
   expect(messageProject("dori-12 끝", projects)).toBe("dori-superagent");
   expect(messageProject("점심 뭐 먹지", projects)).toBeNull();
+});
+
+test("a thread belongs to its parent channel's project unless a projects.json alias for its id names another", () => {
+  const s = { projects: [group("vibeguard", { prefixes: ["fmv"] }), group("dori-superagent")], bots: [] };
+  const chan = (key: string, name: string, more = {}) => ({
+    key,
+    name,
+    kind: "thread" as const,
+    messages: [],
+    ...more,
+  });
+  const d = {
+    channels: [
+      { key: "c-fmv", name: "fmv", kind: "channel" as const, messages: [] },
+      chan("t-a", "승인 스레드", { parent: "c-fmv" }),
+      chan("t-b", "보드 작업", { parent: "c-fmv", project: "dori-superagent" }),
+      chan("t-c", "fmv-lost"),
+    ],
+    syncedAt: null,
+    error: null,
+    skipped: [],
+  };
+  expect(d.channels.map((c) => chanProject(c, d, s))).toEqual([
+    "vibeguard",
+    "vibeguard",
+    "dori-superagent",
+    "vibeguard",
+  ]);
 });

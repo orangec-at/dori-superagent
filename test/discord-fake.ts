@@ -27,7 +27,10 @@ export function fakeDiscord(routes: Record<string, DiscordAnswer | DiscordAnswer
 export const ok = (body: unknown): DiscordAnswer => ({ status: 200, body, retryAfter: 0 });
 export const fail = (status: number): DiscordAnswer => ({ status, body: null, retryAfter: 0 });
 
-/** One server whose @everyone may view channels (permissions 1024), two text channels and a voice one, and one DM. */
+/**
+ * One server whose @everyone may view channels (permissions 1024), two text channels and a voice one, no threads, and
+ * one DM.
+ */
 export const BASE = {
   "GET /users/@me/guilds": ok([{ id: GUILD, name: "workspace-jelly" }]),
   [`GET /guilds/${GUILD}/roles`]: ok([{ id: GUILD, name: "@everyone", permissions: "1024" }]),
@@ -36,5 +39,6 @@ export const BASE = {
     { id: DORI, name: "dori", type: 0, position: 1 },
     { id: "900000000000000013", name: "voice", type: 2, position: 3 },
   ]),
+  [`GET /guilds/${GUILD}/threads/active`]: ok({ threads: [] }),
   "POST /users/@me/channels": ok({ id: DM, recipients: [{ username: "jaeil", global_name: "Jaeil Lee" }] }),
 };
