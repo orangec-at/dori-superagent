@@ -53,7 +53,8 @@ function face(a: LinkActor, imgs: Record<string, string>): string {
 
 /** The phone list (also the list column on wide screens): the operator's channels, then each actor as a card. */
 export function linksList(s: LinkSnapshot | null, imgs: Record<string, string>): string {
-  if (!s) return `<p class="note">아직 연결 정보를 모으지 않았어요. lead가 dori agents map 을 실행하면 보여요.</p>`;
+  if (!s)
+    return `<p class="note">아직 연결 정보를 모으지 않았어요. 매시 loop가 돌거나 lead가 dori agents map 을 실행하면 보여요.</p>`;
   const lead = s.actors.find((a) => a.kind === "lead");
   const card = (a: LinkActor): string => {
     const chips = [

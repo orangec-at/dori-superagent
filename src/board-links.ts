@@ -5,14 +5,14 @@ import type { Agent } from "./agents.ts";
 import { agentsOrNone } from "./board-avatars.ts";
 import { hermesScript, OMO_SCRIPT, parseHermes, parseOmo } from "./board-links-read.ts";
 import { boardRepo } from "./loop-board.ts";
-import type { Exec } from "./runtime/exec.ts";
+import type { Exec, ExecOptions } from "./runtime/exec.ts";
 import { isOn, leadState, loadLeads, type StandingLead } from "./standing.ts";
 import type { Store } from "./store.ts";
 
 /**
  * The board's connection map: who runs where, on which CLI and model, and over which channels the operator, the lead,
- * its lanes and the bots reach each other. `dori agents map` collects it into DORI_HOME/board-links.json and the board
- * only reads that file. Other machines are read over ssh, read-only. Only names leave a machine: a model and provider
+ * its lanes and the bots reach each other. The hourly loop (refreshLinks) and `dori agents map` collect it into
+ * DORI_HOME/board-links.json and the board only reads that file. Other machines are read over ssh, read-only. Only names leave a machine: a model and provider
  * name, whether a channel's credential is set (never its value), never a token, key, webhook URL or channel id.
  */
 
@@ -49,10 +49,10 @@ export const computerOf = (host: string, local: string): string => (host === "" 
 
 type Run = (host: string, script: string) => Promise<string | null>;
 const runner =
-  (exec: Exec): Run =>
+  (exec: Exec, onSpawn?: ExecOptions["onSpawn"]): Run =>
   async (host, script) => {
     const argv = host === "" ? ["-c", script] : ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host, script];
-    const r = await exec(host === "" ? "sh" : "ssh", argv).catch(() => null);
+    const r = await exec(host === "" ? "sh" : "ssh", argv, onSpawn ? { onSpawn } : undefined).catch(() => null);
     return r && r.code === 0 ? r.stdout : null;
   };
 
@@ -94,11 +94,12 @@ function standingLeads(home: string): StandingLead[] {
   }
 }
 
-export type CollectOptions = { now: number; agentCmd: string; local?: string };
+/** `onSpawn` gets every sh/ssh process it starts, so a caller that gives up can kill them. */
+export type CollectOptions = { now: number; agentCmd: string; local?: string; onSpawn?: ExecOptions["onSpawn"] };
 
 /** Reads every actor's machine once and returns the map; nothing is written. */
 export async function collectLinks(exec: Exec, store: Store, o: CollectOptions): Promise<LinkSnapshot> {
-  const run = runner(exec);
+  const run = runner(exec, o.onSpawn);
   const home = store.root;
   const local = o.local ?? hostname().split(".")[0]!;
   const cli = basename(o.agentCmd.split(" ")[0] ?? o.agentCmd);
