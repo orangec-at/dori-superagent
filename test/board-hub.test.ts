@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectHub, metricDefs, readHub, refreshHub, saveHub } from "../src/board-hub.ts";
@@ -33,7 +33,7 @@ function home(projects: unknown): Store {
  * gh lists the repo's PRs; a metric arrives as `timeout -k 2 <s> sh -c <cmd>` and answers per command, `sleep 999`
  * like timeout itself (exit 124 at its limit); `hang` gh never answers until killed.
  */
-function machine(o: { gh?: "ok" | "fail" | "hang" } = {}) {
+function machine(o: { gh?: "ok" | "fail" | "hang"; view?: Record<number, string> } = {}) {
   const calls: string[] = [];
   const killed: string[] = [];
   const exec: Exec = async (cmd, argv, options) => {
@@ -52,6 +52,13 @@ function machine(o: { gh?: "ok" | "fail" | "hang" } = {}) {
           },
         }),
       );
+    if (cmd === "gh" && argv[1] === "view") {
+      const n = Number(argv[2]);
+      const state = o.view?.[n];
+      return state
+        ? { code: 0, stdout: JSON.stringify({ number: n, state, mergedAt: null, closedAt: null }), stderr: "" }
+        : { code: 1, stdout: "", stderr: "no pull requests found" };
+    }
     if (cmd === "gh")
       return o.gh === "fail"
         ? { code: 1, stdout: "", stderr: "HTTP 502" }
@@ -121,20 +128,72 @@ test("one gh call per repo gives each PR's state; a metric shows its first line,
   ]);
 });
 
-test("a metric past its limit leaves no process behind, the pipe's other end included", async () => {
-  const store = new Store(mkdtempSync(join(tmpdir(), "dori-hub-real-")));
-  const marker = `sleep 37.${process.pid % 1000}`;
-  writeFileSync(
-    join(store.root, "board.json"),
-    JSON.stringify({ projects: { p: { metrics: [{ name: "멈춤", cmd: `${marker} | cat` }] } } }),
-  );
-  const h = await collectHub(spawnExec, store, null, { now: NOW, metricTimeoutMs: 200 });
-  expect(h.metrics["p"]?.[0]?.value).toBeNull();
-  const alive = async (): Promise<boolean> => (await spawnExec("pgrep", ["-f", `^${marker}$`])).code === 0;
-  const deadline = Date.now() + 3000;
-  while ((await alive()) && Date.now() < deadline) await Bun.sleep(50);
-  expect(await alive()).toBe(false);
+test("a file metric is read only inside DORI_HOME: an absolute path, .. or a link out shows null", async () => {
+  const outside = mkdtempSync(join(tmpdir(), "dori-hub-out-"));
+  writeFileSync(join(outside, "secret.txt"), "token-123\n");
+  const store = home({
+    coupas: {
+      metrics: [
+        { name: "안", file: "n/posts.txt" },
+        { name: "절대", file: join(outside, "secret.txt") },
+        { name: "위로", file: `../${outside.split("/").at(-1)}/secret.txt` },
+        { name: "링크", file: "out.txt" },
+      ],
+    },
+  });
+  mkdirSync(join(store.root, "n"));
+  writeFileSync(join(store.root, "n", "posts.txt"), "17\n");
+  symlinkSync(join(outside, "secret.txt"), join(store.root, "out.txt"));
+  const h = await collectHub(machine().exec, store, null, { now: NOW });
+  expect(h.metrics["coupas"]?.map((x) => [x.name, x.value])).toEqual([
+    ["안", "17"],
+    ["절대", null],
+    ["위로", null],
+    ["링크", null],
+  ]);
 });
+
+test("a lane's PR the list of 200 misses is read once with gh pr view; one known merged is not read again", async () => {
+  const store = home({});
+  const lane = store.lanes()[0]!;
+  const pr = (n: number): string => `https://github.com/orangec-at/coupas/pull/${n}`;
+  const text = `${pr(5)} ${pr(9)} ${pr(2)} ${pr(4)}`;
+  store.saveLane({ ...lane, log: [{ at: NOW - 60_000, kind: "report", text }] });
+  const merged = { state: "MERGED" as const, mergedAt: NOW - 30 * DAY, closedAt: NOW - 30 * DAY };
+  const last = { generatedAt: NOW - DAY, prs: { "orangec-at/coupas#2": merged }, metrics: {} };
+  const m = machine({ view: { 9: "CLOSED" } });
+  const h = await collectHub(m.exec, store, last, { now: NOW });
+  expect(m.calls.filter((c) => c.startsWith("gh")).sort()).toEqual([
+    "gh pr list --repo orangec-at/coupas",
+    "gh pr view 4 --repo",
+    "gh pr view 9 --repo",
+  ]);
+  expect(h.prs["orangec-at/coupas#9"]).toEqual({ state: "CLOSED", mergedAt: null, closedAt: null });
+  expect(h.prs["orangec-at/coupas#2"]).toEqual(merged);
+  expect(h.prs["orangec-at/coupas#4"]).toBeUndefined();
+});
+
+/**
+ * Real `timeout`, `flock` and `pgrep`: Linux only. Every process the metric starts holds a lock on one open file, so
+ * the test's own `flock` returns once the last of them has exited (or at once when none started), with no polling.
+ */
+test.skipIf(process.platform !== "linux")(
+  "a metric past its limit leaves no process behind, the pipe's other end included",
+  async () => {
+    const store = new Store(mkdtempSync(join(tmpdir(), "dori-hub-real-")));
+    const marker = `sleep 37.${process.pid % 1000}`;
+    const lock = join(store.root, "held.lock");
+    const cmd = `exec 9>>${lock}; flock 9; ${marker} | cat`;
+    writeFileSync(
+      join(store.root, "board.json"),
+      JSON.stringify({ projects: { p: { metrics: [{ name: "멈춤", cmd }] } } }),
+    );
+    const h = await collectHub(spawnExec, store, null, { now: NOW, metricTimeoutMs: 200 });
+    expect(h.metrics["p"]?.[0]?.value).toBeNull();
+    expect((await spawnExec("flock", ["-w", "5", lock, "true"])).code).toBe(0);
+    expect((await spawnExec("pgrep", ["-f", `^${marker}$`])).code).toBe(1);
+  },
+);
 
 test("a repo gh cannot read keeps the states the last collection had; another repo's are dropped", async () => {
   const store = home({});

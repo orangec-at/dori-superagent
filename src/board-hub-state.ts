@@ -16,7 +16,8 @@ export const BADGE_WORD: Record<Badge, string> = {
 };
 export type Decision = { title: string; sub: string; href: string };
 export type HubEventKind = "start" | "ready" | "done" | "lost" | "backlog" | "merged" | "talk";
-export type HubEvent = { at: number; kind: HubEventKind; text: string };
+/** `href`: where the row leads (a talk row opens its Discord channel). */
+export type HubEvent = { at: number; kind: HubEventKind; text: string; href?: string };
 
 const WEEK_MS = 7 * 86_400_000;
 const NEXT_LANES = 2;
@@ -114,6 +115,15 @@ export function briefTitle(path: string, key: string): string | null {
   }
   const t = head?.replace(new RegExp(`^(?:lane\\s+)?${reEscape(key)}\\s*[:—-]\\s*`, "i"), "").trim();
   return t || null;
+}
+
+/**
+ * The brief title as a project's purpose; one that only names a PR (`PR #32 후속`, `#31 리뷰`) says nothing of the work, so the
+ * lane key leads it.
+ */
+export function lanePurpose(path: string, key: string): string | null {
+  const t = briefTitle(path, key);
+  return t && /^(?:PR\s*)?#\d+/i.test(t) ? `${key} — ${t}` : t;
 }
 
 export type PrState = HubPr["state"] | null;

@@ -3,7 +3,7 @@ import { type BotCard, botCards, firstLine } from "./board-bots.ts";
 import { type ChatMessage, chatTail } from "./board-chat.ts";
 import { agentsOrNone, avatarUrls } from "./board-avatars.ts";
 import { type Hub, readHub } from "./board-hub.ts";
-import { askText, briefTitle, type HubEvent, itemEvents, laneEvents } from "./board-hub-state.ts";
+import { askText, type HubEvent, itemEvents, laneEvents, lanePurpose } from "./board-hub-state.ts";
 import { missionState } from "./board-missions.ts";
 import { routines } from "./board-mission-sources.ts";
 import type { Mission, MissionCard, Routine } from "./board-mission-types.ts";
@@ -95,10 +95,12 @@ export function boardState(store: Store, now: number): BoardState {
     cwd: l.cwd,
     repos: lanePrs(l).flatMap((p) => (p.repo ? [p.repo] : [])),
   });
-  const projectOf = projectResolver(seeds, projectAliases(store.root), [
+  const subjects: Subject[] = [
     ...lanes.map(laneSubject),
     ...items.map((i) => ({ key: i.id, cwd: i.cwd, repos: [], title: i.title })),
-  ]);
+  ];
+  const projectOf = projectResolver(seeds, projectAliases(store.root), subjects);
+  const places = new Set([...seeds.map((p) => p.name), ...subjects.map(projectOf)]);
   const groups = new Map<string, ProjectGroup>();
   const group = (name: string): ProjectGroup => {
     const found = groups.get(name);
@@ -124,8 +126,34 @@ export function boardState(store: Store, now: number): BoardState {
     groups.set(name, g);
     return g;
   };
+  /** The project a repo itself belongs to (yogaday.love → yogaday), by the same rules as work. */
+  const repoHome = new Map<string, string>();
+  const homeOf = (repo: string): string => {
+    const r = repo.toLowerCase();
+    if (!repoHome.has(r)) repoHome.set(r, projectOf({ key: "", cwd: "", repos: [r] }));
+    return repoHome.get(r)!;
+  };
+  /** A repo of another project that is on the board (a seed or where some work sits): not this project's repo. */
+  const foreign = (repo: string, name: string): boolean => {
+    const h = homeOf(repo);
+    return h !== name && h !== OTHER && places.has(h);
+  };
+  const shownLanes = lanes.filter((l) => l.status !== "done" || now - l.lastActivityAt < WEEK_MS);
+  const nameOf = new Map(shownLanes.map((l) => [l.key, projectOf(laneSubject(l))]));
+  const prId = (p: Pr): string => `${p.repo?.toLowerCase()}#${p.num}`;
+  /** The PRs each project's shown lanes name. */
+  const cited = new Map<string, Set<string>>();
+  for (const l of shownLanes)
+    for (const p of lanePrs(l)) {
+      const n = nameOf.get(l.key)!;
+      cited.set(n, (cited.get(n) ?? new Set()).add(prId(p)));
+    }
+  /** A PR in another project's repo that a lane of that project also names shows there only (yogaday.love#87). */
+  const elsewhere = (p: Pr, name: string): boolean =>
+    p.repo !== null && foreign(p.repo, name) && (cited.get(homeOf(p.repo))?.has(prId(p)) ?? false);
   const attention: ProjectLane[] = [];
   for (const l of lanes) {
+    const name = nameOf.get(l.key) ?? projectOf(laneSubject(l));
     const entry = l.log.at(-1);
     const latest = entry?.kind === "start" || entry?.kind === "adopt" ? "시작함" : entry?.text;
     const last = l.status === "ready" || l.status === "done" ? (l.final?.text ?? latest) : latest;
@@ -135,14 +163,17 @@ export function boardState(store: Store, now: number): BoardState {
       at: l.lastActivityAt,
       first: firstLine(last ?? ""),
       full: last ?? "",
-      prs: lanePrs(l),
+      prs: lanePrs(l).filter((p) => !elsewhere(p, name)),
       escalated: l.status === "working" && l.nudges >= NUDGE_MINUTES.length,
     };
     if (l.status === "done" && now - l.lastActivityAt >= WEEK_MS) continue;
-    const g = group(projectOf(laneSubject(l)));
+    const g = group(name);
     g.at = Math.max(g.at, l.lastActivityAt);
     g.events.push(...laneEvents(l, now));
-    for (const p of pl.prs) if (p.repo && !g.repos.includes(p.repo.toLowerCase())) g.repos.push(p.repo.toLowerCase());
+    for (const p of pl.prs) {
+      const r = p.repo?.toLowerCase();
+      if (r && !foreign(r, name) && !g.repos.includes(r)) g.repos.push(r);
+    }
     if (l.status === "done") {
       g.recent.push(pl);
       if (now - l.lastActivityAt < DAY_MS) g.done.push(pl);
@@ -184,7 +215,7 @@ export function boardState(store: Store, now: number): BoardState {
     g.backlog.sort((a, b) => a.priority - b.priority);
     const newest = g.lanes[0] ?? g.recent[0];
     const lane = newest ? lanes.find((l) => l.key === newest.key) : undefined;
-    g.purpose = g.note ?? (lane ? briefTitle(lane.brief, lane.key) : null);
+    g.purpose = g.note ?? (lane ? lanePurpose(lane.brief, lane.key) : null);
   }
   const open = asks(store.root).filter((a) => a.status === "open");
   for (const a of open) {
