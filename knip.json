@@ -4,7 +4,10 @@
     "skills/dori-mode/scripts/src/cli.ts",
     "test/**/*.test.ts",
     "skills/dori-mode/scripts/test/**/*.test.ts",
-    "skills/dori-mode/scripts/test/record-fetch.ts"
+    "skills/dori-mode/scripts/test/record-fetch.ts",
+    "test/tmp-sandbox.ts",
+    "skills/dori-mode/scripts/test/tmp-sandbox.ts",
+    "scripts/check-tmp-leak.ts"
   ],
   "project": [
     "src/**/*.ts",
