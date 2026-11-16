@@ -122,7 +122,7 @@ export function handOut(
     recordAssignment(home, { ...base, kind: "backlog", item: id });
     return `backlog ${id} (${t.text})`;
   }
-  const bot = t.bot ?? r.owners[0];
+  const bot = taskBot(r, t);
   if (bot === undefined) return `${t.text}: 담당 봇이 없음`;
   if (!bots.has(bot)) return `${t.text}: ${bot}가 agents.json에 없어 넘기지 않음`;
   const mission = `autopilot-${r.project}`;
@@ -130,6 +130,9 @@ export function handOut(
   recordAssignment(home, { ...base, kind: "delegate", bot });
   return `${bot}에게 위임 (${t.text})`;
 }
+
+/** Who does a delegate task: its `@bot`, else the project's first owner. */
+export const taskBot = (r: Roadmap, t: RoadmapTask): string | undefined => t.bot ?? r.owners[0];
 
 export const delegateText = (r: Roadmap, t: RoadmapTask): string =>
   `${taskTag(r.project, t.id)} ${t.text}\n\n${taskContext(r)}\n끝나면 결과 파일 경로나 링크를 회신해.`;

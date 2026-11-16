@@ -62,15 +62,21 @@ const PERSON_ONLY: readonly [RegExp, string][] = [
     /게시|발행|업로드|올려|올리기|올리고|포스팅|제출|\bpublish\w*|\bpost(?:s|ed|ing)?\s+(?:to|on)\b|\bupload\w*|\bsubmit\w*/gi,
     "게시",
   ],
-  [/병합|머지|\bmerg\w*/gi, "병합"],
+  [
+    /병합|머지|\bmerg\w*|\bforce[- ]?push\w*|\bpush(?:es|ed|ing)?\s+(?:to\b|-f\b|--force)|\b(?:main|master|origin)\b[^.,;\n]{0,10}(?:푸시|push)|(?:푸시|push)[^.,;\n]{0,10}\b(?:main|master|origin)\b/gi,
+    "병합",
+  ],
   [/배포|릴리스|\bdeploy\w*|\brelease\w*|\bota\b|\bship(?:s|ped|ping)?\b/gi, "배포"],
   [/결제|구매|\bpay(?:s|ment\w*|ing)?\b|\bpurchas\w*|\bbilling\b/gi, "결제"],
   [/삭제|지우기|지워|\bdelet\w*|\bdrop\s+table\b|\bwip(?:e|es|ed|ing)\b/gi, "데이터 삭제"],
   [/개인 계정|재일 님 계정|\bpersonal account\b/gi, "재일 님 개인 계정 글"],
 ];
 
-/** A Korean keyword is forbidden, not asked, only when a prohibition follows it in the same clause ("게시는 하지 마"). */
-const KO_FORBIDS = /^[^.,!?;\n]{0,15}?(?:지\s*마|지\s*말|말\s*것|금지|않)/;
+/**
+ * A Korean keyword is forbidden, not asked, only when a prohibition is attached right to it ("게시는 하지 마",
+ * "게시하지 말고", "배포 금지"). Anything looser ("게시하고 반응이 좋지 않으면") counts as a request.
+ */
+const KO_FORBIDS = /^(?:은|는|을|를|도)?\s*(?:하지\s*마|하지\s*말|말\s*것|금지)/;
 /** An English keyword is forbidden only when the prohibition is right before it ("don't publish"). */
 const EN_FORBIDS = /\b(?:don'?t|do not|never|no)\s+$/i;
 

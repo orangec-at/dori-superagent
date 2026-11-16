@@ -17,6 +17,18 @@ describe("autostart: a free slot goes to the next item without waiting for the h
     expect(d.store.item("fresh")!.log.at(-1)!.text).toBe("lane opened by autostart after backlog add");
   });
 
+  test("autostart keeps to the limits the running dori loop was started with (--max-lanes)", async () => {
+    const { d, add } = setup();
+    expect(await main(["loop", "--once", "--max-lanes", "1", "--max-starts", "0"], d)).toBe(0);
+    add("one");
+    add("two");
+    expect(await startNow(d, "test")).toEqual([]);
+    expect(await main(["loop", "--once", "--max-lanes", "1", "--max-starts", "2"], d)).toBe(0);
+    expect(await startNow(d, "test")).toEqual(["started one (p5)"]);
+    expect(await startNow(d, "test")).toEqual([]);
+    expect(d.store.item("two")!.status).toBe("open");
+  });
+
   test("an autostart failure never changes the exit code of the command that ran first", async () => {
     const { d, brief } = setup();
     const broken = {

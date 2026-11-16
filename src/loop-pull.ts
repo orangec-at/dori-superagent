@@ -1,5 +1,6 @@
 // Pull: start the next backlog items that need no decision, within the lane, load and memory limits. The hourly loop
 // runs it once an hour; autostart.ts runs it right after `dori backlog add`, `dori done` and on each duty pass.
+import { readFileSync, writeFileSync } from "node:fs";
 import { log } from "./backlog.ts";
 import type { Deps } from "./harness.ts";
 import { startLane } from "./lanes.ts";
@@ -35,6 +36,26 @@ export const pullCandidates = (d: Deps) =>
     .sort((a, b) => a.priority - b.priority || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
 
 export type PullLimits = { maxLanes: number; maxStarts: number; maxLoad: number | undefined };
+
+/** The limits the running `dori loop` was started with (its flags or env), so autostart keeps to the same ones. */
+export function saveLoopLimits(d: Deps, lim: PullLimits): void {
+  writeFileSync(d.store.loopPath("limits.json"), `${JSON.stringify(lim)}\n`);
+}
+
+/** What saveLoopLimits wrote; undefined when no loop has run in this home or the file is unreadable. */
+export function loopLimits(d: Deps): PullLimits | undefined {
+  try {
+    const v = JSON.parse(readFileSync(d.store.loopPath("limits.json"), "utf8")) as Partial<PullLimits>;
+    if (typeof v.maxLanes !== "number" || typeof v.maxStarts !== "number") return undefined;
+    return {
+      maxLanes: v.maxLanes,
+      maxStarts: v.maxStarts,
+      maxLoad: typeof v.maxLoad === "number" ? v.maxLoad : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * `by`: who opened the lane, for the item's log ("the hourly loop", "autostart after backlog add", ...).

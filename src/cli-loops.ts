@@ -7,6 +7,7 @@ import type { Deps } from "./harness.ts";
 import { Refusal } from "./refusal.ts";
 import { HOUR, type LoopOpts, loopTick, msUntilNext, summary } from "./loop.ts";
 import { acquire, release } from "./loop-lock.ts";
+import { saveLoopLimits } from "./loop-pull.ts";
 import { onTerm, type Term } from "./loop-term.ts";
 import { autoSelfUpdate, spawnSelfUpdate } from "./self-update-run.ts";
 
@@ -120,6 +121,7 @@ export async function runLoop(
       "--interval and --max-load must be finite positive numbers; --max-lanes and --max-starts whole numbers >= 0",
     );
   }
+  saveLoopLimits(d, { maxLanes: opts.maxLanes, maxStarts: opts.maxStarts, maxLoad: opts.maxLoad });
   const term = newTerm();
   try {
     return await loopPasses(d, a, opts, term, startSelfUpdate);

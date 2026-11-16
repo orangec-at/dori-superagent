@@ -45,13 +45,13 @@ Tasks are `- [ ]` (open) and `- [x]` (done) lines anywhere in the file:
 
 - `@bot` names who does it. Without it, any owner may take it.
 - `[pr]` at the start makes it lane work: a backlog item whose lane ends in a PR. Without it, it is a bot delegation (documents, content, research).
-- A task that asks for something only a person may do is never handed out. That covers 게시/발행/업로드/올리기/포스팅/제출, 병합/merge, 배포/release/deploy/OTA, 결제, 삭제, and 재일 님 개인 계정 글, including English inflections (published, deploying, merging). The check fails closed. A mention counts as a request unless a prohibition attaches to it: a Korean one right after it in the same clause ("게시는 하지 마", "게시하지 말고 …"), or an English one right before it ("don't publish"). "don't forget to publish" is a request. Write such a task anyway if it belongs on the roadmap, and a person picks it up.
+- A task that asks for something only a person may do is never handed out. That covers 게시/발행/업로드/올리기/포스팅/제출, 병합/merge and pushing to main/master/origin or force-pushing, 배포/release/deploy/OTA, 결제, 삭제, and 재일 님 개인 계정 글, including English inflections (published, deploying, merging). The check fails closed. A mention counts as a request unless a prohibition is attached right to it: a Korean one directly after it ("게시는 하지 마", "게시하지 말고 …", "배포 금지"), or an English one right before it ("don't publish"). "게시하고 반응이 좋지 않으면" and "게시·Muse 전달은 하지 마" count as requests. "don't forget to publish" is a request. Write such a task anyway if it belongs on the roadmap, and a person picks it up.
 - `담당` names that do not look like bot names (a leading `-`, a space) are dropped, and work goes only to bots listed in `agents.json`.
 - A task is handed out once. Check it off (`[x]`) when it is done. Changing its text makes it a new task.
 
 ## 1. Autostart
 
-`startNow` runs the hourly loop's pull step: same candidates (open, no decision, priority then age), same limits (`DORI_MAX_LANES`, default 3; `DORI_MAX_STARTS` per pass, default 2; 1-minute load at most `DORI_MAX_LOAD` or the core count; at least 10% memory free), and the same loop lock, so it never races the hourly loop. It runs:
+`startNow` runs the hourly loop's pull step: same candidates (open, no decision, priority then age), same limits, and the same loop lock, so it never races the hourly loop. The limits are the ones the running `dori loop` was started with. It records them in `loop/limits.json`, so its `--max-lanes`, `--max-starts` and `--max-load` flags hold for autostart too. Before any loop has run, autostart falls back to `DORI_MAX_LANES` (default 3), `DORI_MAX_STARTS` per pass (default 2), and `DORI_MAX_LOAD` or the core count for the 1-minute load; at least 10% memory must be free. It runs:
 
 - right after `dori backlog add` (prints `AUTOSTART started <id>`),
 - right after `dori done <key>`, since the done lane's slot is free,
@@ -78,7 +78,7 @@ Once an hour, outside 01:00 to 08:00 KST, each project's newest activity is comp
 - `[REPORT <project> 정체] N시간째 활동 없음 (마지막: <source> <time>). 자동 생성: ...` to the lead,
 - its next open task handed out: a `[pr]` task becomes backlog item `ap-<project>-<task>` (brief in `autopilot/briefs/`, cwd `경로`), which autostart opens in the same pass; any other task is delegated to its `@bot` or the first owner.
 
-A stall is reported at most once a day. Each git or gh call is killed after 10 seconds, and the projects are checked in parallel, so a hung network holds a duty pass for seconds, not minutes. Sources that fail (gh down, no checkout, timeout) are skipped. Posts made outside dori are not visible yet. Note them by editing the roadmap, since an edit counts as activity.
+When the bot that would take a stalled project's delegate task is busy (a delegation running, or one handed out within its 30-minute timeout, this pass's idle hand-outs included), the project waits for the next hourly check instead of giving that bot a second delegation. A stall is reported at most once a day. Each git or gh call is killed after 10 seconds, and the projects are checked in parallel, so a hung network holds a duty pass for seconds, not minutes. Sources that fail (gh down, no checkout, timeout) are skipped. Posts made outside dori are not visible yet. Note them by editing the roadmap, since an edit counts as activity.
 
 ## Files and the board
 

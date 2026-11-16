@@ -17,7 +17,7 @@ import {
   recordAssignment,
   writeJson,
 } from "./autopilot-store.ts";
-import { delegateText, handOut, lastActivity, nextTask, STALL_HOURS } from "./autopilot-stall.ts";
+import { delegateText, handOut, lastActivity, nextTask, STALL_HOURS, taskBot } from "./autopilot-stall.ts";
 import { CLI, type Deps } from "./harness.ts";
 import { tellLead } from "./inbox.ts";
 import { loadRoadmaps, type Roadmap } from "./roadmap.ts";
@@ -132,6 +132,11 @@ async function checkStalls(d: Deps, roadmaps: readonly Roadmap[], launch: Launch
   const runs = delegateRuns(home);
   const out: string[] = [];
   const handed = readAssignments(home);
+  // A bot still running a delegation, or handed one within its timeout (this pass's idle hand-outs included), is busy:
+  // the stalled project waits for the next check rather than giving it a second delegation at once.
+  const busy = new Set([...botActivity(runs, now)].filter(([, a]) => a.busy).map(([bot]) => bot));
+  for (const [, a] of assignmentState(handed).latest)
+    if (a.kind === "delegate" && a.bot !== undefined && now - a.at < DELEGATE_TIMEOUT_S * 1000) busy.add(a.bot);
   const acts = await Promise.all(roadmaps.map((r) => lastActivity(d, r, runs, handed)));
   for (const [i, r] of roadmaps.entries()) {
     const act = acts[i]!;
@@ -139,6 +144,8 @@ async function checkStalls(d: Deps, roadmaps: readonly Roadmap[], launch: Launch
     const reported = state.stallReportedAt[r.project];
     if (now - act.at < STALL_HOURS * HOUR || (reported !== undefined && now - reported < STALL_HOURS * HOUR)) continue;
     const t = nextTask(r, assignedKeys(home));
+    const bot = t?.kind === "delegate" ? taskBot(r, t) : undefined;
+    if (bot !== undefined && busy.has(bot)) continue;
     const made = t === undefined ? undefined : handOut(d, r, t, launch, new Set(botNames(home) ?? []));
     state.stallReportedAt[r.project] = now;
     const hours = Math.floor((now - act.at) / HOUR);
