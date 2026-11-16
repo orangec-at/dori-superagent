@@ -3,17 +3,41 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** One piece of roadmap work the autopilot handed out: to a bot (delegate) or to the backlog (a lane, then a PR). */
+/**
+ * One line of assignments.jsonl. `delegate` / `backlog`: roadmap work handed to a bot or to the backlog (a lane, then
+ * a PR). `release`: that delegation failed (`outcome`), so the task may be handed out again; with `final` it failed
+ * too often and stays held until a person edits the roadmap.
+ */
 export type Assignment = {
   readonly at: number;
   readonly project: string;
   readonly task: string;
   readonly text: string;
   readonly reason: "idle" | "stall";
-  readonly kind: "delegate" | "backlog";
+  readonly kind: "delegate" | "backlog" | "release";
   readonly bot?: string;
   readonly item?: string;
+  readonly outcome?: string;
+  readonly final?: boolean;
 };
+
+export const assignmentKey = (a: { project: string; task: string }): string => `${a.project}:${a.task}`;
+
+/** Each task's newest line, and how many times it was released. A task is held unless its newest line is a release. */
+export function assignmentState(list: readonly Assignment[]): {
+  latest: Map<string, Assignment>;
+  releases: Map<string, number>;
+  held: Set<string>;
+} {
+  const latest = new Map<string, Assignment>();
+  const releases = new Map<string, number>();
+  for (const a of list) {
+    latest.set(assignmentKey(a), a);
+    if (a.kind === "release") releases.set(assignmentKey(a), (releases.get(assignmentKey(a)) ?? 0) + 1);
+  }
+  const held = new Set([...latest].filter(([, a]) => a.kind !== "release" || a.final).map(([k]) => k));
+  return { latest, releases, held };
+}
 
 export type ProjectActivity = { readonly at: number; readonly source: string };
 
@@ -84,6 +108,21 @@ export type DelegateRun = {
   /** When the run ended: its `endedAt`, or its start for lines written before endedAt existed. */
   readonly endedAt?: number;
 };
+
+/** A finished delegation from delegations.jsonl: who, the first 200 characters of its text, and how it ended. */
+export type DelegateEnd = {
+  readonly agent: string;
+  readonly text: string;
+  readonly at: number;
+  readonly outcome: string;
+};
+
+export const delegateEnds = (home: string): DelegateEnd[] =>
+  jsonLines(join(home, "delegations.jsonl")).flatMap((e) =>
+    typeof e["agent"] === "string" && typeof e["text"] === "string" && !Number.isNaN(ms(e["at"]))
+      ? [{ agent: e["agent"], text: e["text"], at: ms(e["at"]), outcome: String(e["outcome"]) }]
+      : [],
+  );
 
 const ms = (v: unknown): number => (typeof v === "string" ? Date.parse(v) : Number.NaN);
 

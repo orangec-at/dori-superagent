@@ -1,7 +1,7 @@
 import { backlogAdd, backlogDecide, backlogDrop, backlogImport, backlogPriority, IMPORT_LIMIT } from "./backlog.ts";
 import { need, one, textOf, USAGE, type Args } from "./cli-args.ts";
 import { autopilotStatus } from "./autopilot.ts";
-import { startNow } from "./autostart.ts";
+import { startAfter } from "./autostart.ts";
 import { dutyTick } from "./duty.ts";
 import type { Deps } from "./harness.ts";
 import { Refusal } from "./refusal.ts";
@@ -188,7 +188,7 @@ export async function runBacklog(d: Deps, a: Args, x: string | undefined): Promi
       ...(p !== undefined ? { priority: Number(p) } : {}),
     });
     console.log(`ADDED ${item.id} p${item.priority}${item.decision ? " (needs decision)" : ""}`);
-    for (const line of await startNow(d, "autostart after backlog add")) console.log(`AUTOSTART ${line}`);
+    for (const line of await startAfter(d, "autostart after backlog add")) console.log(`AUTOSTART ${line}`);
   } else if (x === "list" || x === undefined) {
     for (const i of d.store.items()) {
       console.log(

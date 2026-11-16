@@ -1,11 +1,13 @@
 // The autopilot, run on each duty pass: a bot idle for hours gets the next task of a project it owns, and a project
 // silent for a day is reported to the lead and handed its next task. Every hand-out is recorded, and status.json
 // shows the whole picture to the board. See docs/autopilot.md.
-import { spawn } from "node:child_process";
-import { closeSync, openSync } from "node:fs";
+import { type ChildProcess, spawn } from "node:child_process";
+import { closeSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { loadAgents } from "./agents.ts";
+import { checkOutcomes } from "./autopilot-outcomes.ts";
 import {
+  assignmentState,
   autopilotDir,
   autopilotStopped,
   botActivity,
@@ -40,38 +42,53 @@ export const quietHour = (now: number): boolean => {
 
 export type Launch = (bot: string, text: string, mission?: string) => void;
 
-/** Starts `dori delegate` as its own process, so a bot's long answer never holds up the duty loop. */
+/**
+ * Starts `dori delegate` as its own process, so a bot's long answer never holds up the duty loop. Its output goes to
+ * autopilot/delegate.log; the parent closes its copy of the log right away. `cli`: the dori entry (tests pass a stub).
+ */
+export function startDelegate(d: Deps, bot: string, text: string, mission?: string, cli = CLI): ChildProcess {
+  mkdirSync(autopilotDir(d.store.root), { recursive: true });
+  const log = openSync(join(autopilotDir(d.store.root), "delegate.log"), "a");
+  const argv = [cli, "delegate", bot, "--text", text, "--timeout", String(DELEGATE_TIMEOUT_S)];
+  if (mission !== undefined) argv.push("--mission", mission);
+  const env = { ...process.env, DORI_HOME: d.store.root };
+  try {
+    const child = spawn(process.execPath, argv, { detached: true, stdio: ["ignore", log, log], env });
+    child.unref();
+    return child;
+  } finally {
+    closeSync(log);
+  }
+}
+
 export const spawnDelegate =
   (d: Deps): Launch =>
   (bot, text, mission) => {
-    const log = openSync(join(autopilotDir(d.store.root), "delegate.log"), "a");
-    const argv = [CLI, "delegate", bot, "--text", text, "--timeout", String(DELEGATE_TIMEOUT_S)];
-    if (mission !== undefined) argv.push("--mission", mission);
-    const env = { ...process.env, DORI_HOME: d.store.root };
-    try {
-      spawn(process.execPath, argv, { detached: true, stdio: ["ignore", log, log], env }).unref();
-    } finally {
-      closeSync(log);
-    }
+    startDelegate(d, bot, text, mission);
   };
 
-const assignedKeys = (home: string): Set<string> => new Set(readAssignments(home).map((a) => `${a.project}:${a.task}`));
+const assignedKeys = (home: string): Set<string> => assignmentState(readAssignments(home)).held;
+
+/** The bots agents.json names; none when it cannot be read (nothing is handed out then). */
+function botNames(home: string): string[] | undefined {
+  try {
+    return loadAgents(home).map((a) => a.name);
+  } catch {
+    return undefined;
+  }
+}
 
 /** One task per idle bot: the first open task of the first project (by name) that names it or lists it as owner. */
 function assignIdle(d: Deps, roadmaps: readonly Roadmap[], launch: Launch): string[] {
   const home = d.store.root;
   const now = d.now();
-  let names: string[];
-  try {
-    names = loadAgents(home).map((a) => a.name);
-  } catch {
-    return ["agents.json을 읽을 수 없어 유휴 봇 배정을 건너뜀"];
-  }
+  const names = botNames(home);
+  if (names === undefined) return ["agents.json을 읽을 수 없어 유휴 봇 배정을 건너뜀"];
   const activity = botActivity(delegateRuns(home), now);
   const assigned = assignedKeys(home);
   const lastHanded = new Map<string, number>();
   for (const a of readAssignments(home))
-    if (a.bot !== undefined) lastHanded.set(a.bot, Math.max(lastHanded.get(a.bot) ?? 0, a.at));
+    if (a.bot !== undefined && a.kind !== "release") lastHanded.set(a.bot, Math.max(lastHanded.get(a.bot) ?? 0, a.at));
   const out: string[] = [];
   for (const bot of names) {
     const act = activity.get(bot);
@@ -122,7 +139,7 @@ async function checkStalls(d: Deps, roadmaps: readonly Roadmap[], launch: Launch
     const reported = state.stallReportedAt[r.project];
     if (now - act.at < STALL_HOURS * HOUR || (reported !== undefined && now - reported < STALL_HOURS * HOUR)) continue;
     const t = nextTask(r, assignedKeys(home));
-    const made = t === undefined ? undefined : handOut(d, r, t, launch);
+    const made = t === undefined ? undefined : handOut(d, r, t, launch, new Set(botNames(home) ?? []));
     state.stallReportedAt[r.project] = now;
     const hours = Math.floor((now - act.at) / HOUR);
     out.push(
@@ -144,7 +161,7 @@ export function autopilotStatus(d: Deps): Record<string, unknown> {
   const now = d.now();
   const assignments = readAssignments(home);
   const state = readState(home);
-  const handed = new Map(assignments.map((a) => [`${a.project}:${a.task}`, a]));
+  const handed = assignmentState(assignments).latest;
   const activity = botActivity(delegateRuns(home), now);
   return {
     at: new Date(now).toISOString(),
@@ -181,9 +198,14 @@ export async function autopilotTick(d: Deps, launch: Launch = spawnDelegate(d)):
     ...(idleDue ? { idleCheckAt: now } : {}),
     ...(stallDue ? { stallCheckAt: now } : {}),
   });
+  const failed = idleDue ? checkOutcomes(d) : [];
   const assigned = idleDue ? assignIdle(d, roadmaps, launch) : [];
   const stalls = stallDue ? await checkStalls(d, roadmaps, launch) : [];
-  const lines = [...(assigned.length ? [`[AUTOPILOT] 유휴 봇 배정: ${assigned.join("; ")}`] : []), ...stalls];
+  const lines = [
+    ...failed,
+    ...(assigned.length ? [`[AUTOPILOT] 유휴 봇 배정: ${assigned.join("; ")}`] : []),
+    ...stalls,
+  ];
   for (const line of lines) await tellLead(d, line, "duty");
   writeJson(home, "status.json", autopilotStatus(d));
   return lines;

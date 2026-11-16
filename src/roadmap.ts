@@ -53,32 +53,42 @@ const FIELDS: Record<string, "goal" | "owners" | "repo" | "path" | "keywords" | 
   done: "doneWhen",
 };
 
-/** What the autopilot never hands out: these stay drafts until a person acts. English words match whole words only. */
+/**
+ * What the autopilot never hands out: these stay drafts until a person acts. Korean words and English stems match any
+ * inflection ("publishing", "merged"); when in doubt a task counts as person-only (fail closed).
+ */
 const PERSON_ONLY: readonly [RegExp, string][] = [
-  [/게시|발행|업로드|\b(?:publish|post to|upload)\b/i, "게시"],
-  [/병합|머지|\bmerge\b/i, "병합"],
-  [/배포|릴리스|\b(?:deploy|release|ota)\b/i, "배포"],
-  [/결제|구매|\b(?:payment|purchase|billing)\b/i, "결제"],
-  [/삭제|지우기|\b(?:delete|drop table|wipe)\b/i, "데이터 삭제"],
-  [/개인 계정|재일 님 계정|\bpersonal account\b/i, "재일 님 개인 계정 글"],
+  [
+    /게시|발행|업로드|올려|올리기|올리고|포스팅|제출|\bpublish\w*|\bpost(?:s|ed|ing)?\s+(?:to|on)\b|\bupload\w*|\bsubmit\w*/gi,
+    "게시",
+  ],
+  [/병합|머지|\bmerg\w*/gi, "병합"],
+  [/배포|릴리스|\bdeploy\w*|\brelease\w*|\bota\b|\bship(?:s|ped|ping)?\b/gi, "배포"],
+  [/결제|구매|\bpay(?:s|ment\w*|ing)?\b|\bpurchas\w*|\bbilling\b/gi, "결제"],
+  [/삭제|지우기|지워|\bdelet\w*|\bdrop\s+table\b|\bwip(?:e|es|ed|ing)\b/gi, "데이터 삭제"],
+  [/개인 계정|재일 님 계정|\bpersonal account\b/gi, "재일 님 개인 계정 글"],
 ];
 
-/** "X하지 말고 Y해": X is forbidden, Y is asked. The split keeps Y, so a request after a prohibition still counts. */
-const BUT_NOT = /하지 ?말고|말고|\binstead of\b/i;
-const NEGATED = /하지 ?마|하지 ?말|말 것|금지|않는다|않기|\bdon'?t\b|\bdo not\b|\bnever\b/i;
+/** A Korean keyword is forbidden, not asked, only when a prohibition follows it in the same clause ("게시는 하지 마"). */
+const KO_FORBIDS = /^[^.,!?;\n]{0,15}?(?:지\s*마|지\s*말|말\s*것|금지|않)/;
+/** An English keyword is forbidden only when the prohibition is right before it ("don't publish"). */
+const EN_FORBIDS = /\b(?:don'?t|do not|never|no)\s+$/i;
 
-/** The person-only action a task asks for; a clause that forbids it ("게시는 하지 마") does not count. */
+/** The person-only action a task asks for, or undefined. Each mention counts unless a prohibition attaches to it. */
 export const personOnly = (text: string): string | undefined => {
-  const asked = text
-    .split(/[.!?\n;]|,\s|\(|\)/)
-    .map((clause) => {
-      const m = BUT_NOT.exec(clause);
-      return m ? clause.slice(m.index + m[0].length) : clause;
-    })
-    .filter((clause) => !NEGATED.test(clause))
-    .join(" ");
-  return PERSON_ONLY.find(([re]) => re.test(asked))?.[1];
+  for (const [re, label] of PERSON_ONLY) {
+    for (const m of text.matchAll(re)) {
+      const after = text.slice(m.index + m[0].length);
+      const before = text.slice(0, m.index);
+      const forbidden = /^[a-z]/i.test(m[0]) ? EN_FORBIDS.test(before) : KO_FORBIDS.test(after);
+      if (!forbidden) return label;
+    }
+  }
+  return undefined;
 };
+
+/** Bot names as agents.json allows them; anything else (a leading "-", a space) is dropped from `담당`. */
+export const BOT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const list = (v: string): string[] =>
   v
@@ -132,7 +142,7 @@ export function parseRoadmap(project: string, file: string, text: string, edited
     file,
     title,
     goal: fields.goal ?? "",
-    owners: list(fields.owners ?? ""),
+    owners: list(fields.owners ?? "").filter((o) => BOT_NAME.test(o)),
     ...(fields.repo ? { repo: fields.repo } : {}),
     ...(fields.path ? { path: expandHome(fields.path) } : {}),
     keywords: [...new Set([project, ...list(fields.keywords ?? "")])],

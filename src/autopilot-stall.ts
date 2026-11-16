@@ -5,6 +5,7 @@ import { sep } from "node:path";
 import { backlogAdd } from "./backlog.ts";
 import type { Deps } from "./harness.ts";
 import type { Assignment, DelegateRun, ProjectActivity } from "./autopilot-store.ts";
+import { taskTag } from "./autopilot-outcomes.ts";
 import { recordAssignment, writeBrief } from "./autopilot-store.ts";
 import type { Roadmap, RoadmapTask } from "./roadmap.ts";
 import { KEY_RE } from "./store-types.ts";
@@ -99,6 +100,7 @@ export function handOut(
   r: Roadmap,
   t: RoadmapTask,
   launch: (bot: string, text: string, mission?: string) => void,
+  bots: ReadonlySet<string>,
 ): string {
   const home = d.store.root;
   const base = { at: d.now(), project: r.project, task: t.id, text: t.text, reason: "stall" as const };
@@ -122,6 +124,7 @@ export function handOut(
   }
   const bot = t.bot ?? r.owners[0];
   if (bot === undefined) return `${t.text}: 담당 봇이 없음`;
+  if (!bots.has(bot)) return `${t.text}: ${bot}가 agents.json에 없어 넘기지 않음`;
   const mission = `autopilot-${r.project}`;
   launch(bot, delegateText(r, t), KEY_RE.test(mission) ? mission : undefined);
   recordAssignment(home, { ...base, kind: "delegate", bot });
@@ -129,4 +132,4 @@ export function handOut(
 }
 
 export const delegateText = (r: Roadmap, t: RoadmapTask): string =>
-  `[autopilot ${r.project}] ${t.text}\n\n${taskContext(r)}\n끝나면 결과 파일 경로나 링크를 회신해.`;
+  `${taskTag(r.project, t.id)} ${t.text}\n\n${taskContext(r)}\n끝나면 결과 파일 경로나 링크를 회신해.`;

@@ -39,8 +39,20 @@ export async function startNow(d: Deps, by: string, limits: PullLimits = envLimi
   }
 }
 
+/**
+ * startNow for a command that already did its own job (`dori backlog add`, `dori done`): an autostart failure becomes
+ * one "failed: ..." line and never changes the command's outcome or exit code.
+ */
+export async function startAfter(d: Deps, by: string, limits: PullLimits = envLimits()): Promise<string[]> {
+  try {
+    return await startNow(d, by, limits);
+  } catch (e) {
+    return [`failed: ${e instanceof Error ? e.message : String(e)}`];
+  }
+}
+
 /** `dori done`, then the freed slot goes to the next waiting item at once. */
 export async function doneThenStart(d: Deps, key: string, limits: PullLimits = envLimits()): Promise<string[]> {
   await done(d, key);
-  return startNow(d, `autostart after ${key} was done`, limits);
+  return startAfter(d, `autostart after ${key} was done`, limits);
 }

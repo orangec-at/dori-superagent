@@ -17,6 +17,18 @@ describe("autostart: a free slot goes to the next item without waiting for the h
     expect(d.store.item("fresh")!.log.at(-1)!.text).toBe("lane opened by autostart after backlog add");
   });
 
+  test("an autostart failure never changes the exit code of the command that ran first", async () => {
+    const { d, brief } = setup();
+    const broken = {
+      ...d,
+      host: () => {
+        throw new Error("host unreadable");
+      },
+    };
+    expect(await main(["backlog", "add", "kept", "--brief", brief, "--cwd", d.store.root], broken)).toBe(0);
+    expect(d.store.item("kept")!.status).toBe("open");
+  });
+
   test("keeps the 3-lane limit, and dori done hands the freed slot to the next item", async () => {
     const { w, d, add } = setup();
     for (const id of ["a1", "a2", "a3", "a4"]) add(id);
