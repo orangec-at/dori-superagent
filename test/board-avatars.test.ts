@@ -53,13 +53,15 @@ test("a picture outside DORI_HOME is never used: an absolute path, a `..` path o
   const { home: h } = home();
   const out = join(mkdtempSync(join(tmpdir(), "dori-out-")), "x.png");
   writeFileSync(out, PNG);
-  symlinkSync(out, join(h, "avatars", "yoridori.png"));
-  const agents = loadAgents(h).map((a) =>
-    a.name === "endo" ? { ...a, avatar: out } : a.name === "panbungi" ? { ...a, avatar: relative(h, out) } : a,
-  );
+  symlinkSync(out, join(h, "avatars", "lead.png"));
+  writeFileSync(join(h, "..yoridori.png"), PNG);
+  const avatar: Record<string, string> = { endo: out, panbungi: relative(h, out), yoridori: "..yoridori.png" };
+  const agents = loadAgents(h).map((a) => ({ ...a, avatar: avatar[a.name]! }));
   expect(avatarFile(h, "endo", agents)).toBe(join(h, "avatars", "endo.png"));
   expect(avatarFile(h, "panbungi", agents)).toBe(join(h, "avatars", "panbungi.png"));
-  expect(avatarFile(h, "yoridori", agents)).toBeNull();
+  expect(avatarFile(h, "lead", agents)).toBeNull();
+  // A name that merely starts with `..` is still inside DORI_HOME.
+  expect(avatarFile(h, "yoridori", agents)).toBe(join(h, "..yoridori.png"));
 });
 
 test("the board serves the pictures and shows them in the list, the phone strip, the detail pane and the mission map", async () => {

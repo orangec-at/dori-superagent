@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { type Agent, loadAgents } from "./agents.ts";
 import type { Exec } from "./runtime/exec.ts";
 
 /**
  * Bot pictures on the board. The board shows agents.json `avatar` (a path inside DORI_HOME, relative to it or absolute),
  * else DORI_HOME/avatars/<name>.<png|jpg|jpeg|webp>; `lead` is the lead's own picture. A file that resolves outside
- * DORI_HOME (`..`, a symlink out) is never served. Without one a row keeps its letter circle. `dori agents avatars` fills DORI_HOME/avatars: the bot's Discord account picture, else its hermes
- * profile's assets/avatar.png.
+ * DORI_HOME (`..`, a symlink out) is never served. Without one a row keeps its letter circle. `dori agents avatars`
+ * fills DORI_HOME/avatars: the bot's Discord account picture, else its hermes profile's assets/avatar.png.
  */
 
 const TYPES: Record<string, string> = {
@@ -20,10 +20,10 @@ const MAX_BYTES = 2 * 1024 * 1024;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const dir = (home: string): string => join(home, "avatars");
-/** The real path of an existing file is inside DORI_HOME's real path. */
-const inHome = (home: string, file: string): boolean => {
-  const rel = relative(realpathSync(home), realpathSync(file));
-  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+/** The real path of an existing file is inside `realHome` (DORI_HOME's real path); `..foo.png` is a name inside. */
+const inHome = (realHome: string, file: string): boolean => {
+  const rel = relative(realHome, realpathSync(file));
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 };
 
 /** The picture file of a bot (or `lead`), or null: only an existing image file under 2 MB counts. */
@@ -34,9 +34,10 @@ export function avatarFile(home: string, name: string, agents: Agent[]): string 
     ...(given ? [resolve(home, given)] : []),
     ...Object.keys(TYPES).map((ext) => join(dir(home), `${name}${ext}`)),
   ];
+  const realHome = realpathSync(home);
   return (
     candidates.find((p) => {
-      if (!TYPES[extname(p).toLowerCase()] || !existsSync(p) || !inHome(home, p)) return false;
+      if (!TYPES[extname(p).toLowerCase()] || !existsSync(p) || !inHome(realHome, p)) return false;
       const st = statSync(p);
       return st.isFile() && st.size > 0 && st.size <= MAX_BYTES;
     }) ?? null

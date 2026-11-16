@@ -209,10 +209,11 @@ test("a retry that succeeds clears a failure; old lanes leave; Muse needs the re
 
 test("evidence that is not a web link or a board path is shown as text", async () => {
   const { store, url } = seeded();
-  for (const bad of ["javascript:alert(1)", "/\\evil.example", "//evil.example"]) {
-    store.saveLane({ ...store.lane("vg-web")!, final: { text: "x", evidence: [bad], at: NOW } });
+  const bads = ["javascript:alert(1)", "/\\evil.example", "//evil.example", "/\t/evil.example", "/\n/evil.example"];
+  for (const href of [...bads, "/?c=lead"]) {
+    store.saveLane({ ...store.lane("vg-web")!, final: { text: "x", evidence: [href], at: NOW } });
     const page = await (await fetch(`${url}/?c=lane:vg-web`, { headers: tailnet() })).text();
-    expect(page).not.toContain(`href="${bad}`);
+    expect(page.includes(`<a href="${href}">`)).toBe(href === "/?c=lead");
   }
 });
 

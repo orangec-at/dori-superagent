@@ -51,10 +51,16 @@ const isRow = (id: string): boolean => id === "lead" || /^(bot|lane|standing):/.
 const rowHref = (id: string): string => `/?c=${encodeURIComponent(id)}`;
 /** A mission opens at its top (#mtop): the page otherwise scrolls a record to its newest message. */
 export const missionHref = (id: string): string => `/?m=${encodeURIComponent(id)}#mtop`;
-/** Only a web link or a board path becomes a link: lane evidence is free text. `//x` and `/\x` are other hosts. */
+const BOARD = "http://board.invalid";
+/**
+ * Only a web link or a board path becomes a link: lane evidence is free text. A path counts only when the browser's own
+ * parsing keeps it on the board (`//x`, `/\x` and `/<tab>/x` are other hosts).
+ */
 const linked = (href: string | null, html: string): string => {
   if (href && /^https?:\/\//.test(href)) return `<a href="${esc(href)}" rel="noopener" target="_blank">${html}</a>`;
-  return href && /^\/(?![/\\])/.test(href) ? `<a href="${esc(href)}">${html}</a>` : html;
+  return href?.startsWith("/") && URL.parse(href, BOARD)?.origin === BOARD
+    ? `<a href="${esc(href)}">${html}</a>`
+    : html;
 };
 
 /** The mission card at the top of a bot, standing lead or lane record. */
