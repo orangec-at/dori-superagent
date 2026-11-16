@@ -9,6 +9,7 @@ function fakeCopy(result: "sent" | "failed" = "sent") {
   const view: DiscordView = {
     syncedAt: Date.UTC(2026, 10, 13, 0, 59),
     error: null,
+    skipped: [],
     channels: [
       {
         key: "dori",

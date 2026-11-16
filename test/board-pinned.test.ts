@@ -101,6 +101,7 @@ test("the 프로젝트 tab lists the channels, with their new-message count, abo
     channels: [chan("dori", [false, false, false]), chan("fmv", [false, true])],
     syncedAt: NOW,
     error: null,
+    skipped: [],
   };
   const list = projectsList(s, d, viewOf(new URLSearchParams("tab=proj")), NOW);
   expect(list.indexOf("#dori")).toBeLessThan(list.indexOf("corpus"));

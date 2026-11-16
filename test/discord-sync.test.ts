@@ -2,44 +2,8 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { DiscordAnswer, DiscordCall } from "../src/discord-api.ts";
-import { discordSync, maskText } from "../src/discord-sync.ts";
-
-const GUILD = "900000000000000001";
-const DORI = "900000000000000011";
-const FMV = "900000000000000012";
-const DM = "900000000000000099";
-const ME = "800000000000000001";
-const msg = (id: string, content: string, author = { id: ME, username: "jaeil" }) => ({
-  id,
-  content,
-  timestamp: "2026-11-16T00:00:00.000Z",
-  author,
-});
-
-/** A Discord that answers from `routes` (path -> answer, or a list taken in order) and records every call. */
-function fakeDiscord(routes: Record<string, DiscordAnswer | DiscordAnswer[]>) {
-  const calls: { path: string; method: string; body?: unknown }[] = [];
-  const call: DiscordCall = async (path, init) => {
-    calls.push({ path, method: init?.method ?? "GET", ...(init ? { body: init.body } : {}) });
-    const key = `${init?.method ?? "GET"} ${path}`;
-    const r = routes[key] ?? routes[`${init?.method ?? "GET"} ${path.split("?")[0]}`];
-    const answer = Array.isArray(r) ? r.shift() : r;
-    return answer ?? { status: 404, body: null, retryAfter: 0 };
-  };
-  return { call, calls };
-}
-const ok = (body: unknown): DiscordAnswer => ({ status: 200, body, retryAfter: 0 });
-
-const BASE = {
-  "GET /users/@me/guilds": ok([{ id: GUILD, name: "workspace-jelly" }]),
-  [`GET /guilds/${GUILD}/channels`]: ok([
-    { id: FMV, name: "fmv", type: 0, position: 2 },
-    { id: DORI, name: "dori", type: 0, position: 1 },
-    { id: "900000000000000013", name: "voice", type: 2, position: 3 },
-  ]),
-  "POST /users/@me/channels": ok({ id: DM, recipients: [{ username: "jaeil", global_name: "Jaeil Lee" }] }),
-};
+import { discordSync, keyOf, maskText } from "../src/discord-sync.ts";
+import { BASE, DM, DORI, FMV, fakeDiscord, GUILD, ME, msg, ok } from "./discord-fake.ts";
 
 test("mentions, channel links, custom emoji, ids and webhook URLs never reach the page", () => {
   const text = maskText(
@@ -69,21 +33,22 @@ test("one call per tick: the channel list first, then each channel in turn, aski
   await s.tick();
   expect(d.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
     "GET /users/@me/guilds",
+    `GET /guilds/${GUILD}/roles`,
     `GET /guilds/${GUILD}/channels`,
     "POST /users/@me/channels",
   ]);
   for (let i = 0; i < 4; i++) await s.tick();
-  expect(d.calls.slice(3).map((c) => c.path)).toEqual([
+  expect(d.calls.slice(4).map((c) => c.path)).toEqual([
     `/channels/${DORI}/messages?limit=50`,
     `/channels/${FMV}/messages?limit=50`,
     `/channels/${DM}/messages?limit=50`,
     `/channels/${DORI}/messages?limit=50&after=1002`,
   ]);
   const v = s.view();
-  expect(v.channels.map((c) => [c.key, c.kind, c.messages.map((m) => m.text)])).toEqual([
+  expect(v.channels.map((c) => [c.name, c.kind, c.messages.map((m) => m.text)])).toEqual([
     ["dori", "channel", ["하나", "둘", "셋"]],
     ["fmv", "channel", ["fmv 시작"]],
-    ["dm-Jaeil Lee", "dm", []],
+    ["Jaeil Lee", "dm", []],
   ]);
   expect(v.channels[0]!.messages[0]).toMatchObject({ author: "jaeil", mine: true, bot: false });
   expect(v.channels[1]!.messages[0]).toMatchObject({ author: "endo", mine: false, bot: true });
@@ -117,7 +82,7 @@ test("a 429 pauses every call for retry_after; a channel the bot may not read is
   now = 31_000;
   await s.tick();
   await s.tick();
-  expect(s.view().channels.map((c) => c.key)).toEqual(["dori"]);
+  expect(s.view().channels.map((c) => c.name)).toEqual(["dori"]);
   expect(s.view().error).toBeNull();
 });
 
@@ -137,7 +102,7 @@ test("a message sent from the board is posted without pings, shown at once, and 
   const s = discordSync(home, d.call, { now: () => 0, users: [ME] });
   await s.tick();
   await s.tick();
-  expect(await s.send("dori", "안녕")).toBe("sent");
+  expect(await s.send(keyOf("channel", DORI), "안녕")).toBe("sent");
   expect(d.calls.at(-1)).toEqual({
     path: `/channels/${DORI}/messages`,
     method: "POST",
@@ -170,7 +135,7 @@ test("a private channel is not copied; a listing that changed nothing does not r
   });
   const s = discordSync(home, d.call, { now: () => now, users: [] });
   await s.tick();
-  expect(s.view().channels.map((c) => c.key)).toEqual(["dori", "open"]);
+  expect(s.view().channels.map((c) => c.name)).toEqual(["dori", "open"]);
   expect(statSync(join(home, "board", "discord-cache.json")).mode & 0o777).toBe(0o600);
   const stamp = s.stamp();
   now = 11 * 60_000;
@@ -189,6 +154,6 @@ test("while a 429 pause lasts, a board message is refused without calling Discor
   await s.tick();
   await s.tick();
   const before = d.calls.length;
-  expect(await s.send("dori", "hi")).toBe("failed");
+  expect(await s.send(keyOf("channel", DORI), "hi")).toBe("failed");
   expect(d.calls.length).toBe(before);
 });
