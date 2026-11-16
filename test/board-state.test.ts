@@ -3,15 +3,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { askAdd, askClose } from "../src/asks.ts";
-import {
-  assignmentOf,
-  boardState,
-  DEFAULT_PROJECTS,
-  delegateSummary,
-  firstLine,
-  kstDate,
-  projectOf,
-} from "../src/board-state.ts";
+import { assignmentOf, delegateSummary, firstLine, kstDate } from "../src/board-bots.ts";
+import { boardState, DEFAULT_PROJECTS, projectOf } from "../src/board-state.ts";
 import { Store } from "../src/store.ts";
 import type { Item, Lane } from "../src/store-types.ts";
 
@@ -149,7 +142,16 @@ test("board state: open asks, lanes needing the operator, bot cards and lanes gr
 test("a home without agents.json, assignment file or delegation log still renders empty bot cards", () => {
   const root = mkdtempSync(join(tmpdir(), "dori-board-empty-"));
   const store = new Store(root);
-  expect(boardState(store, NOW)).toEqual({ generatedAt: NOW, asks: [], attention: [], bots: [], projects: [] });
+  expect(boardState(store, NOW)).toEqual({
+    generatedAt: NOW,
+    standing: [],
+    standingError: null,
+    chat: [],
+    asks: [],
+    attention: [],
+    bots: [],
+    projects: [],
+  });
   writeFileSync(join(root, "agents.json"), JSON.stringify(AGENTS.slice(1, 2)));
   expect(boardState(store, NOW).bots).toEqual([
     { name: "endo", label: "엔도", role: "review", today: null, result: null, lastDelegate: null },

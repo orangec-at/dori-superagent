@@ -1,0 +1,125 @@
+import type { ProjectGroup } from "./board-state.ts";
+import type { Row, Section } from "./board-status.ts";
+import { ago, esc, mark } from "./board-thread-html.ts";
+
+export type Tab = "work" | "pr" | "backlog";
+export type Filter = "all" | "mine" | "working";
+/** What the page shows: the list tab, its filter, and the selected row (null: the list alone on a phone). */
+export type View = { tab: Tab; f: Filter; c: string | null };
+
+export function viewOf(params: URLSearchParams): View {
+  const tab = params.get("tab");
+  const f = params.get("f");
+  return {
+    tab: tab === "pr" || tab === "backlog" ? tab : "work",
+    f: f === "mine" || f === "working" ? f : "all",
+    c: params.get("c"),
+  };
+}
+
+export function hrefOf(v: View, over: Partial<View> = {}): string {
+  const n = { ...v, ...over };
+  const q = new URLSearchParams();
+  if (n.tab !== "work") q.set("tab", n.tab);
+  if (n.f !== "all") q.set("f", n.f);
+  if (n.c) q.set("c", n.c);
+  const s = q.toString();
+  return s ? `/?${s}` : "/";
+}
+
+const SECTIONS: [Section, string][] = [
+  ["needs", "재일 님 차례"],
+  ["unread", "새 결과"],
+  ["working", "작업 중"],
+  ["revisit", "다시 볼 것"],
+  ["idle", "쉬는 중"],
+];
+
+const rowTarget = (r: Row): string => (r.kind === "ask" ? "lead" : r.id);
+
+function rowLink(r: Row, v: View, now: number, selected: string | null): string {
+  const target = rowTarget(r);
+  const anchor = r.kind === "ask" ? `#${esc(r.id.replace(":", "-"))}` : "";
+  return `<a class="row${target === selected && r.kind !== "ask" ? " on" : ""}" href="${esc(hrefOf(v, { c: target }))}${anchor}">${mark(r)}<span class="rb">
+<span class="rt"><b>${esc(r.title)}</b>${r.prs[0] ? `<span class="pr">⑂ #${r.prs[0].num}</span>` : ""}<span class="ago">${r.at ? ago(now, r.at) : ""}</span></span>
+<span class="rs"><span class="proj">${esc(r.project)}</span> <span class="w s-${r.section}">${esc(r.word)}</span> · ${esc(r.line)}</span></span></a>`;
+}
+
+function workTab(rows: Row[], v: View, now: number, selected: string | null): string {
+  const [lead, ...rest] = rows;
+  const mine = rest.filter((r) => r.section === "needs");
+  const working = rest.filter((r) => r.section === "working");
+  const chip = (f: Filter, label: string, n: number): string =>
+    `<a class="chip${v.f === f ? " on" : ""}${f === "mine" && n ? " hot" : ""}" href="${esc(hrefOf(v, { f }))}">${label} ${n}</a>`;
+  const chips = `<nav class="chips">${chip("all", "전체", rest.length)}${chip("mine", "내 차례", mine.length)}${chip("working", "작업 중", working.length)}</nav>`;
+  const shown = v.f === "mine" ? mine : v.f === "working" ? working : rest;
+  const sections = SECTIONS.map(([s, label]) => {
+    const list = shown.filter((r) => r.section === s);
+    if (!list.length) return "";
+    const head = `<span class="${s === "needs" ? "needs" : ""}">${label} <span>${list.length}</span></span>`;
+    const links = list.map((r) => rowLink(r, v, now, selected)).join("");
+    return s === "idle"
+      ? `<details class="sec"><summary>${head}</summary>${links}</details>`
+      : `<h3 class="sec">${head}</h3>${links}`;
+  }).join("");
+  const empty = v.f === "mine" && !mine.length ? `<p class="note">지금은 재일 님 차례가 없어요.</p>` : "";
+  return `${chips}${lead ? rowLink(lead, v, now, selected) : ""}${sections}${empty}`;
+}
+
+function prTab(rows: Row[], v: View, now: number, selected: string | null): string {
+  const groups: [string, (r: Row) => boolean][] = [
+    ["재일 님 차례", (r) => r.section === "needs"],
+    ["에이전트 작업 중", (r) => r.section === "working" || r.section === "revisit"],
+    ["완료", (r) => r.section === "unread" || r.section === "idle"],
+  ];
+  const lanes = rows.filter((r) => r.kind === "lane" && r.prs.length);
+  const html = groups
+    .map(([label, test], i) => {
+      const list = lanes.filter(test).flatMap((r) => r.prs.map((p) => ({ r, p })));
+      if (!list.length) return "";
+      const rowsHtml = list
+        .map(
+          ({ r, p }) =>
+            `<a class="row${r.id === selected ? " on" : ""}" href="${esc(hrefOf(v, { c: r.id }))}">${mark(r)}<span class="rb"><span class="rt"><b>#${p.num} ${esc(r.title)}</b>` +
+            `${p.repo ? `<span class="repo">${esc(p.repo.split("/")[1] ?? p.repo)}</span>` : ""}<span class="ago">${r.at ? ago(now, r.at) : ""}</span></span>` +
+            `<span class="rs"><span class="w s-${r.section}">${esc(r.word)}</span> · ${esc(r.line)}</span></span></a>`,
+        )
+        .join("");
+      return `<h3 class="sec"><span class="${i === 0 ? "needs" : ""}">${label} <span>${list.length}</span></span></h3>${rowsHtml}`;
+    })
+    .join("");
+  return html || `<p class="note">lane이 연 PR이 없어요.</p>`;
+}
+
+function backlogTab(projects: ProjectGroup[]): string {
+  const html = projects
+    .filter((g) => g.backlog.length)
+    .map(
+      (g) =>
+        `<h3 class="sec"><span>${esc(g.name)} <span>${g.backlog.length}</span></span></h3>` +
+        g.backlog
+          .map(
+            (i) =>
+              `<div class="row">${mark({ section: i.decision ? "needs" : "idle", health: "idle" })}<span class="rb"><span class="rt"><b>${esc(i.title)}</b></span>` +
+              `<span class="rs"><span class="proj">p${i.priority}</span> <span class="w">${esc(i.status)}</span>${i.decision ? ` · 결정 필요: ${esc(i.decision)}` : ""}</span></span></div>`,
+          )
+          .join(""),
+    )
+    .join("");
+  return html || `<p class="note">열린 백로그가 없어요.</p>`;
+}
+
+/** The list pane: tabs, then the work rows (with the My-turn filter), the PRs lanes opened, or the backlog. */
+export function listPane(rows: Row[], projects: ProjectGroup[], v: View, now: number, selected: string | null): string {
+  const prCount = rows.reduce((n, r) => n + (r.kind === "lane" ? r.prs.length : 0), 0);
+  const backlogCount = projects.reduce((n, g) => n + g.backlog.length, 0);
+  const tab = (t: Tab, label: string, n: number): string =>
+    `<a class="tab${v.tab === t ? " on" : ""}" href="${esc(hrefOf(v, { tab: t, f: "all" }))}">${label}${n ? ` ${n}` : ""}</a>`;
+  const body =
+    v.tab === "pr"
+      ? prTab(rows, v, now, selected)
+      : v.tab === "backlog"
+        ? backlogTab(projects)
+        : workTab(rows, v, now, selected);
+  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}</nav>${body}`;
+}

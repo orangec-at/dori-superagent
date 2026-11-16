@@ -4,16 +4,18 @@ import { serveBoard } from "../src/board.ts";
 import { Refusal } from "../src/refusal.ts";
 import { CONFIG, HOST, NOW, post, start, tailnet, tokenOf } from "./board-setup.ts";
 
-test("the first screen lists open asks with the recommendation in bold and escapes their text", async () => {
+test("the first screen is the lead conversation: open asks inside it, escaped, above the composer", async () => {
   const { url } = start();
   const res = await fetch(`${url}/`, { headers: tailnet() });
-  expect(res.headers.get("content-security-policy")).toContain("default-src 'none'");
+  expect(res.headers.get("content-security-policy")).toContain("default-src 'none'; script-src 'self';");
   expect(res.headers.get("referrer-policy")).toBe("same-origin");
   const html = await res.text();
-  expect(html.indexOf("재일 님 차례")).toBeLessThan(html.indexOf("요청 보내기"));
-  expect(html).toContain("<b>A. Umami &lt;b&gt;무료&lt;/b&gt; (추천)</b>");
+  expect(html.indexOf('class="ask"')).toBeLessThan(html.indexOf('action="/request"'));
+  expect(html).toContain('<li class="rec"><b>A.</b> Umami &lt;b&gt;무료&lt;/b&gt; <em>추천</em></li>');
   expect(html).toContain('value="A">추천대로 (A)</button>');
-  expect(html).not.toMatch(/<script\b/);
+  expect([...html.matchAll(/<script\b[^>]*>/g)].map((m) => m[0])).toEqual(['<script src="/board.js" defer>']);
+  expect(html).toContain('<a class="row on" href="/?c=lead">');
+  expect(html).toContain('href="/?c=lead#ask-vg-analytics"');
   expect(html).toContain('<link rel="manifest" href="/manifest.webmanifest">');
   const anon = await (await fetch(`${url}/`)).text();
   expect(anon).toContain("<fieldset disabled>");
@@ -35,17 +37,24 @@ test("a decision button sends the decide envelope to the lead and marks the card
   expect(sent).toHaveLength(1);
 });
 
-test("a request goes to the lead with the Discord reply address; text is capped and only lengths are logged", async () => {
+test("a request goes to the lead with the board as its reply address; text is capped and only lengths are logged", async () => {
   const { url, sent, logs } = start();
   const csrf = await tokenOf(url);
   const res = await post(url, "/request", { csrf, text: "  coupas 오늘 판매액 알려줘  " }, tailnet());
   expect(res.status).toBe(303);
-  expect(sent).toEqual(["[reply=discord:100200300 from=재일-board] coupas 오늘 판매액 알려줘"]);
+  expect(res.headers.get("location")).toBe("/?c=lead&sent=request#end");
+  expect(sent).toEqual(["[reply=board from=재일-board] coupas 오늘 판매액 알려줘"]);
   expect((await post(url, "/request", { csrf, text: "   " }, tailnet())).status).toBe(400);
   expect((await post(url, "/request", { csrf, text: "x".repeat(2001) }, tailnet())).status).toBe(413);
   expect((await post(url, "/request", { csrf, text: "y".repeat(9000) }, tailnet())).status).toBe(413);
   expect(sent).toHaveLength(1);
   expect(logs.join("\n")).not.toContain("coupas");
+  await post(url, "/request", { csrf, c: "bot:panbungi", text: "오늘 건 다시" }, tailnet());
+  await post(url, "/request", { csrf, c: "x y", text: "bad context" }, tailnet());
+  expect(sent.slice(1)).toEqual([
+    "[reply=board from=재일-board] (bot:panbungi) 오늘 건 다시",
+    "[reply=board from=재일-board] bad context",
+  ]);
 });
 
 test("writes are refused without an allowed login, through 127.0.0.1, cross-origin or without the token", async () => {

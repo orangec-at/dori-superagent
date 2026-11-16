@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "bun";
 import { askAdd } from "../src/asks.ts";
-import { type BoardConfig, serveBoard } from "../src/board.ts";
+import type { CertFetch } from "../src/board-access.ts";
+import { serveBoard } from "../src/board.ts";
+import type { BoardConfig } from "../src/board-config.ts";
 import { Store } from "../src/store.ts";
 
 export const NOW = Date.UTC(2026, 10, 13, 1, 0, 0);
@@ -12,7 +14,13 @@ export const LOGIN = "operator@example.com";
 export const HOST = "board.example.ts.net:8446";
 export const PHONE = "100.64.0.10";
 export const BOT_MACHINE = "100.64.0.20";
-export const CONFIG: BoardConfig = { allow: [LOGIN], allowNodes: [PHONE], replyTo: "discord:100200300", hosts: [] };
+export const CONFIG: BoardConfig = {
+  allow: [LOGIN],
+  allowNodes: [PHONE],
+  access: null,
+  copyTo: "",
+  hosts: [],
+};
 const servers: Server<undefined>[] = [];
 const roots: string[] = [];
 
@@ -22,7 +30,9 @@ afterEach(() => {
 });
 
 /** A board on a fresh DORI_HOME with one open ask (vg-analytics, A recommended); every lead delivery is recorded. */
-export function start(o: { toLead?: (text: string) => Promise<string>; config?: BoardConfig } = {}) {
+export function start(
+  o: { toLead?: (text: string) => Promise<string>; config?: BoardConfig; fetchCerts?: CertFetch } = {},
+) {
   const root = mkdtempSync(join(tmpdir(), "dori-board-"));
   roots.push(root);
   const store = new Store(root);
@@ -49,6 +59,7 @@ export function start(o: { toLead?: (text: string) => Promise<string>; config?: 
         return "DELIVERED";
       }),
     log: (l) => logs.push(l),
+    ...(o.fetchCerts ? { fetchCerts: o.fetchCerts } : {}),
   });
   servers.push(server);
   return { url: server.url.href.replace(/\/$/, ""), sent, logs, home: root, store };

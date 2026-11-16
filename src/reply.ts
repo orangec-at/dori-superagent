@@ -1,5 +1,7 @@
 import { hostname } from "node:os";
 import { join } from "node:path";
+import { appendChat } from "./board-chat.ts";
+import { loadBoardConfig } from "./board-config.ts";
 import { shq } from "./delivery.ts";
 import { Refusal } from "./refusal.ts";
 import type { Exec } from "./runtime/exec.ts";
@@ -11,13 +13,15 @@ import type { Exec } from "./runtime/exec.ts";
 export type ReplyAddress =
   | { readonly kind: "slack"; readonly channel: string; readonly thread: string }
   | { readonly kind: "discord"; readonly channel: string }
-  | { readonly kind: "hermes"; readonly machine: string; readonly profile: string };
+  | { readonly kind: "hermes"; readonly machine: string; readonly profile: string }
+  | { readonly kind: "board" };
 
-const REPLY_FORMS = "slack:<channel>:<thread_ts>, discord:<channel> or hermes:<machine>/<profile>";
+const REPLY_FORMS = "slack:<channel>:<thread_ts>, discord:<channel>, hermes:<machine>/<profile> or board";
 
 const WORD = /^[A-Za-z0-9._-]+$/;
 
 export function parseAddress(text: string): ReplyAddress {
+  if (text === "board") return { kind: "board" };
   const [kind, ...rest] = text.split(":");
   const bad = (): never => {
     throw new Refusal(`${text} is not a reply address: use ${REPLY_FORMS}`);
@@ -39,9 +43,14 @@ export type ReplyOptions = {
   readonly files?: readonly string[];
   /** This machine's name: a hermes address naming it runs here, any other machine is reached over ssh. */
   readonly self?: string;
+  readonly now?: () => number;
 };
 
-export function replyCommand(to: ReplyAddress, text: string, o: ReplyOptions): { cmd: string; argv: string[] } {
+export function replyCommand(
+  to: Exclude<ReplyAddress, { kind: "board" }>,
+  text: string,
+  o: ReplyOptions,
+): { cmd: string; argv: string[] } {
   const files = o.files ?? [];
   if (files.length > 0 && to.kind !== "slack")
     throw new Refusal(`--file is only sent to slack addresses; ${to.kind} takes text only`);
@@ -63,10 +72,33 @@ export function replyCommand(to: ReplyAddress, text: string, o: ReplyOptions): {
   }
 }
 
-/** Sends the reply. Resolves when the sender exits 0; throws ReplyError with the sender's own reason otherwise. */
-export async function reply(exec: Exec, address: string, text: string, o: ReplyOptions): Promise<void> {
+/**
+ * `board`: the answer is added to the board's conversation (DORI_HOME/board-chat.jsonl), and when board.json has a
+ * `copyTo` address it is sent there too. Resolves with the copy's failure, if any: the board already has the answer, so
+ * a failed copy must not make the lead send it again.
+ */
+async function replyBoard(exec: Exec, text: string, o: ReplyOptions): Promise<string | undefined> {
+  if ((o.files ?? []).length > 0) throw new Refusal("--file is not sent to the board; it takes text only");
+  appendChat(o.home, { at: (o.now ?? Date.now)(), from: "lead", text });
+  const copyTo = loadBoardConfig(o.home).copyTo;
+  if (copyTo === "" || copyTo === "board") return undefined;
+  try {
+    await reply(exec, copyTo, text, o);
+    return undefined;
+  } catch (e) {
+    if (e instanceof ReplyError || e instanceof Refusal) return `COPY_FAILED ${copyTo}: ${e.message}`;
+    throw e;
+  }
+}
+
+/**
+ * Sends the reply. Resolves when the sender exits 0 (with a note when only a board copy failed); throws ReplyError with
+ * the sender's own reason otherwise.
+ */
+export async function reply(exec: Exec, address: string, text: string, o: ReplyOptions): Promise<string | undefined> {
   const to = parseAddress(address);
   if (!text.trim() && (o.files ?? []).length === 0) throw new Refusal("the reply is empty: give --text or --file");
+  if (to.kind === "board") return replyBoard(exec, text, o);
   const { cmd, argv } = replyCommand(to, text, o);
   let result: Awaited<ReturnType<Exec>>;
   try {
@@ -79,6 +111,7 @@ export async function reply(exec: Exec, address: string, text: string, o: ReplyO
       address,
       `${cmd} exited ${result.code}: ${(result.stderr || result.stdout).trim() || "no output"}`,
     );
+  return undefined;
 }
 
 export class ReplyError extends Error {

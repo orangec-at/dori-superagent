@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { askClose, readAsk } from "../src/asks.ts";
 import { boardState } from "../src/board-state.ts";
-import { DEFAULT_BOARD, loadBoardConfig } from "../src/board.ts";
+import { DEFAULT_BOARD, loadBoardConfig } from "../src/board-config.ts";
 import { BOT_MACHINE, CONFIG, NOW, post, start, tailnet, tokenOf } from "./board-setup.ts";
 
 const decide = (choice: string, csrf: string) => ({ csrf, id: "vg-analytics", choice });
@@ -54,15 +54,15 @@ test("an ask the lead closes while the answer is on its way still answers 303", 
   expect(readAsk(home, "vg-analytics")).toMatchObject({ status: "closed" });
 });
 
-test("without board.json nobody can write and requests have no reply address", async () => {
-  expect(DEFAULT_BOARD).toEqual({ allow: [], allowNodes: [], replyTo: "", hosts: [] });
+test("without board.json nobody can write, through the tailnet or Cloudflare Access", async () => {
+  expect(DEFAULT_BOARD).toEqual({ allow: [], allowNodes: [], access: null, copyTo: "", hosts: [] });
   const closed = start({ config: DEFAULT_BOARD });
   expect(await tokenOf(closed.url)).toBe("");
   expect((await post(closed.url, "/request", { csrf: "", text: "x" }, tailnet())).status).toBe(403);
-  const noReply = start({ config: { ...CONFIG, replyTo: "" } });
-  const res = await post(noReply.url, "/request", { csrf: await tokenOf(noReply.url), text: "x" }, tailnet());
-  expect(res.status).toBe(503);
-  expect(noReply.sent).toEqual([]);
+  const viaTunnel = { host: "localhost", origin: "https://board.example.com", "cf-access-jwt-assertion": "a.b.c" };
+  expect((await post(closed.url, "/request", { csrf: "", text: "x" }, viaTunnel)).status).toBe(403);
+  expect(closed.sent).toEqual([]);
+  expect(CONFIG.access).toBeNull();
 });
 
 test("board.json is read with its allow list, reply address and extra hosts; bad fields fall back", () => {
@@ -72,17 +72,38 @@ test("board.json is read with its allow list, reply address and extra hosts; bad
     JSON.stringify({
       allow: ["a@example.com", 3],
       allowNodes: ["100.64.0.10"],
-      replyTo: "discord:42",
+      access: {
+        teamDomain: "team.cloudflareaccess.com",
+        aud: "a".repeat(64),
+        allowEmails: [" Op@Example.com "],
+        origin: "https://board.example.com",
+      },
+      copyTo: "discord:42",
       hosts: ["board.lan"],
     }),
   );
   expect(loadBoardConfig(home)).toEqual({
     allow: ["a@example.com"],
     allowNodes: ["100.64.0.10"],
-    replyTo: "discord:42",
+    access: {
+      teamDomain: "team.cloudflareaccess.com",
+      aud: "a".repeat(64),
+      allowEmails: ["op@example.com"],
+      origin: "https://board.example.com",
+    },
+    copyTo: "discord:42",
     hosts: ["board.lan"],
   });
-  writeFileSync(join(home, "board.json"), JSON.stringify({ allow: "x", replyTo: "rm -rf /" }));
+  const badAccess = [
+    { teamDomain: "evil.example.com", aud: "a".repeat(64), allowEmails: ["a@b.c"], origin: "https://x.y" },
+    { teamDomain: "t.cloudflareaccess.com", aud: "a".repeat(64), allowEmails: [], origin: "https://x.y" },
+    { teamDomain: "t.cloudflareaccess.com", aud: "a".repeat(64), allowEmails: ["a@b.c"], origin: "http://x.y" },
+  ];
+  for (const access of badAccess) {
+    writeFileSync(join(home, "board.json"), JSON.stringify({ access }));
+    expect(loadBoardConfig(home).access).toBeNull();
+  }
+  writeFileSync(join(home, "board.json"), JSON.stringify({ allow: "x", copyTo: "rm -rf /" }));
   expect(loadBoardConfig(home)).toEqual(DEFAULT_BOARD);
 });
 

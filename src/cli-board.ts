@@ -1,5 +1,6 @@
 import { askAdd, askClose, asks, parseOptions } from "./asks.ts";
-import { loadBoardConfig, serveBoard } from "./board.ts";
+import { serveBoard } from "./board.ts";
+import { loadBoardConfig } from "./board-config.ts";
 import { type Args, need, one } from "./cli-args.ts";
 import type { Deps } from "./harness.ts";
 import { send } from "./inbox.ts";
@@ -50,7 +51,7 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
     toLead: (text) => send(d, "lead", text, "board"),
   });
   console.log(
-    `BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length} devices=${config.allowNodes.length}`,
+    `BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length} devices=${config.allowNodes.length} access=${config.access ? config.access.allowEmails.length : "off"} copy=${config.copyTo || "off"}`,
   );
   return new Promise<number>(() => {});
 }
