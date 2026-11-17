@@ -17,6 +17,7 @@ import {
   recordAssignment,
   writeJson,
 } from "./autopilot-store.ts";
+import { noWorkReport } from "./autopilot-idle.ts";
 import { delegateText, handOut, lastActivity, nextTask, STALL_HOURS, taskBot } from "./autopilot-stall.ts";
 import { CLI, type Deps } from "./harness.ts";
 import { tellLead } from "./inbox.ts";
@@ -94,23 +95,29 @@ function botNames(home: string): string[] | undefined {
   }
 }
 
-/** One task per idle bot: the first open task of the first project (by name) that names it or lists it as owner. */
-function assignIdle(d: Deps, roadmaps: readonly Roadmap[], launch: Launch): string[] {
+/**
+ * One task per idle bot: the first open task of the first project (by name) that names it or lists it as owner. An
+ * idle bot with nothing to hand out is reported to the lead (`reports`) at most once per STALL_HOURS.
+ */
+function assignIdle(d: Deps, roadmaps: readonly Roadmap[], launch: Launch): { assigned: string[]; reports: string[] } {
   const home = d.store.root;
   const now = d.now();
   const names = botNames(home);
-  if (names === undefined) return ["agents.json을 읽을 수 없어 유휴 봇 배정을 건너뜀"];
+  if (names === undefined) return { assigned: ["agents.json을 읽을 수 없어 유휴 봇 배정을 건너뜀"], reports: [] };
+  const reportedAt = { ...readState(home).idleReportedAt };
+  const reports: string[] = [];
   const activity = botActivity(delegateRuns(home), now);
   const assigned = assignedKeys(home);
   const lastHanded = new Map<string, number>();
   for (const a of readAssignments(home))
     if (a.bot !== undefined && a.kind !== "release") lastHanded.set(a.bot, Math.max(lastHanded.get(a.bot) ?? 0, a.at));
   const out: string[] = [];
-  for (const bot of names) {
+  bots: for (const bot of names) {
     const act = activity.get(bot);
     if (act?.busy) continue;
     const since = Math.max(act?.lastAt ?? 0, lastHanded.get(bot) ?? 0);
     if (now - since < idleHours() * HOUR) continue;
+    const idle = since === 0 ? "기록 없음" : `${Math.floor((now - since) / HOUR)}시간`;
     for (const r of roadmaps) {
       const t = r.tasks.find(
         (x) =>
@@ -133,12 +140,15 @@ function assignIdle(d: Deps, roadmaps: readonly Roadmap[], launch: Launch): stri
         bot,
       });
       assigned.add(`${r.project}:${t.id}`);
-      const idle = since === 0 ? "기록 없음" : `${Math.floor((now - since) / HOUR)}시간`;
       out.push(`${bot} 유휴(${idle}) -> ${r.project}: ${t.text}`);
-      break;
+      delete reportedAt[bot];
+      continue bots;
     }
+    const report = noWorkReport(home, roadmaps, bot, idle, now, reportedAt);
+    if (report !== undefined) reports.push(report);
   }
-  return out;
+  writeJson(home, "state.json", { ...readState(home), idleReportedAt: reportedAt });
+  return { assigned: out, reports };
 }
 
 async function checkStalls(d: Deps, roadmaps: readonly Roadmap[], launch: Launch): Promise<string[]> {
@@ -222,11 +232,12 @@ export async function autopilotTick(d: Deps, launch: Launch = spawnDelegate(d)):
     ...(stallDue ? { stallCheckAt: now } : {}),
   });
   const failed = idleDue ? checkOutcomes(d) : [];
-  const assigned = idleDue ? assignIdle(d, roadmaps, launch) : [];
+  const { assigned, reports } = idleDue ? assignIdle(d, roadmaps, launch) : { assigned: [], reports: [] };
   const stalls = stallDue ? await checkStalls(d, roadmaps, launch) : [];
   const lines = [
     ...failed,
     ...(assigned.length ? [`[AUTOPILOT] 유휴 봇 배정: ${assigned.join("; ")}`] : []),
+    ...reports,
     ...stalls,
   ];
   for (const line of lines) await tellLead(d, line, "duty");

@@ -67,6 +67,34 @@ describe("autopilot: idle bots get the next roadmap task", () => {
   });
 });
 
+describe("autopilot: an idle bot with nothing to hand out is reported to the lead", () => {
+  test("reported once, not again within a day, and handed the task once the roadmap has one", async () => {
+    const EMPTY = "# 빈 프로젝트\n- 담당: hongbungi\n\n## 다음 할 일\n- [x] 끝난 일\n- [ ] 스레드에 게시\n";
+    const { d, home, lead, launched, launch, run, w } = setup({ empty: EMPTY }, HOUR, ["hongbungi"]);
+    run("hongbungi", NOON_KST - 14 * HOUR, NOON_KST - 13 * HOUR);
+    const file = join(home, "projects", "empty.md");
+    const report = `[REPORT autopilot] hongbungi 유휴 13시간: 맡길 일 없음 → ${file}에 추가해 주세요`;
+    expect(await autopilotTick(d, launch)).toEqual([report]);
+    expect(lead.received.join("\n")).toContain(report);
+    const reports = async () => (await autopilotTick(d, launch)).filter((l) => l.startsWith("[REPORT autopilot]"));
+
+    w.clock += IDLE_CHECK_MS;
+    expect(await reports()).toEqual([]);
+    w.clock = NOON_KST + 23 * HOUR;
+    expect(await reports()).toEqual([]);
+    w.clock = NOON_KST + 24 * HOUR;
+    expect(await reports()).toEqual([report.replace("13시간", "37시간")]);
+    expect(launched).toEqual([]);
+
+    writeFileSync(file, `${EMPTY}- [ ] 다음 주 후보 초안\n`);
+    w.clock += IDLE_CHECK_MS;
+    const lines = await autopilotTick(d, launch);
+    expect(lines.filter((l) => l.startsWith("[REPORT autopilot]"))).toEqual([]);
+    expect(lines).toContain("[AUTOPILOT] 유휴 봇 배정: hongbungi 유휴(37시간) -> empty: 다음 주 후보 초안");
+    expect(launched.map((l) => l.bot)).toEqual(["hongbungi"]);
+  });
+});
+
 describe("autopilot: a delegation that fails is released and handed out again", () => {
   test("a failed delegation is told to the lead and reassigned; the second failure holds the task", async () => {
     const { d, home, launched, launch, run, w } = setup({ coupas: COUPAS }, HOUR, ["hongbungi"]);
