@@ -65,7 +65,7 @@ A start that fails under autostart is logged on the item but not counted toward 
 
 Every 10 minutes a duty pass reads `delegate-runs.jsonl` (starts) and `delegations.jsonl` (ends, now with `endedAt`). A bot is busy while a run has neither ended nor passed its timeout. Otherwise it is idle since its newest end, or since the newest task the autopilot handed it.
 
-A bot idle for `DORI_IDLE_HOURS` (default 2) gets one task: the first open, unassigned, not person-only delegate task, in project order (by file name), that names it with `@bot` or lists it as an owner. The task runs as `dori delegate <bot> --mission autopilot-<project>` in its own process, so a long answer never holds up the duty loop (output in `autopilot/delegate.log`). The text carries the roadmap goal, done criteria, and this rule: drafts and PRs only; no publishing, merging, deploying, paying, deleting data or posting as 재일 님. The lead gets one `[AUTOPILOT] 유휴 봇 배정: ...` line per pass.
+A bot idle for `DORI_IDLE_HOURS` (default 2) gets one task: the first open, unassigned, not person-only delegate task, in project order (by file name), that names it with `@bot` or lists it as an owner. The task runs as `dori delegate <bot> --mission autopilot-<project>` in its own process, so a long answer never holds up the duty loop (output in `autopilot/delegate.log`). The text carries the roadmap goal, done criteria, and this rule: drafts and PRs only; no publishing, merging, deploying, paying, deleting data or posting as 재일 님. The lead gets one `[AUTOPILOT] 유휴 봇 배정: ...` line per pass. An idle bot with no task left to hand out is reported instead: `[REPORT autopilot] <bot> 유휴 N시간: 맡길 일 없음 → <its roadmap files>에 추가해 주세요` (every roadmap that lists it as owner or names it with `@bot`, else `projects/*.md`), at most once per 24 hours per bot.
 
 The autopilot runs 24 hours a day by default. `DORI_QUIET_HOURS=A-B` sets quiet hours from A:00 to B:00 KST (`1-8` is the old 01:00-08:00; `22-6` wraps past midnight): nothing is handed out and no stall is reported then. Unset, empty, `off` or `none` means no quiet hours; any other value falls back to `1-8`.
 
@@ -88,7 +88,7 @@ Everything is under `$DORI_HOME/autopilot/`:
 |---|---|
 | `assignments.jsonl` | One line per hand-out: `at`, `project`, `task` (id), `text`, `reason` (`idle`/`stall`), `kind` (`delegate`/`backlog`), `bot` or `item`. A `release` line (with `outcome`, and `final` after the second failure) marks a failed delegation. A task's newest line is its state. |
 | `status.json` | Written after every check: each roadmap with every task's `assignment`, each project's `activity` and `stallReportedAt`, each bot's `busy` / `lastAt` / `idleMinutes`, and the newest 100 hand-outs. The board's 에이전트 and 프로젝트 tabs read this file as it is. |
-| `state.json` | Check times and stall bookkeeping. |
+| `state.json` | Check times, stall bookkeeping, and `idleReportedAt` (when each idle bot with nothing to do was last reported). |
 | `stop` | Present: no hand-outs and no stall reports (autostart is separate, see above). |
 
 `dori duty autopilot` prints the same object as `status.json`, computed now.

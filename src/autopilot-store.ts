@@ -46,6 +46,8 @@ export type AutopilotState = {
   stallCheckAt?: number;
   /** When each project's stall was last reported, so one stall is told once a day, not every hour. */
   stallReportedAt: Record<string, number>;
+  /** When each idle bot with nothing to hand out was last reported, so it is told once a day, not every pass. */
+  idleReportedAt?: Record<string, number>;
   /** Each project's newest activity as the last stall check found it. */
   activity: Record<string, ProjectActivity>;
 };
