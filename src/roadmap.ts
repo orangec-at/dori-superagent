@@ -8,6 +8,7 @@ import {
   readFileSync,
   realpathSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -189,9 +190,14 @@ export function checkOffTask(file: string, project: string, id: string): "checke
   if (t.kind !== "delegate" || t.blocked !== undefined) return "conflict";
   lines[i] = lines[i]!.replace("[ ]", "[x]");
   const tmp = `${real}.${process.pid}.tmp`;
-  writeFileSync(tmp, lines.join("\n"));
-  chmodSync(tmp, statSync(real).mode & 0o7777);
-  renameSync(tmp, real);
+  try {
+    writeFileSync(tmp, lines.join("\n"));
+    chmodSync(tmp, statSync(real).mode & 0o7777);
+    renameSync(tmp, real);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
   return "checked";
 }
 

@@ -90,12 +90,19 @@ describe("dori up", () => {
     await captureIo(async () => {
       expect(await main(["role", "duty-loop", "w3:p3"], d)).toBe(0);
       expect(await main(["role", "hourly-loop", "w3:p4"], d)).toBe(0);
+      await expect(main(["role", "lane", "w3:p5"], d)).rejects.toThrow(
+        "role must be one of lead, duty, duty-loop, hourly-loop",
+      );
       return 0;
     });
-    await expect(main(["role", "lane", "w3:p5"], d)).rejects.toThrow(
-      "role must be one of lead, duty, duty-loop, hourly-loop",
-    );
     expect(refText(d.store.roles()["duty-loop"]!)).toBe("w3:p3");
+    expect(refText(d.store.roles()["hourly-loop"]!)).toBe("w3:p4");
+    expect(JSON.parse(readFileSync(join(d.store.root, "roles.json"), "utf8"))).toEqual({
+      lead: "w3:p1",
+      duty: "w3:p2",
+      "duty-loop": "w3:p3",
+      "hourly-loop": "w3:p4",
+    });
     const { out } = await captureIo(async () => {
       status(d);
       return 0;

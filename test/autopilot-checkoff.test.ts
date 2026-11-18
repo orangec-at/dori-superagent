@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { autopilotTick, IDLE_CHECK_MS } from "../src/autopilot.ts";
 import { assignmentState, readAssignments } from "../src/autopilot-store.ts";
@@ -48,7 +49,25 @@ describe("autopilot: a finished delegation's roadmap line is checked off only wi
     expect(readAssignments(r.home)).toHaveLength(2);
   });
 
+  const korean: [string, (out: string) => string, string][] = [
+    ["a Korean file name", (out) => `결과를 ${out}/보고서.md에 써줘`, "보고서.md"],
+    ["a Korean directory, a two-syllable particle", (out) => `${out}/문서/a.md에서 읽고 정리`, "문서/a.md"],
+  ];
+  for (const [name, first, rel] of korean)
+    test(`korean_path_is_one_path_without_its_particle: ${name}`, async () => {
+      const r = await finish(first, (out) => {
+        mkdirSync(join(out, "문서"));
+        touch(join(out, rel), NOON_KST + 50_000);
+      });
+      expect(r.lines).toEqual([`[AUTOPILOT 완료] endo rep: ${first(r.out)} -> [x] (${r.out}/${rel})`]);
+    });
+
   const unverified: [string, (out: string) => string, (out: string) => void, string?][] = [
+    [
+      "Korean right after Korean stays in the path",
+      (out) => `${out}/보고서에 써줘`,
+      (out) => touch(`${out}/보고서`, NOON_KST + 50_000),
+    ],
     ["no path in the task", () => "조사 메모 초안", () => {}],
     ["the output is missing", (out) => `${out}/a.md에 써줘`, () => {}],
     ["the output predates the hand-out", (out) => `${out}/a.md에 써줘`, (out) => touch(`${out}/a.md`, NOON_KST - HOUR)],
@@ -113,6 +132,38 @@ describe("autopilot: a finished delegation's roadmap line is checked off only wi
     await autopilotTick(r.d, r.launch);
     expect(r.text()).toBe(roadmap(`${r.out}/a.md에 써줘`));
     expect(r.launched.map((l) => l.text.includes("두 번째 메모"))).toEqual([false, true]);
+  });
+
+  test("a failed check-off is told once per delegation and failure, and retried until it is written", async () => {
+    let n = 0;
+    const fail = () => {
+      const e = new Error(`EACCES: permission denied, rename 'rep.md.${++n}.tmp'`);
+      throw Object.assign(e, { code: "EACCES" });
+    };
+    let spy: ReturnType<typeof spyOn> | undefined;
+    const r = await finish(
+      (out) => `${out}/a.md에 써줘`,
+      (out) => {
+        touch(`${out}/a.md`, NOON_KST + 50_000);
+        spy = spyOn(fs, "renameSync").mockImplementation(fail);
+      },
+    );
+    const failures = (lines: string[]) => lines.filter((l) => l.startsWith("[AUTOPILOT 완료 실패]"));
+    try {
+      expect(failures(r.lines)).toEqual([
+        `[AUTOPILOT 완료 실패] endo rep: ${r.out}/a.md에 써줘 (EACCES: permission denied, rename 'rep.md.1.tmp')`,
+      ]);
+      r.w.clock += IDLE_CHECK_MS;
+      expect(failures(await autopilotTick(r.d, r.launch))).toEqual([]);
+      expect(n).toBe(2);
+    } finally {
+      spy?.mockRestore();
+    }
+    expect(r.text()).toBe(roadmap(`${r.out}/a.md에 써줘`));
+    expect(readdirSync(join(r.home, "projects"))).toEqual(["rep.md"]);
+    r.w.clock += IDLE_CHECK_MS;
+    expect((await autopilotTick(r.d, r.launch))[0]).toStartWith("[AUTOPILOT 완료] endo rep:");
+    expect(r.text()).toBe(roadmap(`${r.out}/a.md에 써줘`).replace("[ ]", "[x]"));
   });
 
   test("same_tick_uses_fresh_roadmap_without_resetting_idle_clock", async () => {
