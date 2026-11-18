@@ -1,5 +1,5 @@
 // Checking off the roadmap line of a delegation that finished. A process that exited 0 is not enough: the task's text
-// must name its output, and every path in it must be a file on this machine changed after the task was handed out.
+// must name its output, and every output path in it must be a file on this machine changed after the task was handed out.
 // Anything else (no path, another machine's file, a stale file) stays with the lead, as before. See docs/autopilot.md.
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -15,12 +15,33 @@ import { checkOffTask, type Roadmap } from "./roadmap.ts";
  */
 const PATH = /(?<![\p{L}\p{N}_:@./~-])(?:~\/|\/)[\p{L}\p{N}_.~/-]*[\p{L}\p{N}_]/gu;
 const PARTICLE = /(?<=[A-Za-z0-9_])\p{Script=Hangul}+$/u;
+/**
+ * What follows an output path: an optional space and 파일, then 에 and a verb that writes ("…/a.md에 써줘", "…/a.md에
+ * 저장", "…/보고서 에 써줘"), or 로/으로 and a verb that saves ("…/a.md로 저장"). Up to three words ending in 로 or 게
+ * may stand before the verb ("…/a.md에 표로 써줘", "…에 한국어로 정리", "…에 짧게 정리"); any other word ends the
+ * marker. A negated verb ("…/a.md에 쓰지 말고") is no marker, and neither is one that says the file already holds the
+ * text ("…/a.md에 기록된 오류", "…에 정리한 내용", "…에 쓰인 규칙"): such a path is an input. A task that marks some
+ * paths this way names the rest as inputs to read, which need not change; one that marks none keeps every path an
+ * output (fail closed: "…/a.md에서 읽고 정리" or "…/보고서에 써줘" still needs every path fresh).
+ */
+const MODIFIERS = String.raw`(?:[\p{L}\p{N}]+(?:로|게)\s*){0,3}`;
+const NOT_NEGATED = String.raw`(?!\p{L}*지\s*(?:말|않|마))`;
+const NOT_WRITTEN = String.raw`(?!\s*(?:어|아|여)?\s*(?:(?:된|돼|진|인|한|은|던|둔)(?!\p{L})|되어|놓은|놓인|있는|있던))`;
+const WRITES_TO = new RegExp(
+  String.raw`^\s*(?:파일\s*)?(?:에\s*${MODIFIERS}(?:써|쓰|작성|저장|정리|기록|남기|남겨|만들|담아|추가)` +
+    String.raw`|으?로\s*${MODIFIERS}(?:저장|써|쓰|작성|기록|내보내|출력|남기|남겨))${NOT_NEGATED}${NOT_WRITTEN}`,
+  "u",
+);
 
 const expand = (p: string): string => (p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
 
-/** Every path the task names, when there is one and all are files here modified at or after `since`. */
+/** The task's output paths, when there is one and all are files here modified at or after `since`. */
 function freshOutputs(text: string, since: number): string[] | undefined {
-  const paths = [...text.matchAll(PATH)].map((m) => m[0].replace(PARTICLE, ""));
+  const named = [...text.matchAll(PATH)].map((m) => {
+    const path = m[0].replace(PARTICLE, "");
+    return { path, output: WRITES_TO.test(text.slice(m.index + path.length)) };
+  });
+  const paths = (named.some((p) => p.output) ? named.filter((p) => p.output) : named).map((p) => p.path);
   const fresh = (p: string): boolean => {
     try {
       const s = statSync(expand(p));
@@ -49,7 +70,7 @@ export function checkOff(d: Deps, a: Assignment, roadmaps: readonly Roadmap[]): 
     const message = e instanceof Error ? e.message : String(e);
     // The error code, not the message: the message names the temporary file, whose pid changes with each duty run.
     const failure = (e as { code?: unknown }).code?.toString() ?? message;
-    const key = `${assignmentKey(a)}@${a.at}`;
+    const key = failureKey(a);
     const state = readState(d.store.root);
     if (state.checkOffFailed?.[key] === failure) return undefined;
     writeJson(d.store.root, "state.json", { ...state, checkOffFailed: { ...state.checkOffFailed, [key]: failure } });
@@ -57,7 +78,19 @@ export function checkOff(d: Deps, a: Assignment, roadmaps: readonly Roadmap[]): 
   }
   if (result === "conflict") return undefined;
   recordAssignment(d.store.root, { ...a, at: d.now(), kind: "completed" });
+  forgetFailure(d, a);
   return result === "checked"
     ? `[AUTOPILOT 완료] ${a.bot} ${a.project}: ${a.text} -> [x] (${outputs.join(", ")})`
     : undefined;
+}
+
+const failureKey = (a: Assignment): string => `${assignmentKey(a)}@${a.at}`;
+
+/** Drops a delegation's told failure once its line is checked off, so state.json does not keep it forever. */
+function forgetFailure(d: Deps, a: Assignment): void {
+  const state = readState(d.store.root);
+  const key = failureKey(a);
+  if (state.checkOffFailed?.[key] === undefined) return;
+  const checkOffFailed = Object.fromEntries(Object.entries(state.checkOffFailed).filter(([k]) => k !== key));
+  writeJson(d.store.root, "state.json", { ...state, checkOffFailed });
 }

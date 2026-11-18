@@ -132,7 +132,8 @@ function parseTask(project: string, mark: string, rest: string): RoadmapTask {
   };
 }
 
-const TASK_LINE = /^\s*[-*]\s+\[( |x|X)\]\s+(.+)$/;
+/** A task line; a CRLF file's `\r` is left on the line (checkOffTask keeps it) and out of the task text. */
+const TASK_LINE = /^\s*[-*]\s+\[( |x|X)\]\s+(.+?)\r?$/;
 
 export function parseRoadmap(project: string, file: string, text: string, editedAt: number): Roadmap {
   const fields: Partial<Record<"goal" | "owners" | "repo" | "path" | "keywords" | "doneWhen", string>> = {};
@@ -140,7 +141,7 @@ export function parseRoadmap(project: string, file: string, text: string, edited
   const tasks: RoadmapTask[] = [];
   let title = project;
   let section = "";
-  for (const line of text.split("\n")) {
+  for (const line of text.split(/\r?\n/)) {
     const h1 = /^#\s+(.+)$/.exec(line);
     if (h1) title = h1[1]!.trim();
     const h2 = /^##\s+(.+)$/.exec(line);
