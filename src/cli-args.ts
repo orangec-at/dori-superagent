@@ -3,7 +3,8 @@ import { Refusal } from "./refusal.ts";
 export const USAGE = `dori - a proactive multi-session harness on herdr or hc + omo
 
   dori up [--cwd DIR]                         open lead, duty, duty loop and hourly loop sessions
-  dori role <lead|duty> [REF]                 register a session (w1:p3, herdr:w1:p3, hc:t7) as lead or duty (default: this one)
+  dori role <lead|duty|duty-loop|hourly-loop> [REF]
+                                              register a session (w1:p3, herdr:w1:p3, hc:t7) under that role (default: this one)
                                               a pane on a saved herdr machine is REF@machine (w4:p3@ubuntu)
   dori start <key> --brief FILE [--cwd DIR]   open a lane: new tab, omo session, brief + lane rules
              [--machine M --cwd DIR]          ... on a saved herdr SSH machine (herdr --machine M); DIR is on M

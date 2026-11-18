@@ -88,5 +88,5 @@ export function joinOverlay(base: string, extra: string): string {
 export const prompt = (name: string, vars: Record<string, string>, home?: string): string =>
   promptText(name, home).replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? `{{${k}}}`);
 
-/** The roles `dori role` registers by hand; `dori up` also registers the two loop sessions. */
-export const ROLES: readonly Role[] = ["lead", "duty"];
+/** The roles `dori role` registers by hand: every role `dori up` opens, so a home missing a loop role can register it. */
+export const ROLES: readonly Role[] = ["lead", "duty", "duty-loop", "hourly-loop"];
