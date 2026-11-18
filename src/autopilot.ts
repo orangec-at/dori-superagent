@@ -110,7 +110,7 @@ function assignIdle(d: Deps, roadmaps: readonly Roadmap[], launch: Launch): { as
   const assigned = assignedKeys(home);
   const lastHanded = new Map<string, number>();
   for (const a of readAssignments(home))
-    if (a.bot !== undefined && a.kind !== "release") lastHanded.set(a.bot, Math.max(lastHanded.get(a.bot) ?? 0, a.at));
+    if (a.bot !== undefined && a.kind === "delegate") lastHanded.set(a.bot, Math.max(lastHanded.get(a.bot) ?? 0, a.at));
   const out: string[] = [];
   bots: for (const bot of names) {
     const act = activity.get(bot);
@@ -172,7 +172,11 @@ async function checkStalls(d: Deps, roadmaps: readonly Roadmap[], launch: Launch
     const t = nextTask(r, assignedKeys(home));
     const bot = t?.kind === "delegate" ? taskBot(r, t) : undefined;
     if (bot !== undefined && busy.has(bot)) continue;
+    const before = readAssignments(home).length;
     const made = t === undefined ? undefined : handOut(d, r, t, launch, new Set(botNames(home) ?? []));
+    // Only a delegation actually recorded reserves its bot for the rest of this check, not a failure explanation.
+    const fresh = readAssignments(home).slice(before);
+    if (bot !== undefined && fresh.some((a) => a.kind === "delegate" && a.bot === bot)) busy.add(bot);
     state.stallReportedAt[r.project] = now;
     const hours = Math.floor((now - act.at) / HOUR);
     out.push(
@@ -231,9 +235,9 @@ export async function autopilotTick(d: Deps, launch: Launch = spawnDelegate(d)):
     ...(idleDue ? { idleCheckAt: now } : {}),
     ...(stallDue ? { stallCheckAt: now } : {}),
   });
-  const failed = idleDue ? checkOutcomes(d) : [];
-  const { assigned, reports } = idleDue ? assignIdle(d, roadmaps, launch) : { assigned: [], reports: [] };
-  const stalls = stallDue ? await checkStalls(d, roadmaps, launch) : [];
+  const failed = idleDue ? checkOutcomes(d, roadmaps) : [];
+  const { assigned, reports } = idleDue ? assignIdle(d, loadRoadmaps(home), launch) : { assigned: [], reports: [] };
+  const stalls = stallDue ? await checkStalls(d, loadRoadmaps(home), launch) : [];
   const lines = [
     ...failed,
     ...(assigned.length ? [`[AUTOPILOT] 유휴 봇 배정: ${assigned.join("; ")}`] : []),

@@ -1,5 +1,7 @@
 // What became of each delegation the autopilot handed out. A delegation that failed, timed out or never started is
-// released, so its task can be handed out again, and the lead is told; after MAX_RELEASES it stays held instead.
+// released, so its task can be handed out again, and the lead is told; after MAX_RELEASES it stays held instead. One
+// that ended ok has its roadmap line checked off when its outputs are there (autopilot-checkoff.ts).
+import { checkOff } from "./autopilot-checkoff.ts";
 import {
   type Assignment,
   assignmentKey,
@@ -10,6 +12,7 @@ import {
   recordAssignment,
 } from "./autopilot-store.ts";
 import type { Deps } from "./harness.ts";
+import type { Roadmap } from "./roadmap.ts";
 
 export const MAX_RELEASES = 2;
 /** A delegation with no start line this long after it was handed out never ran (its process could not start). */
@@ -31,14 +34,18 @@ function outcomeOf(d: Deps, a: Assignment): string | undefined {
   return d.now() - a.at >= NEVER_STARTED_MS ? "never started" : undefined;
 }
 
-/** Checks every delegation still held, releases the failed ones, and returns one lead line per failure. */
-export function checkOutcomes(d: Deps): string[] {
+/** Checks every delegation still held: releases the failed ones, checks off the verified ones; one lead line each. */
+export function checkOutcomes(d: Deps, roadmaps: readonly Roadmap[]): string[] {
   const home = d.store.root;
   const { latest, releases } = assignmentState(readAssignments(home));
   const out: string[] = [];
   for (const a of latest.values()) {
     if (a.kind !== "delegate") continue;
     const outcome = outcomeOf(d, a);
+    if (outcome === "ok") {
+      const line = checkOff(d, a, roadmaps);
+      if (line !== undefined) out.push(line);
+    }
     if (outcome === undefined || outcome === "ok") continue;
     const final = (releases.get(assignmentKey(a)) ?? 0) + 1 >= MAX_RELEASES;
     recordAssignment(home, { ...a, at: d.now(), kind: "release", outcome, ...(final ? { final } : {}) });

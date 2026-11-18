@@ -1,16 +1,81 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { autopilotTick } from "../src/autopilot.ts";
 import { lastActivity } from "../src/autopilot-stall.ts";
-import { readAssignments } from "../src/autopilot-store.ts";
+import { readAssignments, readState, writeJson } from "../src/autopilot-store.ts";
 import { dutyTick } from "../src/duty.ts";
 import { parseRoadmap } from "../src/roadmap.ts";
 import { COUPAS, HOUR, NOON_KST, setup } from "./autopilot-setup.ts";
 import { AUTOPILOT_ENV, pinEnv } from "./env-pin.ts";
 
 pinEnv(AUTOPILOT_ENV);
+
+const stalled = (project: string, bot: string) =>
+  `# ${project}\n- 담당: ${bot}\n\n## 다음 할 일\n- [ ] 조사 메모 초안\n`;
+const SHARED = { northwind: stalled("northwind", "endo"), southwind: stalled("southwind", "endo") };
+
+describe("autopilot: one stall check hands a bot at most one delegation", () => {
+  test("two_stalled_projects_share_one_bot_launches_only_once_per_tick", async () => {
+    const { d, home, launched, launch, run } = setup(SHARED, 30 * HOUR, ["endo"]);
+    // A recent end keeps the idle check from handing endo work first, without making endo busy.
+    run("endo", NOON_KST - HOUR, NOON_KST - 30 * 60_000, "별도 조사");
+    const lines = await autopilotTick(d, launch);
+    expect(launched.map((l) => l.mission)).toEqual(["autopilot-northwind"]);
+    expect(readAssignments(home).map((a) => [a.project, a.bot, a.reason, a.kind])).toEqual([
+      ["northwind", "endo", "stall", "delegate"],
+    ]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("[REPORT northwind 정체]");
+    expect(readState(home).stallReportedAt).toEqual({ northwind: NOON_KST });
+  });
+
+  test("skipped_shared_bot_project_is_retried_on_next_stall_check", async () => {
+    const { d, home, launched, launch, run, w } = setup(SHARED, 30 * HOUR, ["endo"]);
+    run("endo", NOON_KST - HOUR, NOON_KST - 30 * 60_000, "별도 조사");
+    await autopilotTick(d, launch);
+    run("endo", NOON_KST, NOON_KST + 10 * 60_000, launched[0]!.text);
+    w.clock += HOUR;
+    writeJson(home, "state.json", { ...readState(home), idleCheckAt: w.clock });
+    const lines = await autopilotTick(d, launch);
+    expect(launched.map((l) => l.mission)).toEqual(["autopilot-northwind", "autopilot-southwind"]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("[REPORT southwind 정체]");
+    expect(readState(home).stallReportedAt).toEqual({ northwind: NOON_KST, southwind: w.clock });
+  });
+
+  test("different_bots_and_pr_backlog_are_not_blocked_by_one_reserved_bot", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "dori-test-repo-"));
+    const s = setup({ ...SHARED, eastwind: stalled("eastwind", "bido") }, 30 * HOUR, ["endo", "bido"]);
+    const file = join(s.home, "projects", "westwind.md");
+    writeFileSync(file, `# westwind\n- 경로: ${repo}\n\n## 다음 할 일\n- [ ] [pr] 문서 인덱스 정리\n`);
+    utimesSync(file, (NOON_KST - 30 * HOUR) / 1000, (NOON_KST - 30 * HOUR) / 1000);
+    for (const bot of ["endo", "bido"]) s.run(bot, NOON_KST - HOUR, NOON_KST - 30 * 60_000, "별도 조사");
+    const lines = await autopilotTick(s.d, s.launch);
+    expect(s.launched.map((l) => l.bot)).toEqual(["bido", "endo"]);
+    expect(readAssignments(s.home).map((a) => [a.project, a.kind])).toEqual([
+      ["eastwind", "delegate"],
+      ["northwind", "delegate"],
+      ["westwind", "backlog"],
+    ]);
+    expect(lines.map((l) => /^\[REPORT (\w+) 정체\]/.exec(l)?.[1])).toEqual(["eastwind", "northwind", "westwind"]);
+    expect(readState(s.home).stallReportedAt["southwind"]).toBeUndefined();
+  });
+
+  test("unsuccessful_handout_does_not_reserve_bot", async () => {
+    const { d, home, launched, launch } = setup(
+      { northwind: stalled("northwind", "ghost"), southwind: stalled("southwind", "ghost") },
+      30 * HOUR,
+      [],
+    );
+    const lines = await autopilotTick(d, launch);
+    expect(lines.map((l) => /^\[REPORT (\w+) 정체\]/.exec(l)?.[1])).toEqual(["northwind", "southwind"]);
+    for (const l of lines) expect(l).toContain("ghost가 agents.json에 없어 넘기지 않음");
+    expect(launched).toEqual([]);
+    expect(readAssignments(home)).toEqual([]);
+  });
+});
 
 describe("autopilot: a project silent for 24h is reported and handed its next task", () => {
   test("a stalled project whose bot is busy waits for the next check instead of doubling its work", async () => {

@@ -44,7 +44,8 @@ export async function lastActivity(
   const words = r.keywords.map((k) => k.toLowerCase());
   const mentions = (text: string): boolean => words.some((w) => text.toLowerCase().includes(w));
   for (const run of runs) if (mentions(run.text)) a = newer(a, run.endedAt ?? run.at, `${run.agent} 위임`);
-  for (const x of assignments) if (x.project === r.project) a = newer(a, x.at, "autopilot 배정");
+  for (const x of assignments)
+    if (x.project === r.project) a = newer(a, x.at, x.kind === "completed" ? "autopilot 완료" : "autopilot 배정");
   for (const lane of d.store.lanes()) {
     const ours =
       mentions(lane.key) || (r.path !== undefined && (lane.cwd === r.path || lane.cwd.startsWith(r.path + sep)));
