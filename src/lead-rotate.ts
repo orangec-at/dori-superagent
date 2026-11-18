@@ -13,6 +13,7 @@ import {
   type LeadSession,
   loadLeadRotation,
   logRotation,
+  operationsPath,
   type Rotation,
   readRotation,
   readSession,
@@ -48,15 +49,23 @@ export function rotationDue(c: LeadRotationConfig, s: LeadSession, now: number):
   return undefined;
 }
 
-export const handoffRequest = (file: string): string =>
-  `[LEAD ROTATE] 이 lead 세션은 곧 새 세션으로 교체된다. 새 일은 시작하지 말고, 인수인계 문서를 ${file} 에 써 줘: ` +
-  "진행 중인 일(lane, PR, 상태), 기다리는 결정, 답장해야 할 주소([reply=...] 봉투), 다음에 할 일. " +
-  "새 세션은 그 문서만 보고 이어서 일한다. 다 쓰면 멈춰.";
+/** Asks for a self-contained handoff of today's state; what holds every day goes to the operations document `ops`. */
+export const handoffRequest = (file: string, ops: string): string =>
+  `[LEAD ROTATE] 이 lead 세션은 곧 새 세션으로 교체된다. 새 일은 시작하지 말고 두 파일을 써 줘. ` +
+  `1) 인수인계 문서 ${file}: 오늘의 상태만, 이 순서로 쓴다. ` +
+  "지금 돌고 있는 것(lane, PR, 백그라운드 작업, 각각의 상태와 새 세션이 할 일) → 답해야 할 주소([reply=...] 봉투, 약속한 답) → " +
+  "타이머 → 기다리는 결정 → 다음에 할 일 → 오늘만의 주의. " +
+  "그 자체로 완결되게 쓴다: 앞선 인수인계 문서를 읽으라고 가리키지 않는다. 지금도 유효한 내용은 가리키지 말고 옮겨 적고, 끝났거나 낡은 것은 뺀다. " +
+  `2) 상시 운영 문서 ${ops}: 날마다 같은 내용(연락·답장 방법, 사람과 권한 규칙, 병합·반영 절차, 상시 주의)을 담는다. ` +
+  "없으면 만들고, 있으면 바뀐 곳만 고치고 낡은 줄은 지운다. 이 내용은 인수인계 문서에 다시 쓰지 않는다. " +
+  "새 세션은 첫 메시지로 두 문서를 함께 받고 그것만 보고 이어서 일한다. 다 쓰면 멈춰.";
 
-/** The lead command `dori up` runs, with the handoff document as its first message. */
+/** The lead command `dori up` runs, with the handoff (and the operations document, when there is one) as first message. */
 const restartCommand = (d: Deps, file: string): string => {
-  const header = `[LEAD ROTATED] 이전 lead 세션의 인수인계 문서(${file})다. 읽고 이어서 lead로 일해.`;
-  return `${leadCommand(d)} "$(printf '%s\\n\\n' ${shq(header)}; cat ${shq(file)})"`;
+  const ops = operationsPath(d.store.root);
+  const header = `[LEAD ROTATED] 이전 lead 세션의 인수인계 문서(${file})와 상시 운영 문서(${ops})다. 읽고 이어서 lead로 일해.`;
+  const opsPart = existsSync(ops) ? `; printf '\\n\\n'; cat ${shq(ops)}` : "";
+  return `${leadCommand(d)} "$(printf '%s\\n\\n' ${shq(header)}; cat ${shq(file)}${opsPart})"`;
 };
 
 /** Reads the footer and keeps session.json current; a context that fell below half means a new session was started by hand. */
@@ -166,7 +175,7 @@ export async function leadRotationTick(d: Deps, procs: Procs = realProcs): Promi
   if ((await rt.probe(lead)).status !== "idle") return [];
   const file = handoffPath(root, now);
   mkdirSync(dirname(file), { recursive: true });
-  const out = await rt.deliver(lead, handoffRequest(file));
+  const out = await rt.deliver(lead, handoffRequest(file, operationsPath(root)));
   // Typed or ambiguous text may still reach the lead; the handoff wait (and its timeout) covers that too.
   if (out.kind === "no-agent" || out.kind === "not-ready") return [];
   writeRotation(root, { phase: "handoff", ref: pane, at: now, reason, file });

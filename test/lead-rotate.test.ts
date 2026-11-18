@@ -6,7 +6,13 @@ import { dutyTick } from "../src/duty.ts";
 import { hooksSettled } from "../src/hooks.ts";
 import { send } from "../src/inbox.ts";
 import { contextTokens, leadRotationTick, QUIET_MS, rotationDue } from "../src/lead-rotate.ts";
-import { LEAD_ROTATION_DEFAULTS, loadLeadRotation, readRotation, rotationLog } from "../src/lead-rotate-state.ts";
+import {
+  LEAD_ROTATION_DEFAULTS,
+  loadLeadRotation,
+  operationsPath,
+  readRotation,
+  rotationLog,
+} from "../src/lead-rotate-state.ts";
 import { setup } from "./harness-setup.ts";
 import { href } from "./fake.ts";
 
@@ -96,6 +102,26 @@ describe("lead rotation (#8)", () => {
     writeFileSync(handoffFile(lead.received.at(-1)!), "# handoff\n");
     expect(await leadRotationTick(d, procs)).toMatchObject([{ action: "lead-rotated" }]);
     expect(lead.ran[0]).toStartWith("omo --model 'anthropic-subscription/claude-fable-5-2' --append-system-prompt ");
+  });
+
+  test("the request names the operations document, and the new session gets it after the handoff once it exists", async () => {
+    const { w, d, lead, procs } = rig();
+    const ops = operationsPath(d.store.root);
+    lead.screen = footer("350K");
+    await leadRotationTick(d, procs);
+    expect(lead.received.at(-1)).toContain(ops);
+    writeFileSync(handoffFile(lead.received.at(-1)!), "# handoff\n");
+    await leadRotationTick(d, procs);
+    expect(lead.ran[0]).not.toContain(`cat '${ops}'`);
+
+    w.clock += QUIET_MS;
+    writeFileSync(ops, "# operations\n");
+    lead.screen = footer("360K");
+    await leadRotationTick(d, procs);
+    const file = handoffFile(lead.received.at(-1)!);
+    writeFileSync(file, "# handoff\n");
+    expect(await leadRotationTick(d, procs)).toMatchObject([{ action: "lead-rotated" }]);
+    expect(lead.ran[1]).toContain(`cat '${file}'; printf '\\n\\n'; cat '${ops}'`);
   });
 
   test("a bad leadModel fails the rotation before the old lead is stopped", async () => {
