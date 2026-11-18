@@ -1,9 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { costText, limitFor, loadBudgets } from "./budget.ts";
 import { shq } from "./delivery.ts";
 import { promptText, type Deps } from "./harness.ts";
-import { ConfigError } from "./hooks.ts";
+import { ConfigError, readConfig } from "./hooks.ts";
 import { refText } from "./refs.ts";
 import { groupId } from "./runtime/group.ts";
 import { openSession, type SessionRef } from "./runtime/types.ts";
@@ -30,13 +30,12 @@ export const agentCommand = (d: Deps, name: string): string =>
 
 /** `leadModel` in `$DORI_HOME/config.json` (an agent `--model` value such as `provider/id`); undefined when unset. */
 export function loadLeadModel(root: string): string | undefined {
-  const path = join(root, "config.json");
-  if (!existsSync(path)) return undefined;
-  const v: unknown = Reflect.get(JSON.parse(readFileSync(path, "utf8")) as object, "leadModel");
+  const config = readConfig(root);
+  const v: unknown = config === undefined ? undefined : Reflect.get(config, "leadModel");
   if (v === undefined) return undefined;
   if (typeof v !== "string" || v.trim() === "")
     throw new ConfigError("config.json: leadModel must be a non-empty string");
-  return v;
+  return v.trim();
 }
 
 /** The lead's command for `dori up` and the lead rotation (#8): the lead prompt, plus `--model` when `leadModel` is set. */

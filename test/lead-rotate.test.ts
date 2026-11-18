@@ -98,6 +98,16 @@ describe("lead rotation (#8)", () => {
     expect(lead.ran[0]).toStartWith("omo --model 'anthropic-subscription/claude-fable-5-2' --append-system-prompt ");
   });
 
+  test("a bad leadModel fails the rotation before the old lead is stopped", async () => {
+    const { d, lead, killed, procs } = rig({ leadModel: 5 });
+    lead.screen = footer("350K");
+    await leadRotationTick(d, procs);
+    writeFileSync(handoffFile(lead.received.at(-1)!), "# handoff\n");
+    expect(await leadRotationTick(d, procs)).toMatchObject([{ action: "lead-rotate-failed" }]);
+    expect(killed).toEqual([]);
+    expect(lead.ran).toEqual([]);
+  });
+
   test("no handoff in time: the rotation is given up, the lead keeps its session and gets its queue", async () => {
     const { w, d, lead, killed, procs, notified } = rig();
     lead.screen = footer("400K");

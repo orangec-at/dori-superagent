@@ -78,8 +78,12 @@ describe("dori up", () => {
       "dori duty --interval 60",
       "dori loop",
     ]);
-    writeFileSync(join(root, "config.json"), JSON.stringify({ leadModel: 5 }));
-    expect(() => leadCommand(d)).toThrow("leadModel must be a non-empty string");
+    for (const bad of [5, "", "  "]) {
+      writeFileSync(join(root, "config.json"), JSON.stringify({ leadModel: bad }));
+      expect(() => leadCommand(d)).toThrow("leadModel must be a non-empty string");
+    }
+    writeFileSync(join(root, "config.json"), JSON.stringify({ leadModel: " a/b " }));
+    expect(leadCommand(d)).toStartWith("omo --model 'a/b' --append-system-prompt ");
   });
 
   test("hc: four terminals in this home's group, prefixed roles, no herdr workspace variable", async () => {
