@@ -49,7 +49,7 @@ export class World {
   onHookKill: (() => void) | undefined;
   /** number of upcoming `pane send-keys` calls that fail (exit 1) */
   keyFails = 0;
-  gh: (argv: readonly string[]) => { code: number; stdout: string } = () => ({ code: 1, stdout: "" });
+  gh: (argv: readonly string[]) => { code: number; stdout: string; stderr?: string } = () => ({ code: 1, stdout: "" });
   usage: TelemetryEvent[] = [];
   dutyCounts: DutyCounts[] = [];
   touches = 0;
@@ -95,7 +95,7 @@ export class World {
       await Promise.race([this.hang, kill]);
       if (killed) return { code: 143, stdout: "", stderr: "terminated" };
     }
-    if (cmd === "gh") return { ...this.gh(argv), stderr: "" };
+    if (cmd === "gh") return { stderr: "", ...this.gh(argv) };
     if (cmd === "hc") return this.hc.exec(cmd, argv);
     if (cmd !== "herdr") return { stderr: "", ...this.reviewer(argv) };
     const ok = (result: unknown) => ({ code: 0, stdout: JSON.stringify({ result }), stderr: "" });

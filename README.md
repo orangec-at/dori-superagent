@@ -186,6 +186,8 @@ Each duty pass reads the bottom of every working or waiting lane's pane and reco
 
 Then `gh pr checks` must return at least one check, every check must be `pass` or `skipping`, and at least one must be `pass`. An empty check list is refused with "an empty check list is never green". A push after the review changes the head SHA, so the receipt no longer matches and `dori review` has to run again.
 
+A repo with no CI at all can opt in by name: `"merge": { "allowNoChecks": ["owner/repo"] }` in `config.json` (default: empty, so every repo is refused as above). For a listed repo, only the case where `gh` reports no checks at all is let through; any reported check still follows the rules above, and the CLEAR receipt must still match the exact head. The merge stays pinned with `--match-head-commit`, and both `--dry-run` and the merge line end with `(no checks: allowed by config merge.allowNoChecks)`. A value that is not an array of strings is a config error.
+
 ### Hooks for your own tooling
 
 `$DORI_HOME/config.json` may name argv templates under `hooks`: `onReady`, `onReport` and `onLost` run in the background when those events happen (with `{key}`, `{text}` and `{evidence}` filled in per argument), and `reviewCommand` replaces the built-in reviewer as long as it prints the same `VERDICT:` line. `DORI_PROMPTS_DIR` points the harness at your own copies of the prompts.

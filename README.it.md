@@ -174,6 +174,8 @@ Una lane che non fa rapporto da 10 minuti, e il cui pane non sta lavorando, rice
 
 Poi `gh pr checks` deve restituire almeno un check, ogni check deve essere `pass` o `skipping`, e almeno uno deve essere `pass`. Una lista di check vuota viene rifiutata con "an empty check list is never green". Un push dopo la review cambia lo SHA di head, quindi la receipt non corrisponde più e `dori review` va rilanciato.
 
+Un repo senza alcuna CI può abilitarsi per nome: `"merge": { "allowNoChecks": ["owner/repo"] }` in `config.json` (predefinito: vuoto, quindi ogni repo viene rifiutato come sopra). Per un repo elencato passa solo il caso in cui `gh` non riporta nessun check; ogni check riportato segue ancora le regole sopra, e la receipt CLEAR deve comunque corrispondere esattamente allo SHA di head. Il merge resta fissato con `--match-head-commit`, e sia `--dry-run` sia la riga di merge terminano con `(no checks: allowed by config merge.allowNoChecks)`. Un valore che non è un array di stringhe è un errore di configurazione.
+
 ### Hook per i tuoi strumenti
 
 `$DORI_HOME/config.json` può indicare template di argv sotto `hooks`: `onReady`, `onReport` e `onLost` girano in background quando avvengono quegli eventi (con `{key}`, `{text}` e `{evidence}` compilati argomento per argomento), e `reviewCommand` sostituisce il reviewer integrato purché stampi la stessa riga `VERDICT:`. `DORI_PROMPTS_DIR` indica all'harness le tue copie dei prompt.

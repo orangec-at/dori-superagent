@@ -174,6 +174,8 @@ Eine Lane, die sich 10 Minuten nicht gemeldet hat und deren Pane nicht arbeitet,
 
 Dann muss `gh pr checks` mindestens einen Check liefern, jeder Check muss `pass` oder `skipping` sein, und mindestens einer muss `pass` sein. Eine leere Check-Liste wird abgelehnt mit "an empty check list is never green". Ein Push nach dem Review ändert die Head-SHA, damit passt das Receipt nicht mehr, und `dori review` muss erneut laufen.
 
+Ein Repo ganz ohne CI kann sich namentlich freischalten: `"merge": { "allowNoChecks": ["owner/repo"] }` in `config.json` (Standard: leer, also wird jedes Repo wie oben abgelehnt). Für ein gelistetes Repo wird nur der Fall durchgelassen, in dem `gh` überhaupt keine Checks meldet; jeder gemeldete Check folgt weiter den Regeln oben, und das CLEAR-Receipt muss weiterhin genau zur Head-SHA passen. Der Merge bleibt mit `--match-head-commit` festgenagelt, und sowohl `--dry-run` als auch die Merge-Zeile enden mit `(no checks: allowed by config merge.allowNoChecks)`. Ein Wert, der kein Array aus Strings ist, ist ein Konfigurationsfehler.
+
 ### Hooks für dein eigenes Tooling
 
 `$DORI_HOME/config.json` kann unter `hooks` argv-Vorlagen nennen: `onReady`, `onReport` und `onLost` laufen im Hintergrund, wenn diese Ereignisse eintreten (mit `{key}`, `{text}` und `{evidence}` pro Argument eingesetzt), und `reviewCommand` ersetzt den eingebauten Reviewer, solange es dieselbe `VERDICT:`-Zeile ausgibt. `DORI_PROMPTS_DIR` verweist den Harness auf deine eigenen Kopien der Prompts.
