@@ -172,7 +172,11 @@ async function checkStalls(d: Deps, roadmaps: readonly Roadmap[], launch: Launch
     const t = nextTask(r, assignedKeys(home));
     const bot = t?.kind === "delegate" ? taskBot(r, t) : undefined;
     if (bot !== undefined && busy.has(bot)) continue;
+    const before = readAssignments(home).length;
     const made = t === undefined ? undefined : handOut(d, r, t, launch, new Set(botNames(home) ?? []));
+    // Only a delegation actually recorded reserves its bot for the rest of this check, not a failure explanation.
+    const fresh = readAssignments(home).slice(before);
+    if (bot !== undefined && fresh.some((a) => a.kind === "delegate" && a.bot === bot)) busy.add(bot);
     state.stallReportedAt[r.project] = now;
     const hours = Math.floor((now - act.at) / HOUR);
     out.push(
