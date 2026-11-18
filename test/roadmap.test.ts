@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { parseRoadmap, personOnly } from "../src/roadmap.ts";
+import { chmodSync, lstatSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { checkOffTask, parseRoadmap, personOnly, taskId } from "../src/roadmap.ts";
 import { COUPAS } from "./autopilot-setup.ts";
 import { AUTOPILOT_ENV, pinEnv } from "./env-pin.ts";
 
@@ -18,6 +21,28 @@ describe("project roadmaps", () => {
       [false, "delegate", "bido", undefined],
     ]);
     expect(parseRoadmap("p", "f", "## 다음 할 일\n- [ ] [pr] 인덱스 정리\n", 0).tasks[0]!.kind).toBe("pr");
+  });
+
+  test("checkOffTask flips one character of the one matching line; checked, duplicate or edited lines are not written", () => {
+    const dir = mkdtempSync(join(tmpdir(), "dori-test-roadmap-"));
+    const file = join(dir, "p.md");
+    const text = "# p\n  * [ ] 한글   메모\n- [ ] [pr] 인덱스\n- [X] 끝난 일\n- [ ] 같은 일\n- [ ] 같은 일";
+    writeFileSync(file, text);
+    chmodSync(file, 0o640);
+    const link = join(dir, "link.md");
+    symlinkSync(file, link);
+    expect(checkOffTask(link, "p", taskId("p", "한글   메모"))).toBe("checked");
+    expect(readFileSync(file, "utf8")).toBe(text.replace("* [ ]", "* [x]"));
+    expect(statSync(file).mode & 0o777).toBe(0o640);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    const after = readFileSync(file, "utf8");
+    const mtime = statSync(file).mtimeMs;
+    expect(checkOffTask(file, "p", taskId("p", "끝난 일"))).toBe("already");
+    expect(checkOffTask(file, "p", taskId("p", "같은 일"))).toBe("conflict");
+    expect(checkOffTask(file, "p", taskId("p", "인덱스"))).toBe("conflict");
+    expect(checkOffTask(file, "p", taskId("p", "없는 일"))).toBe("conflict");
+    expect(readFileSync(file, "utf8")).toBe(after);
+    expect(statSync(file).mtimeMs).toBe(mtime);
   });
 
   test("person-only words match whole English words; a request after '하지 말고' still counts", () => {

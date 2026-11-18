@@ -47,7 +47,7 @@ Tasks are `- [ ]` (open) and `- [x]` (done) lines anywhere in the file:
 - `[pr]` at the start makes it lane work: a backlog item whose lane ends in a PR. Without it, it is a bot delegation (documents, content, research).
 - A task that asks for something only a person may do is never handed out. That covers 게시/발행/업로드/올리기/포스팅/제출, 병합/merge and pushing to main/master/origin or force-pushing, 배포/release/deploy/OTA, 결제, 삭제, and 재일 님 개인 계정 글, including English inflections (published, deploying, merging). The check fails closed. A mention counts as a request unless a prohibition is attached right to it: a Korean one directly after it ("게시는 하지 마", "게시하지 말고 …", "배포 금지"), or an English one right before it ("don't publish"). "게시하고 반응이 좋지 않으면" and "게시·Muse 전달은 하지 마" count as requests. "don't forget to publish" is a request. Write such a task anyway if it belongs on the roadmap, and a person picks it up.
 - `담당` names that do not look like bot names (a leading `-`, a space) are dropped, and work goes only to bots listed in `agents.json`.
-- A task is handed out once. Check it off (`[x]`) when it is done. Changing its text makes it a new task.
+- A task is handed out once. Check it off (`[x]`) when it is done, unless the autopilot did (see "Checking off" below). Changing its text makes it a new task.
 
 ## 1. Autostart
 
@@ -71,6 +71,18 @@ The autopilot runs 24 hours a day by default. `DORI_QUIET_HOURS=A-B` sets quiet 
 
 Each delegation's text opens with `[autopilot <project> <task id>]`, so its start and end lines can be found again. On each idle check, a delegation that ended `failed` or `timeout`, started but never recorded an end, or never started within 15 minutes is released (a `release` line in `assignments.jsonl`), and the lead gets `[AUTOPILOT 실패] ...`. A released task can be handed out again. After 2 failures it stays held (`final`) until a person fixes the task or checks it off.
 
+### Checking off
+
+A delegation that ended `ok` is not done by that alone. The autopilot checks its roadmap line off only when all of these hold:
+
+- the run that ended `ok` is this hand-out's run (same bot and task tag, started after the hand-out),
+- the task's text names at least one output path, absolute or `~/` (`... ~/.dori/out/report.md에 써줘`),
+- every path in the text is a file on this machine, changed at or after the hand-out.
+
+The line is then changed from `[ ]` to `[x]` and nothing else in the file changes (it is re-read first and replaced through a temporary file beside it), a `completed` line goes to `assignments.jsonl`, and the lead gets `[AUTOPILOT 완료] <bot> <project>: <task> -> [x] (<paths>)`. The roadmaps are read again, so the same pass hands out the next task. A completion is not a hand-out: it does not restart the bot's idle time.
+
+Anything else stays with the lead, as before: a task with no path, a relative path, another machine's file (`mac:~/...`, a URL), a file that is missing or older than the hand-out. The task stays held until a person checks it off. The line is never written when its text changed since the hand-out, when several lines have that text, or when it is a `[pr]` or person-only task. A line already checked (by a person, or by a pass stopped before it wrote `completed`) is only recorded. A `completed` task stays held, so reopening it by hand (`[x]` back to `[ ]`) never hands it out or checks it off again: change its text to hand it out anew. The duty loop is the only writer; a person editing the same roadmap at the same instant may lose that edit or the check.
+
 ## 3. Stalled projects
 
 Once an hour, outside the quiet hours, each project's newest activity is computed from roadmap edits, matching delegations, autopilot hand-outs, matching lanes, commits in `경로`, and commits and PRs in `저장소`. A project silent for 24 hours gets:
@@ -86,7 +98,7 @@ Everything is under `$DORI_HOME/autopilot/`:
 
 | File | Content |
 |---|---|
-| `assignments.jsonl` | One line per hand-out: `at`, `project`, `task` (id), `text`, `reason` (`idle`/`stall`), `kind` (`delegate`/`backlog`), `bot` or `item`. A `release` line (with `outcome`, and `final` after the second failure) marks a failed delegation. A task's newest line is its state. |
+| `assignments.jsonl` | One line per hand-out: `at`, `project`, `task` (id), `text`, `reason` (`idle`/`stall`), `kind` (`delegate`/`backlog`), `bot` or `item`. A `release` line (with `outcome`, and `final` after the second failure) marks a failed delegation, and a `completed` line one checked off. A task's newest line is its state. |
 | `status.json` | Written after every check: each roadmap with every task's `assignment`, each project's `activity` and `stallReportedAt`, each bot's `busy` / `lastAt` / `idleMinutes`, and the newest 100 hand-outs. The board's 에이전트 and 프로젝트 tabs read this file as it is. |
 | `state.json` | Check times, stall bookkeeping, and `idleReportedAt` (when each idle bot with nothing to do was last reported). |
 | `stop` | Present: no hand-outs and no stall reports (autostart is separate, see above). |

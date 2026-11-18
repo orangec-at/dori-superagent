@@ -1,7 +1,16 @@
 // Project roadmaps: `$DORI_HOME/projects/<project>.md`, one per project, written by people and read by the autopilot
 // (autopilot.ts) and the board. See docs/autopilot.md for the format.
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -122,6 +131,8 @@ function parseTask(project: string, mark: string, rest: string): RoadmapTask {
   };
 }
 
+const TASK_LINE = /^\s*[-*]\s+\[( |x|X)\]\s+(.+)$/;
+
 export function parseRoadmap(project: string, file: string, text: string, editedAt: number): Roadmap {
   const fields: Partial<Record<"goal" | "owners" | "repo" | "path" | "keywords" | "doneWhen", string>> = {};
   const milestones: string[] = [];
@@ -133,7 +144,7 @@ export function parseRoadmap(project: string, file: string, text: string, edited
     if (h1) title = h1[1]!.trim();
     const h2 = /^##\s+(.+)$/.exec(line);
     if (h2) section = h2[1]!.trim().toLowerCase();
-    const task = /^\s*[-*]\s+\[( |x|X)\]\s+(.+)$/.exec(line);
+    const task = TASK_LINE.exec(line);
     if (task) {
       tasks.push(parseTask(project, task[1]!, task[2]!));
       continue;
@@ -157,6 +168,31 @@ export function parseRoadmap(project: string, file: string, text: string, edited
     tasks,
     editedAt,
   };
+}
+
+/**
+ * Checks off task `id`: the one line with that id has its `[ ]` turned into `[x]` and nothing else changes. The file
+ * (a symlink's target) is read fresh and replaced through a temporary file beside it. "already": the line is checked.
+ * "conflict": no line or more than one has that id, or it is not an open delegate task; nothing is written then.
+ */
+export function checkOffTask(file: string, project: string, id: string): "checked" | "already" | "conflict" {
+  const real = realpathSync(file);
+  const lines = readFileSync(real, "utf8").split("\n");
+  const hits = lines.flatMap((line, i) => {
+    const m = TASK_LINE.exec(line);
+    const t = m ? parseTask(project, m[1]!, m[2]!) : undefined;
+    return t?.id === id ? [{ i, t }] : [];
+  });
+  if (hits.length !== 1) return "conflict";
+  const { i, t } = hits[0]!;
+  if (t.done) return "already";
+  if (t.kind !== "delegate" || t.blocked !== undefined) return "conflict";
+  lines[i] = lines[i]!.replace("[ ]", "[x]");
+  const tmp = `${real}.${process.pid}.tmp`;
+  writeFileSync(tmp, lines.join("\n"));
+  chmodSync(tmp, statSync(real).mode & 0o7777);
+  renameSync(tmp, real);
+  return "checked";
 }
 
 export const projectsDir = (home: string): string => join(home, "projects");

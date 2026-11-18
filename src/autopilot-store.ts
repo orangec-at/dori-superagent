@@ -6,7 +6,8 @@ import { join } from "node:path";
 /**
  * One line of assignments.jsonl. `delegate` / `backlog`: roadmap work handed to a bot or to the backlog (a lane, then
  * a PR). `release`: that delegation failed (`outcome`), so the task may be handed out again; with `final` it failed
- * too often and stays held until a person edits the roadmap.
+ * too often and stays held until a person edits the roadmap. `completed`: the delegation ended ok with its outputs
+ * there, and its roadmap line was checked off; the task stays held.
  */
 export type Assignment = {
   readonly at: number;
@@ -14,7 +15,7 @@ export type Assignment = {
   readonly task: string;
   readonly text: string;
   readonly reason: "idle" | "stall";
-  readonly kind: "delegate" | "backlog" | "release";
+  readonly kind: "delegate" | "backlog" | "release" | "completed";
   readonly bot?: string;
   readonly item?: string;
   readonly outcome?: string;
