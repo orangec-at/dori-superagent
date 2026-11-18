@@ -74,8 +74,8 @@ describe("autopilot: a finished delegation's roadmap line is checked off only wi
     ["the path is a directory", (out) => `${out}에 써줘`, () => {}],
     ["another machine's file", (out) => `mac:${out}/a.md에 써줘`, (out) => touch(`${out}/a.md`, NOON_KST + 50_000)],
     [
-      "one of two paths is stale",
-      (out) => `${out}/in.md를 읽고 ${out}/a.md에 써줘`,
+      "one of two unmarked paths is stale",
+      (out) => `${out}/in.md와 ${out}/a.md를 정리`,
       (out) => {
         touch(`${out}/in.md`, NOON_KST - HOUR);
         touch(`${out}/a.md`, NOON_KST + 50_000);

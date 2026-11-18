@@ -75,6 +75,21 @@ describe("autopilot: one stall check hands a bot at most one delegation", () => 
     expect(launched).toEqual([]);
     expect(readAssignments(home)).toEqual([]);
   });
+
+  test("first_failed_handout_then_second_succeeds_reserves_once", async () => {
+    const { d, home, launched, launch, run } = setup(
+      { northwind: stalled("northwind", "ghost"), southwind: SHARED.southwind, westwind: stalled("westwind", "endo") },
+      30 * HOUR,
+      ["endo"],
+    );
+    run("endo", NOON_KST - HOUR, NOON_KST - 30 * 60_000, "별도 조사");
+    const lines = await autopilotTick(d, launch);
+    expect(launched.map((l) => l.mission)).toEqual(["autopilot-southwind"]);
+    expect(lines.map((l) => /^\[REPORT (\w+) 정체\]/.exec(l)?.[1])).toEqual(["northwind", "southwind"]);
+    expect(lines[0]).toContain("ghost가 agents.json에 없어 넘기지 않음");
+    expect(readAssignments(home).map((a) => [a.project, a.bot])).toEqual([["southwind", "endo"]]);
+    expect(readState(home).stallReportedAt["westwind"]).toBeUndefined();
+  });
 });
 
 describe("autopilot: a project silent for 24h is reported and handed its next task", () => {
