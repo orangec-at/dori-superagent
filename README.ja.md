@@ -174,6 +174,8 @@ hcにはワークスペースもタブもありません。Doriはセッショ�
 
 次に、`gh pr checks` が少なくとも1つのチェックを返し、すべてのチェックが `pass` か `skipping` で、少なくとも1つが `pass` である必要があります。チェック一覧が空なら "an empty check list is never green" として拒否されます。レビュー後にプッシュするとhead SHAが変わるので、レシートが一致しなくなり、`dori review` をもう一度実行する必要があります。
 
+CIをまったく持たないリポジトリは名前で明示的に許可できます。`config.json` に `"merge": { "allowNoChecks": ["owner/repo"] }` と書きます（既定は空なので、どのリポジトリも上と同じく拒否されます）。一覧にあるリポジトリでも、通すのは `gh` がチェックを1つも報告しない場合だけです。チェックが1つでも報告されれば上の規則がそのまま適用され、CLEARレシートがhead SHAと正確に一致する条件も変わりません。マージは `--match-head-commit` で固定されたままで、`--dry-run` とマージ結果の行の末尾には `(no checks: allowed by config merge.allowNoChecks)` が付きます。文字列の配列でない値は設定エラーです。
+
 ### 自前のツール用のフック
 
 `$DORI_HOME/config.json` の `hooks` 以下に、argvテンプレートを指定できます。`onReady`、`onReport`、`onLost` はそれぞれのイベントでバックグラウンド実行され、引数ごとに `{key}`、`{text}`、`{evidence}` が埋め込まれます。`reviewCommand` は、同じ `VERDICT:` 行を出力する限り、組み込みのレビュアーの代わりになります。`DORI_PROMPTS_DIR` を使うと、ハーネスが自分用にコピーしたプロンプトを使うようになります。

@@ -3,7 +3,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { prompt, type Deps } from "./harness.ts";
 import { Refusal } from "./refusal.ts";
-import { loadHooks, substitute } from "./hooks.ts";
+import { ConfigError, loadHooks, readConfig, substitute } from "./hooks.ts";
 import type { MergeOutcome } from "./telemetry.ts";
 
 export type PrRef = { repo: string; number: number; id: string };
@@ -69,27 +69,57 @@ export async function review(
 
 type Check = { name: string; bucket: string };
 
-/** Merge only when the exact current head has a CLEAR review receipt and every check passed. An empty check list is never green. */
-export async function mergeGate(d: Deps, prId: string, opts: { dryRun?: boolean } = {}): Promise<string> {
-  const pr = parsePr(prId);
-  const sha = await headSha(d, pr);
-  const refused = await gateRefusal(d, pr, sha);
-  if (refused) {
-    if (!opts.dryRun) d.usage.record({ name: "dori.merge_decided", outcome: refused[0] });
-    throw new Refusal(`MERGE_REFUSED ${refused[1]}`);
-  }
-  if (opts.dryRun) return `MERGE_OK ${pr.id} head=${sha} (dry run)`;
-  await gh(d, ["pr", "merge", String(pr.number), "--repo", pr.repo, "--squash", "--match-head-commit", sha]);
-  d.usage.record({ name: "dori.merge_decided", outcome: "merged" });
-  return `MERGED ${pr.id} head=${sha}`;
+/** `merge.allowNoChecks` in `$DORI_HOME/config.json`: repos (owner/repo) whose PRs may merge with no checks at all. */
+export function loadAllowNoChecks(root: string): readonly string[] {
+  const merge: unknown = Reflect.get(readConfig(root) ?? {}, "merge");
+  if (merge === undefined) return [];
+  if (typeof merge !== "object" || merge === null || Array.isArray(merge))
+    throw new ConfigError("config.json: merge must be an object");
+  const repos: unknown = Reflect.get(merge, "allowNoChecks");
+  if (repos === undefined) return [];
+  if (!Array.isArray(repos) || !repos.every((r) => typeof r === "string"))
+    throw new ConfigError("config.json: merge.allowNoChecks must be an array of strings (owner/repo)");
+  return repos;
 }
 
-async function gateRefusal(d: Deps, pr: PrRef, sha: string): Promise<[MergeOutcome, string] | undefined> {
+const NO_CHECKS_ALLOWED = "no checks: allowed by config merge.allowNoChecks";
+
+/**
+ * Merge only when the exact current head has a CLEAR review receipt and every check passed. An empty check list is
+ * never green, except for a repo listed in `merge.allowNoChecks`, and then only when gh reports no checks at all.
+ */
+export async function mergeGate(d: Deps, prId: string, opts: { dryRun?: boolean } = {}): Promise<string> {
+  const pr = parsePr(prId);
+  const allowNoChecks = loadAllowNoChecks(d.store.root).includes(pr.repo);
+  const sha = await headSha(d, pr);
+  const gate = await gateRefusal(d, pr, sha, allowNoChecks);
+  if (Array.isArray(gate)) {
+    if (!opts.dryRun) d.usage.record({ name: "dori.merge_decided", outcome: gate[0] });
+    throw new Refusal(`MERGE_REFUSED ${gate[1]}`);
+  }
+  const note = gate === "no_checks_allowed" ? ` (${NO_CHECKS_ALLOWED})` : "";
+  if (opts.dryRun) return `MERGE_OK ${pr.id} head=${sha} (dry run)${note}`;
+  await gh(d, ["pr", "merge", String(pr.number), "--repo", pr.repo, "--squash", "--match-head-commit", sha]);
+  d.usage.record({ name: "dori.merge_decided", outcome: "merged" });
+  return `MERGED ${pr.id} head=${sha}${note}`;
+}
+
+/** gh prints `[]`, or exits 1 with "no checks reported", when a PR has no checks; any other failure is not "none". */
+const reportedNone = (r: { code: number; stdout: string; stderr: string }): boolean =>
+  r.code === 0 ? r.stdout.trim() === "[]" : /no checks reported/.test(r.stderr);
+
+async function gateRefusal(
+  d: Deps,
+  pr: PrRef,
+  sha: string,
+  allowNoChecks: boolean,
+): Promise<[MergeOutcome, string] | "no_checks_allowed" | undefined> {
   const receipt = d.store.receipt(pr.id, sha);
   if (!receipt) return ["no_receipt", `no review receipt at head ${sha.slice(0, 12)} (run: dori review ${pr.id})`];
   if (receipt.verdict !== "CLEAR") return ["review_block", `review at ${sha.slice(0, 12)} is ${receipt.verdict}`];
   const checksRes = await d.exec("gh", ["pr", "checks", String(pr.number), "--repo", pr.repo, "--json", "name,bucket"]);
   const checks: Check[] = checksRes.stdout.trim().startsWith("[") ? JSON.parse(checksRes.stdout) : [];
+  if (checks.length === 0 && allowNoChecks && reportedNone(checksRes)) return "no_checks_allowed";
   if (checks.length === 0) return ["no_checks", "no checks reported: an empty check list is never green"];
   const bad = checks.filter((c) => c.bucket !== "pass" && c.bucket !== "skipping");
   if (bad.length > 0) return ["checks_red", `checks not green: ${bad.map((c) => `${c.name}=${c.bucket}`).join(", ")}`];

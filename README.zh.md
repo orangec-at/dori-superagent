@@ -174,6 +174,8 @@ lead 是唯一和你说话的会话（`prompts/lead.md`）。lane 规则把每�
 
 接着 `gh pr checks` 必须返回至少一个检查，每个检查都必须是 `pass` 或 `skipping`，且至少一个是 `pass`。空的检查列表会被拒绝，理由是 "an empty check list is never green"。review 之后的 push 会改变 head SHA，receipt 就不再匹配，`dori review` 需要重新运行。
 
+完全没有 CI 的仓库可以按名称显式加入：在 `config.json` 中写 `"merge": { "allowNoChecks": ["owner/repo"] }`（默认为空，所以每个仓库都像上面一样被拒绝）。对列表中的仓库，只放行 `gh` 完全没有报告任何检查的情况；只要报告了检查，仍按上面的规则处理，CLEAR receipt 也仍必须与 head SHA 完全一致。合并仍用 `--match-head-commit` 固定，`--dry-run` 和合并结果行末尾都会带上 `(no checks: allowed by config merge.allowNoChecks)`。不是字符串数组的值会被当作配置错误。
+
 ### 给你自己工具用的 hook
 
 `$DORI_HOME/config.json` 可以在 `hooks` 下指定 argv 模板：`onReady`、`onReport` 和 `onLost` 在对应事件发生时于后台运行（每个参数中的 `{key}`、`{text}` 和 `{evidence}` 会被填入），`reviewCommand` 可以替换内置的 reviewer，只要它打印同样的 `VERDICT:` 行。`DORI_PROMPTS_DIR` 让 harness 使用你自己的提示词副本。
