@@ -66,6 +66,8 @@ const dir = (root: string): string => join(root, "lead");
 const sessionPath = (root: string): string => join(dir(root), "session.json");
 const rotationPath = (root: string): string => join(dir(root), "rotation.json");
 export const rotationLog = (root: string): string => join(dir(root), "rotations.log");
+/** The lead's standing operations document (contacts, procedures, standing cautions), kept current across rotations. */
+export const operationsPath = (root: string): string => join(dir(root), "operations.md");
 export const handoffPath = (root: string, at: number): string =>
   join(root, "handoff", `${new Date(at).toISOString().replaceAll(":", "-")}.md`);
 
