@@ -47,6 +47,8 @@ describe("autopilot check-off: output markers with words between the particle an
     ["에 짧게 정리해줘", (o) => `${o}/in.md를 ${o}/res.md에 짧게 정리해줘`],
     ["에 한국어로 그대로 써줘 (two modifiers)", (o) => `${o}/in.md를 ${o}/res.md에 한국어로 그대로 써줘`],
     ["에 써 줘 (a space inside the verb)", (o) => `${o}/in.md를 읽고 ${o}/res.md에 써 줘`],
+    ["에 쓰인 (used in) marks no input", (o) => `${o}/in.md에 쓰인 규칙대로 ${o}/res.md에 정리`],
+    ["a space before the particle", (o) => `${o}/in.md를 읽고 ${o}/res.md 에 써줘`],
     ["파일에 써줘", (o) => `${o}/in.md를 읽고 ${o}/res.md 파일에 써줘`],
     ["파일로 저장", (o) => `${o}/in.md 요약을 ${o}/res.md 파일로 저장`],
     ["에 있는 (not a marker) before the output", (o) => `${o}/in.md에 있는 표를 ${o}/res.md에 써줘`],
@@ -96,9 +98,24 @@ describe("autopilot check-off: output markers with words between the particle an
       inputsStaleOutputFresh,
     ],
     [
-      "에 쓰인 (used in) marks the input too: fail closed",
-      (o) => `${o}/in.md에 쓰인 규칙대로 ${o}/res.md에 정리`,
-      inputsStaleOutputFresh,
+      "a Korean-named output written with a space before 에 is still marked, so its absence blocks",
+      (o) => `${o}/res.md에 저장하고 ${o}/보고서 에 써줘`,
+      (o) => touch(`${o}/res.md`, FRESH),
+    ],
+    [
+      "기록된 (already recorded) marks no input, so the missing output blocks",
+      (o) => `${o}/in.md에 기록된 오류를 ${o}/res.md로 옮겨줘`,
+      (o) => touch(`${o}/in.md`, FRESH),
+    ],
+    [
+      "쓴 (already written) marks no input, so the missing output blocks",
+      (o) => `${o}/in.md에 쓴 표를 ${o}/res.md에 붙여줘`,
+      (o) => touch(`${o}/in.md`, FRESH),
+    ],
+    [
+      "정리된 (already summarized) marks no input, so the missing output blocks",
+      (o) => `${o}/in.md에 정리된 내용을 ${o}/res.md로 옮겨줘`,
+      (o) => touch(`${o}/in.md`, FRESH),
     ],
   ];
   for (const [name, first, prep] of open)

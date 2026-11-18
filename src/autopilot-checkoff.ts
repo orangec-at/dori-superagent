@@ -16,18 +16,20 @@ import { checkOffTask, type Roadmap } from "./roadmap.ts";
 const PATH = /(?<![\p{L}\p{N}_:@./~-])(?:~\/|\/)[\p{L}\p{N}_.~/-]*[\p{L}\p{N}_]/gu;
 const PARTICLE = /(?<=[A-Za-z0-9_])\p{Script=Hangul}+$/u;
 /**
- * What follows an output path: an optional 파일, then 에 and a verb that writes ("…/a.md에 써줘", "…/a.md에 저장"), or
- * 로/으로 and a verb that saves ("…/a.md로 저장"). Up to three words ending in 로 or 게 may stand before the verb
- * ("…/a.md에 표로 써줘", "…에 한국어로 정리", "…에 짧게 정리"); any other word ends the marker. A negated verb
- * ("…/a.md에 쓰지 말고") is no marker. A task that marks some paths this way names the rest as inputs to read, which
- * need not change; one that marks none keeps every path an output (fail closed: "…/a.md에서 읽고 정리" or
- * "…/보고서에 써줘" still needs every path fresh). A marker read wrongly on an input only makes that input required.
+ * What follows an output path: an optional space and 파일, then 에 and a verb that writes ("…/a.md에 써줘", "…/a.md에
+ * 저장", "…/보고서 에 써줘"), or 로/으로 and a verb that saves ("…/a.md로 저장"). Up to three words ending in 로 or 게
+ * may stand before the verb ("…/a.md에 표로 써줘", "…에 한국어로 정리", "…에 짧게 정리"); any other word ends the
+ * marker. A negated verb ("…/a.md에 쓰지 말고") is no marker, and neither is one that says the file already holds the
+ * text ("…/a.md에 기록된 오류", "…에 정리한 내용", "…에 쓰인 규칙"): such a path is an input. A task that marks some
+ * paths this way names the rest as inputs to read, which need not change; one that marks none keeps every path an
+ * output (fail closed: "…/a.md에서 읽고 정리" or "…/보고서에 써줘" still needs every path fresh).
  */
 const MODIFIERS = String.raw`(?:[\p{L}\p{N}]+(?:로|게)\s*){0,3}`;
 const NOT_NEGATED = String.raw`(?!\p{L}*지\s*(?:말|않|마))`;
+const NOT_WRITTEN = String.raw`(?!\s*(?:어|아|여)?\s*(?:(?:된|돼|진|인|한|은|던|둔)(?!\p{L})|되어|놓은|놓인|있는|있던))`;
 const WRITES_TO = new RegExp(
-  String.raw`^(?:\s*파일)?(?:에\s*${MODIFIERS}(?:써|쓰|쓴|작성|저장|정리|기록|남기|남겨|만들|담아|추가)` +
-    String.raw`|으?로\s*${MODIFIERS}(?:저장|써|쓰|작성|기록|내보내|출력|남기|남겨))${NOT_NEGATED}`,
+  String.raw`^\s*(?:파일\s*)?(?:에\s*${MODIFIERS}(?:써|쓰|작성|저장|정리|기록|남기|남겨|만들|담아|추가)` +
+    String.raw`|으?로\s*${MODIFIERS}(?:저장|써|쓰|작성|기록|내보내|출력|남기|남겨))${NOT_NEGATED}${NOT_WRITTEN}`,
   "u",
 );
 
