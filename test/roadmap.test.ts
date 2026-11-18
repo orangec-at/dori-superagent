@@ -1,8 +1,20 @@
-import { describe, expect, test } from "bun:test";
-import { chmodSync, lstatSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkOffTask, parseRoadmap, personOnly, taskId } from "../src/roadmap.ts";
+import { checkOffTask, loadRoadmaps, parseRoadmap, personOnly, taskId } from "../src/roadmap.ts";
 import { COUPAS } from "./autopilot-setup.ts";
 import { AUTOPILOT_ENV, pinEnv } from "./env-pin.ts";
 
@@ -43,6 +55,30 @@ describe("project roadmaps", () => {
     expect(checkOffTask(file, "p", taskId("p", "없는 일"))).toBe("conflict");
     expect(readFileSync(file, "utf8")).toBe(after);
     expect(statSync(file).mtimeMs).toBe(mtime);
+  });
+
+  test("checkOffTask removes its temporary file when chmod or rename fails; loadRoadmaps never reads a .tmp", () => {
+    const home = mkdtempSync(join(tmpdir(), "dori-test-roadmap-"));
+    const dir = join(home, "projects");
+    mkdirSync(dir);
+    const file = join(dir, "p.md");
+    const text = "# p\n- [ ] 메모\n";
+    writeFileSync(file, text);
+    for (const name of ["chmodSync", "renameSync"] as const) {
+      const spy = spyOn(fs, name).mockImplementation(() => {
+        throw new Error(`${name} failed`);
+      });
+      try {
+        expect(() => checkOffTask(file, "p", taskId("p", "메모"))).toThrow(`${name} failed`);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(readdirSync(dir)).toEqual(["p.md"]);
+      expect(readFileSync(file, "utf8")).toBe(text);
+    }
+    writeFileSync(join(dir, `p.md.${process.pid}.tmp`), text);
+    expect(loadRoadmaps(home).map((r) => r.project)).toEqual(["p"]);
+    rmSync(home, { recursive: true, force: true });
   });
 
   test("person-only words match whole English words; a request after '하지 말고' still counts", () => {
