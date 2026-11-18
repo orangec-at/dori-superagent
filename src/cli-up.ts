@@ -102,7 +102,12 @@ export function status(d: Deps): void {
   console.log(runtimeLine(d));
   const roles = d.store.roles();
   const show = (ref: SessionRef | undefined) => (ref ? refText(ref) : "-");
-  console.log(`lead=${show(roles.lead)} duty=${show(roles.duty)} home=${d.store.root}`);
+  console.log(
+    `lead=${show(roles.lead)} duty=${show(roles.duty)} loop=${show(roles["duty-loop"])} hourly=${show(roles["hourly-loop"])} home=${d.store.root}`,
+  );
+  // A home registered before the loops had roles (#155) has none; self-update cannot restart a loop it cannot find.
+  const missing = (Object.keys(LOOP_COMMANDS) as (keyof typeof LOOP_COMMANDS)[]).filter((r) => !roles[r]);
+  if (missing.length) console.log(`ROLES not registered: ${missing.join(", ")} (dori role <role> <pane>)`);
   const budgets = loadBudgets(d.store.root);
   for (const l of d.store.lanes()) {
     const last = l.log.at(-1);
