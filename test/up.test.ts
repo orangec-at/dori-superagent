@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { up } from "../src/cli-up.ts";
+import { leadCommand, up } from "../src/cli-up.ts";
 import { groupId } from "../src/runtime/group.ts";
 import { World } from "./fake.ts";
 import { captureIo } from "./inbox-setup.ts";
@@ -60,6 +60,26 @@ describe("dori up", () => {
       "hourly-loop": "w1:p5",
     });
     expect(out).toBe(`UP runtime=herdr lead=w1:p2 duty=w1:p3 loop=w1:p4 hourly=w1:p5 home=${root}`);
+  });
+
+  test("leadModel in config.json adds --model to the lead command only; a non-string is refused", async () => {
+    const w = new World();
+    const d = w.deps();
+    const root = d.store.root;
+    writeFileSync(join(root, "config.json"), JSON.stringify({ leadModel: "anthropic-subscription/claude-fable-5-2" }));
+    await captureIo(async () => {
+      await up(d, "/w");
+      return 0;
+    });
+    const runs = w.calls.filter((c) => c.argv[0] === "pane" && c.argv[1] === "run").map((c) => c.argv[3]);
+    expect(runs).toEqual([
+      `omo --model 'anthropic-subscription/claude-fable-5-2' --append-system-prompt '${join(root, "prompts", "lead.md")}'`,
+      `omo --append-system-prompt '${join(root, "prompts", "duty.md")}'`,
+      "dori duty --interval 60",
+      "dori loop",
+    ]);
+    writeFileSync(join(root, "config.json"), JSON.stringify({ leadModel: 5 }));
+    expect(() => leadCommand(d)).toThrow("leadModel must be a non-empty string");
   });
 
   test("hc: four terminals in this home's group, prefixed roles, no herdr workspace variable", async () => {

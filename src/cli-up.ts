@@ -1,8 +1,9 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { costText, limitFor, loadBudgets } from "./budget.ts";
 import { shq } from "./delivery.ts";
 import { promptText, type Deps } from "./harness.ts";
+import { ConfigError } from "./hooks.ts";
 import { refText } from "./refs.ts";
 import { groupId } from "./runtime/group.ts";
 import { openSession, type SessionRef } from "./runtime/types.ts";
@@ -23,9 +24,27 @@ function renderPrompt(d: Deps, name: string): string {
   return out;
 }
 
-/** The agent command `dori up` runs with a role prompt; the lead rotation (#8) starts the same one. */
+/** The agent command `dori up` runs with a role prompt. */
 export const agentCommand = (d: Deps, name: string): string =>
   `${d.agentCmd} --append-system-prompt ${shq(renderPrompt(d, name))}`;
+
+/** `leadModel` in `$DORI_HOME/config.json` (an agent `--model` value such as `provider/id`); undefined when unset. */
+export function loadLeadModel(root: string): string | undefined {
+  const path = join(root, "config.json");
+  if (!existsSync(path)) return undefined;
+  const v: unknown = Reflect.get(JSON.parse(readFileSync(path, "utf8")) as object, "leadModel");
+  if (v === undefined) return undefined;
+  if (typeof v !== "string" || v.trim() === "")
+    throw new ConfigError("config.json: leadModel must be a non-empty string");
+  return v;
+}
+
+/** The lead's command for `dori up` and the lead rotation (#8): the lead prompt, plus `--model` when `leadModel` is set. */
+export function leadCommand(d: Deps): string {
+  const model = loadLeadModel(d.store.root);
+  const flag = model === undefined ? "" : ` --model ${shq(model)}`;
+  return `${d.agentCmd}${flag} --append-system-prompt ${shq(renderPrompt(d, "lead.md"))}`;
+}
 
 /**
  * Opens lead, duty, the duty loop and the hourly loop on the selected runtime and registers all four roles. herdr: the
@@ -40,7 +59,7 @@ export async function up(d: Deps, cwd: string): Promise<void> {
   const lead = await openSession(
     rt,
     { name: "dori", role: "lead", container: "workspace-root", cwd, env: {}, group: groupId(d.store.root) },
-    agent("lead.md"),
+    leadCommand(d),
   );
   d.store.setRole("lead", lead);
   const group = lead.group;

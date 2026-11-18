@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Refusal } from "../src/refusal.ts";
 import { done, ready, startLane } from "../src/lanes.ts";
 import { href } from "./fake.ts";
@@ -14,6 +15,16 @@ describe("lanes", () => {
     expect(await Bun.file(lane.brief).text()).toContain("dori ready fix-login --text");
     expect(lead.received).toEqual([`[START fix-login] lane opened in ${lane.paneId}`]);
     await expect(startLane(d, "fix-login", brief, { group: "w1" })).rejects.toThrow(Refusal);
+  });
+
+  test("start ignores leadModel: a lane runs the default model", async () => {
+    const { w, d, brief } = setup();
+    writeFileSync(
+      join(d.store.root, "config.json"),
+      JSON.stringify({ leadModel: "anthropic-subscription/claude-fable-5-2" }),
+    );
+    const lane = await startLane(d, "fix-login", brief, { group: "w1" });
+    expect(w.panes.get(lane.paneId)!.ran[0]).toStartWith("omo 'Read your brief at ");
   });
 
   test("start --mission keeps the mission id on the lane and refuses one that is not a key before opening anything", async () => {

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { basename, dirname } from "node:path";
-import { agentCommand } from "./cli-up.ts";
+import { leadCommand } from "./cli-up.ts";
 import { shq } from "./delivery.ts";
 import type { DutyEvent } from "./duty.ts";
 import type { Deps } from "./harness.ts";
@@ -56,7 +56,7 @@ export const handoffRequest = (file: string): string =>
 /** The lead command `dori up` runs, with the handoff document as its first message. */
 const restartCommand = (d: Deps, file: string): string => {
   const header = `[LEAD ROTATED] 이전 lead 세션의 인수인계 문서(${file})다. 읽고 이어서 lead로 일해.`;
-  return `${agentCommand(d, "lead.md")} "$(printf '%s\\n\\n' ${shq(header)}; cat ${shq(file)})"`;
+  return `${leadCommand(d)} "$(printf '%s\\n\\n' ${shq(header)}; cat ${shq(file)})"`;
 };
 
 /** Reads the footer and keeps session.json current; a context that fell below half means a new session was started by hand. */
