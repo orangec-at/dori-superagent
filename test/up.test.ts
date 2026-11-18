@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { main } from "../src/cli.ts";
 import { leadCommand, status, up } from "../src/cli-up.ts";
+import { refText } from "../src/refs.ts";
 import { groupId } from "../src/runtime/group.ts";
 import { World } from "./fake.ts";
 import { captureIo } from "./inbox-setup.ts";
@@ -79,6 +81,27 @@ describe("dori up", () => {
     const lines = out.split("\n");
     expect(lines[1]).toBe(`lead=w3:p1 duty=w3:p2 loop=- hourly=- home=${d.store.root}`);
     expect(lines[2]).toBe("ROLES not registered: duty-loop, hourly-loop (dori role <role> <pane>)");
+  });
+
+  test("dori role registers the loop panes status asks for, and still refuses a role it does not know", async () => {
+    const w = new World();
+    const d = w.deps();
+    writeFileSync(join(d.store.root, "roles.json"), JSON.stringify({ lead: "w3:p1", duty: "w3:p2" }));
+    await captureIo(async () => {
+      expect(await main(["role", "duty-loop", "w3:p3"], d)).toBe(0);
+      expect(await main(["role", "hourly-loop", "w3:p4"], d)).toBe(0);
+      return 0;
+    });
+    await expect(main(["role", "lane", "w3:p5"], d)).rejects.toThrow(
+      "role must be one of lead, duty, duty-loop, hourly-loop",
+    );
+    expect(refText(d.store.roles()["duty-loop"]!)).toBe("w3:p3");
+    const { out } = await captureIo(async () => {
+      status(d);
+      return 0;
+    });
+    expect(out.split("\n")[1]).toBe(`lead=w3:p1 duty=w3:p2 loop=w3:p3 hourly=w3:p4 home=${d.store.root}`);
+    expect(out).not.toContain("ROLES not registered");
   });
 
   test("leadModel in config.json adds --model to the lead command only; a non-string is refused", async () => {
