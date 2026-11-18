@@ -8,7 +8,7 @@ import { audit, HOUR } from "./loop-audit.ts";
 import { checkBoard } from "./loop-board.ts";
 import { refreshLinks } from "./loop-links.ts";
 import { acquire, release } from "./loop-lock.ts";
-import { busyLanes, isOpenLane, MAX_ATTEMPTS, pull } from "./loop-pull.ts";
+import { busyLanes, isOpenLane, pull, settleEnded } from "./loop-pull.ts";
 import { markTrialsAsked, routeStanding } from "./standing-loop.ts";
 import type { LoopRun } from "./store-types.ts";
 
@@ -38,19 +38,10 @@ async function sync(d: Deps, run: LoopRun): Promise<void> {
   for (const item of d.store.items()) {
     try {
       if (item.status === "running") {
+        const settled = settleEnded(d, item);
         const lane = d.store.lane(item.id);
-        if (lane?.status === "done") {
-          item.status = "done";
-          log(d, item, "done", "lane done");
-          run.synced.push(`${item.id} done (lane done)`);
-        } else if (!lane || lane.status === "lost") {
-          const why = lane ? "lane lost" : "lane record missing";
-          item.status = "open";
-          item.attempts += 1;
-          if (item.attempts >= MAX_ATTEMPTS) item.decision = `${why} ${item.attempts} times; retry, re-brief or drop?`;
-          log(d, item, "reopen", `${why}, attempt ${item.attempts}`);
-          run.synced.push(`${item.id} reopened (${why}, attempt ${item.attempts})`);
-        } else if (lane.status === "ready") {
+        if (settled) run.synced.push(settled);
+        else if (lane?.status === "ready") {
           const m = lane.final?.evidence.map((e) => PR_RE.exec(e)).find(Boolean);
           if (m && (await ghState(d, "pr", m[1]!, m[2]!)) === "MERGED") {
             item.status = "done";

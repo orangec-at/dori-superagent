@@ -3,7 +3,7 @@
 import type { Deps } from "./harness.ts";
 import { done } from "./lanes.ts";
 import { acquire, release } from "./loop-lock.ts";
-import { loopLimits, type PullLimits, pull, pullCandidates } from "./loop-pull.ts";
+import { isOpenLane, loopLimits, type PullLimits, pull, pullCandidates, settleEnded } from "./loop-pull.ts";
 import type { LoopRun } from "./store-types.ts";
 
 /** A start that failed is tried again by autostart after this long; the hourly loop still counts its own tries. */
@@ -27,18 +27,39 @@ const envLimits = (): PullLimits => ({
 });
 
 /**
- * Starts what the free slots allow and returns one line per start or failure. Does nothing when DORI_AUTOSTART=off,
- * when the hourly loop is stopped, when another loop holds the lock (it is pulling already), or when no item is
- * waiting. The lanes it opens tell the lead [START] themselves.
+ * Running items whose lane is done or lost leave running at once (`settleEnded`), not at the next hourly pass, so the
+ * backlog never shows a closed lane's item as running. Skipped while the hourly loop is stopped or holds the lock.
+ */
+function settleNow(d: Deps): string[] {
+  const ended = () =>
+    d.store.items().filter((i) => i.status === "running" && !isOpenLane(d.store.lane(i.id)?.status ?? "done"));
+  if (d.store.stop() || ended().length === 0) return [];
+  const lock = acquire(d);
+  if ("holder" in lock) return [];
+  try {
+    return ended().flatMap((i) => {
+      const line = settleEnded(d, i);
+      return line ? [`synced ${line}`] : [];
+    });
+  } finally {
+    release(d, lock.nonce);
+  }
+}
+
+/**
+ * Settles ended lanes' items, then starts what the free slots allow and returns one line per change, start or failure.
+ * Starts nothing when DORI_AUTOSTART=off, when the hourly loop is stopped, when another loop holds the lock (it is
+ * pulling already), or when no item is waiting. The lanes it opens tell the lead [START] themselves.
  */
 export async function startNow(d: Deps, by: string, limits?: PullLimits): Promise<string[]> {
-  if (process.env["DORI_AUTOSTART"] === "off" || d.store.stop() || pullCandidates(d).length === 0) return [];
+  const settled = settleNow(d);
+  if (process.env["DORI_AUTOSTART"] === "off" || d.store.stop() || pullCandidates(d).length === 0) return settled;
   const lock = acquire(d);
   if ("holder" in lock) return [];
   try {
     const run: LoopRun = { at: d.now(), synced: [], findings: [], started: [], held: [], asked: [] };
     await pull(d, run, limits ?? loopOrEnv(d), lock.nonce, { by, retryAfterMs: RETRY_AFTER_MS });
-    return [...run.started.map((s) => `started ${s}`), ...run.findings];
+    return [...settled, ...run.started.map((s) => `started ${s}`), ...run.findings];
   } finally {
     release(d, lock.nonce);
   }

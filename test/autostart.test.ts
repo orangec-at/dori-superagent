@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { doneThenStart, RETRY_AFTER_MS, startNow } from "../src/autostart.ts";
 import { main } from "../src/cli.ts";
 import { dutyTick } from "../src/duty.ts";
-import { ready } from "../src/lanes.ts";
+import { done, ready } from "../src/lanes.ts";
 import { AUTOPILOT_ENV, pinEnv } from "./env-pin.ts";
 import { setup } from "./loop-setup.ts";
 
@@ -51,8 +51,34 @@ describe("autostart: a free slot goes to the next item without waiting for the h
     expect(d.store.item("a4")!.status).toBe("open");
     await ready(d, "a1", "done", ["https://example.com/pr/1"]);
     w.panes.get(d.store.lane("a1")!.paneId)!.status = "idle";
-    expect(await doneThenStart(d, "a1", limits)).toEqual(["started a4 (p5)"]);
+    expect(await doneThenStart(d, "a1", limits)).toEqual(["synced a1 done (lane done)", "started a4 (p5)"]);
     expect(d.store.lane("a1")!.status).toBe("done");
+    expect(d.store.item("a1")!.status).toBe("done");
+  });
+
+  test("an item whose lane was closed earlier leaves running on the next duty pass, not the next hourly one", async () => {
+    const { w, d, add } = setup();
+    add("lm");
+    expect(await startNow(d, "test")).toEqual(["started lm (p5)"]);
+    await ready(d, "lm", "done", ["https://example.com/pr/49"]);
+    w.panes.get(d.store.lane("lm")!.paneId)!.status = "idle";
+    await done(d, "lm"); // as `dori done` did before: the lane closes, the item stays running
+    expect(d.store.item("lm")!.status).toBe("running");
+    expect(await dutyTick(d)).toContainEqual({ action: "autostart", detail: "synced lm done (lane done)" });
+    expect(d.store.item("lm")!.status).toBe("done");
+    expect(await dutyTick(d)).not.toContainEqual(expect.objectContaining({ action: "autostart" }));
+  });
+
+  test("a lost lane's item reopens in the same duty pass that finds the pane gone, even with autostart off", async () => {
+    const { w, d, add } = setup();
+    add("gone");
+    await startNow(d, "test");
+    w.panes.delete(d.store.lane("gone")!.paneId);
+    process.env["DORI_AUTOSTART"] = "off"; // pinEnv puts it back
+    const events = await dutyTick(d);
+    expect(events).toContainEqual({ lane: "gone", action: "lost" });
+    expect(events).toContainEqual({ action: "autostart", detail: "synced gone reopened (lane lost, attempt 1)" });
+    expect(d.store.item("gone")!.status).toBe("open");
   });
 
   test("a duty pass starts waiting work; a busy host or a stopped loop starts nothing", async () => {

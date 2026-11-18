@@ -28,6 +28,28 @@ export function busyLanes(d: Deps): number {
   return d.store.lanes().filter((l) => isOpenLane(l.status) && l.status !== "ready" && running.has(l.key)).length;
 }
 
+/**
+ * Moves a running item out of running once its lane has ended, whoever opened it (hourly loop, autostart, by hand):
+ * done when the lane is done, open again with one more attempt when it was lost or its record is gone. Returns the
+ * line for a run's `synced`, or undefined while the lane is still open.
+ */
+export function settleEnded(d: Deps, item: Item): string | undefined {
+  if (item.status !== "running") return undefined;
+  const lane = d.store.lane(item.id);
+  if (lane?.status === "done") {
+    item.status = "done";
+    log(d, item, "done", "lane done");
+    return `${item.id} done (lane done)`;
+  }
+  if (lane && lane.status !== "lost") return undefined;
+  const why = lane ? "lane lost" : "lane record missing";
+  item.status = "open";
+  item.attempts += 1;
+  if (item.attempts >= MAX_ATTEMPTS) item.decision = `${why} ${item.attempts} times; retry, re-brief or drop?`;
+  log(d, item, "reopen", `${why}, attempt ${item.attempts}`);
+  return `${item.id} reopened (${why}, attempt ${item.attempts})`;
+}
+
 /** Open items with no decision and no open lane, first to start first: priority, then age, then id. */
 export const pullCandidates = (d: Deps) =>
   d.store
