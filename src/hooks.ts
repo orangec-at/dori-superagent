@@ -34,10 +34,10 @@ function template(name: string, value: unknown): ArgvTemplate {
   return argv;
 }
 
-/** Reads `hooks` from `<root>/config.json`. No file or no `hooks` key = no hooks; other keys are ignored. */
-export function loadHooks(root: string): Hooks {
+/** `<root>/config.json` as an object, or undefined when there is none; anything else is a ConfigError. */
+export function readConfig(root: string): object | undefined {
   const path = join(root, "config.json");
-  if (!existsSync(path)) return {};
+  if (!existsSync(path)) return undefined;
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
@@ -46,7 +46,14 @@ export function loadHooks(root: string): Hooks {
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
     throw new ConfigError("config.json must be a JSON object");
-  const raw: unknown = Reflect.get(parsed, "hooks");
+  return parsed;
+}
+
+/** Reads `hooks` from `<root>/config.json`. No file or no `hooks` key = no hooks; other keys are ignored. */
+export function loadHooks(root: string): Hooks {
+  const config = readConfig(root);
+  if (config === undefined) return {};
+  const raw: unknown = Reflect.get(config, "hooks");
   if (raw === undefined) return {};
   if (typeof raw !== "object" || raw === null || Array.isArray(raw))
     throw new ConfigError("config.json: hooks must be an object");

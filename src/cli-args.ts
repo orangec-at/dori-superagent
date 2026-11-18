@@ -55,6 +55,7 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
                                               past leadRotation.maxTokens (300000) or maxHours (24) in config.json
                                               ("auto": false or DORI_LEAD_ROTATION=off turns that off); every
                                               [LEAD ROTATED] line goes to DORI_HOME/lead/rotations.log and hooks.onLeadRotation
+                                              "leadModel": "provider/id" in config.json: --model for the lead only (up, rotation)
   dori lead start|stop <domain> [--text WHY]  open or close a standing lead (DORI_HOME/leads.json): while it runs, its
                                               domain's lane messages and backlog decisions go to it; the lead still gets
                                               READY and an ESCALATE summary. Off or gone: everything goes to the lead

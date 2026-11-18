@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { basename, dirname } from "node:path";
-import { agentCommand } from "./cli-up.ts";
+import { leadCommand } from "./cli-up.ts";
 import { shq } from "./delivery.ts";
 import type { DutyEvent } from "./duty.ts";
 import type { Deps } from "./harness.ts";
@@ -56,7 +56,7 @@ export const handoffRequest = (file: string): string =>
 /** The lead command `dori up` runs, with the handoff document as its first message. */
 const restartCommand = (d: Deps, file: string): string => {
   const header = `[LEAD ROTATED] 이전 lead 세션의 인수인계 문서(${file})다. 읽고 이어서 lead로 일해.`;
-  return `${agentCommand(d, "lead.md")} "$(printf '%s\\n\\n' ${shq(header)}; cat ${shq(file)})"`;
+  return `${leadCommand(d)} "$(printf '%s\\n\\n' ${shq(header)}; cat ${shq(file)})"`;
 };
 
 /** Reads the footer and keeps session.json current; a context that fell below half means a new session was started by hand. */
@@ -90,11 +90,13 @@ async function swap(d: Deps, lead: SessionRef, probe: Probe, file: string, procs
     .filter((p) => p.name === agent || basename(p.argv[0] ?? "") === agent)
     .flatMap((p) => (p.pid === undefined ? [] : [p.pid]));
   if (pids.length === 0) throw new Error(`no ${agent} process in front of the lead pane ${refText(lead)}`);
+  // Built before the kill: a bad config.json must fail the rotation while the old lead is still running.
+  const command = restartCommand(d, file);
   for (const pid of pids) procs.kill(pid);
   for (let waited = 0; waited < STOP_WAIT_MS && pids.some(procs.alive); waited += POLL_MS) await procs.sleep(POLL_MS);
   if (pids.some(procs.alive))
     throw new Error(`${agent} in ${refText(lead)} did not exit ${STOP_WAIT_MS / 1000}s after SIGTERM`);
-  await d.runtimes.for(lead).start(lead, restartCommand(d, file));
+  await d.runtimes.for(lead).start(lead, command);
 }
 
 /** The handoff phase: swap once the document exists and the lead is idle; give up after `handoffMinutes`. */
