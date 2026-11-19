@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { autopilotTick, IDLE_CHECK_MS, quietHour, startDelegate } from "../src/autopilot.ts";
 import { readAssignments } from "../src/autopilot-store.ts";
+import { taskId } from "../src/roadmap.ts";
 import { COUPAS, HOUR, NOON_KST, setup } from "./autopilot-setup.ts";
 import { AUTOPILOT_ENV, pinEnv } from "./env-pin.ts";
 
@@ -115,6 +116,37 @@ describe("autopilot: a delegation that fails is released and handed out again", 
     w.clock += 3 * HOUR;
     await autopilotTick(d, launch);
     expect(launched).toHaveLength(2);
+  });
+
+  test("an edited line after two failures is a new task, handed out once its bot is idle again; a health check restarts the wait", async () => {
+    const { d, home, launched, launch, run, w } = setup({ coupas: COUPAS }, HOUR, ["hongbungi"]);
+    await autopilotTick(d, launch);
+    const old = readAssignments(home)[0]!.task;
+    run("hongbungi", NOON_KST + 1000, NOON_KST + 2000, launched[0]!.text, "failed");
+    w.clock += IDLE_CHECK_MS;
+    await autopilotTick(d, launch);
+    w.clock = NOON_KST + 3 * HOUR;
+    await autopilotTick(d, launch);
+    run("hongbungi", w.clock + 1000, w.clock + 2000, launched[1]!.text, "failed");
+    w.clock += IDLE_CHECK_MS;
+    expect((await autopilotTick(d, launch))[0]).toContain("2번 실패해 멈춤");
+
+    const edited = "다음 주 후보 6개 초안. 게시는 하지 마";
+    writeFileSync(join(home, "projects", "coupas.md"), COUPAS.replace("다음 주 후보 5개 초안. 게시는 하지 마", edited));
+    const fresh = taskId("coupas", edited);
+    expect(fresh).not.toBe(old);
+    expect(readAssignments(home).filter((a) => a.task === fresh)).toEqual([]);
+    const checked = w.clock + 5000;
+    run("hongbungi", w.clock, checked, "응답");
+
+    w.clock = checked + 2 * HOUR - 10 * 60_000;
+    await autopilotTick(d, launch);
+    expect(launched).toHaveLength(2);
+    w.clock = checked + 2 * HOUR + 10 * 60_000;
+    await autopilotTick(d, launch);
+    expect(launched).toHaveLength(3);
+    expect(launched[2]!.text.startsWith(`[autopilot coupas ${fresh}]`)).toBe(true);
+    expect(readAssignments(home).filter((a) => a.task === fresh && a.kind === "delegate")).toHaveLength(1);
   });
 
   test("a delegation that never started is released after 15 minutes", async () => {
