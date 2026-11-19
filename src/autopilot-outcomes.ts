@@ -59,7 +59,8 @@ export async function checkOutcomes(d: Deps, roadmaps: readonly Roadmap[]): Prom
 
   async function sweep(): Promise<string[]> {
     const out: string[] = [];
-    for (const a of latest.values()) {
+    // Newest hand-out first: a backlog of old remote checks must not spend the shared budget before a fresh one.
+    for (const a of [...latest.values()].sort((a, b) => b.at - a.at)) {
       if (a.kind !== "delegate") continue;
       const outcome = outcomeOf(d, a);
       // A bot agents.json does not name (or no readable agents.json) is never guessed to be on this machine.

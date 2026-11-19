@@ -117,6 +117,53 @@ describe("autopilot check-off: outputs on another machine are read over ssh", ()
   });
 });
 
+describe("autopilot check-off: the newest hand-out is checked first", () => {
+  test("recent_remote_assignment_is_checked_before_old_backlog_spends_budget", async () => {
+    const bots = { old1: "bot@old1", old2: "bot@old2", old3: "bot@old3", fresh: "bot@fresh" };
+    const task = (out: string, bot: string) => `${out}/${bot}.md에 써줘`;
+    let ssh: Ssh = async () => answer("no\n");
+    const w = world(bots, task, (argv, options) => ssh(argv, options));
+    const freshTask = task(w.out, "fresh");
+    // Noon: only the old bots have a task. Their runs end ok, and pass 2 finds their outputs missing (held, no release).
+    writeFileSync(w.file("fresh"), roadmap("fresh", freshTask).replace("- [ ] ", "- [x] "));
+    await autopilotTick(w.d, w.launch);
+    expect(w.launched.map((l) => l.bot)).toEqual(["old1", "old2", "old3"]);
+    for (const l of w.launched) w.run(l.bot, NOON_KST + 30_000, NOON_KST + 60_000, l.text);
+    writeFileSync(w.file("fresh"), roadmap("fresh", freshTask));
+    w.w.clock = NOON_KST + IDLE_CHECK_MS;
+    await w.pass2();
+    expect(w.launched.map((l) => l.bot)).toEqual(["old1", "old2", "old3", "fresh"]);
+    w.run("fresh", w.w.clock + 30_000, w.w.clock + 60_000, w.launched[3]!.text);
+    expect(w.kinds()).toEqual(["old1 delegate", "old2 delegate", "old3 delegate", "fresh delegate"]);
+
+    // Pass 3: the fresh bot answers at once; an old bot never does and spends the whole budget.
+    jest.useFakeTimers();
+    w.calls.length = 0;
+    let started!: () => void;
+    const stuck = new Promise<void>((r) => (started = r));
+    let killed = 0;
+    ssh = async (argv, options) => {
+      if (argv[4] === "bot@fresh") return answer(`ok ${sec(w.w.clock)}\n`);
+      options?.onSpawn?.({ kill: () => killed++ });
+      started();
+      return new Promise<ExecResult>(() => {});
+    };
+    w.w.clock += IDLE_CHECK_MS;
+    const pass = w.pass2();
+    await stuck;
+    jest.advanceTimersByTime(REMOTE_CHECK_MS);
+    const lines = await pass;
+
+    expect(w.calls.map((c) => c[4])).toEqual(["bot@fresh", "bot@old1"]);
+    expect(killed).toBe(1);
+    expect(w.text("fresh")).toBe(roadmap("fresh", freshTask).replace("- [ ] ", "- [x] "));
+    for (const bot of ["old1", "old2", "old3"]) expect(w.text(bot)).toBe(roadmap(bot, task(w.out, bot)));
+    expect(w.kinds().slice(4)).toEqual(["fresh completed"]);
+    expect(lines.filter((l) => l.includes("완료"))).toEqual([expect.stringContaining("fresh")]);
+    expect(lines.some((l) => l.includes("[AUTOPILOT 실패]"))).toBe(false);
+  });
+});
+
 describe("autopilot check-off: a remote check that fails holds the task and the pass goes on", () => {
   const bots = { appminhee: "mac@mac-mini", hongbungi: "bot@ubuntu-box", endo: "", gibungi: "" };
   const task = (out: string, bot: string) => (bot === "gibungi" ? "첫 메모" : `${out}/${bot}.md에 써줘`);
