@@ -1,6 +1,7 @@
 // Checking off the roadmap line of a delegation that finished. A process that exited 0 is not enough: the task's text
-// must name its output, and every output path in it must be a file on this machine changed after the task was handed out.
-// Anything else (no path, another machine's file, a stale file) stays with the lead, as before. See docs/autopilot.md.
+// must name its output, and every output path in it must be a file on the bot's machine changed after the task was handed
+// out (a remote bot's are read over ssh, autopilot-remote.ts). Anything else (no path, a stale file) stays with the
+// lead, as before. See docs/autopilot.md.
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -35,22 +36,27 @@ const WRITES_TO = new RegExp(
 
 const expand = (p: string): string => (p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
 
-/** The task's output paths, when there is one and all are files here modified at or after `since`. */
-function freshOutputs(text: string, since: number): string[] | undefined {
-  const named = [...text.matchAll(PATH)].map((m) => {
-    const path = m[0].replace(PARTICLE, "");
-    return { path, output: WRITES_TO.test(text.slice(m.index + path.length)) };
-  });
-  const paths = (named.some((p) => p.output) ? named.filter((p) => p.output) : named).map((p) => p.path);
-  const fresh = (p: string): boolean => {
+/** Whether every one of `paths` is a file modified at or after `since`, on the bot's machine. */
+export type FreshCheck = (paths: string[], since: number) => boolean | Promise<boolean>;
+
+/** The FreshCheck of a bot on this machine. */
+export const freshHere: FreshCheck = (paths, since) =>
+  paths.every((p) => {
     try {
       const s = statSync(expand(p));
       return s.isFile() && s.mtimeMs >= since;
     } catch {
       return false;
     }
-  };
-  return paths.length > 0 && paths.every(fresh) ? paths : undefined;
+  });
+
+/** The paths a task writes to: the marked outputs, or every path when none is marked. */
+function outputPaths(text: string): string[] {
+  const named = [...text.matchAll(PATH)].map((m) => {
+    const path = m[0].replace(PARTICLE, "");
+    return { path, output: WRITES_TO.test(text.slice(m.index + path.length)) };
+  });
+  return (named.some((p) => p.output) ? named.filter((p) => p.output) : named).map((p) => p.path);
 }
 
 /**
@@ -59,10 +65,16 @@ function freshOutputs(text: string, since: number): string[] | undefined {
  * checked off now. A line checked already (by a person, or by a pass stopped before it recorded) is only recorded.
  * A write that fails is told once per delegation and failure (`state.json` `checkOffFailed`), and retried every pass.
  */
-export function checkOff(d: Deps, a: Assignment, roadmaps: readonly Roadmap[]): string | undefined {
+export async function checkOff(
+  d: Deps,
+  a: Assignment,
+  roadmaps: readonly Roadmap[],
+  fresh: FreshCheck,
+): Promise<string | undefined> {
   const r = roadmaps.find((x) => x.project === a.project);
-  const outputs = r === undefined ? undefined : freshOutputs(a.text, a.at);
-  if (r === undefined || outputs === undefined) return undefined;
+  if (r === undefined) return undefined;
+  const outputs = outputPaths(a.text);
+  if (outputs.length === 0 || !(await fresh(outputs, a.at))) return undefined;
   let result: ReturnType<typeof checkOffTask>;
   try {
     result = checkOffTask(r.file, r.project, a.task);

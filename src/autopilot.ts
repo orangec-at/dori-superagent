@@ -235,7 +235,7 @@ export async function autopilotTick(d: Deps, launch: Launch = spawnDelegate(d)):
     ...(idleDue ? { idleCheckAt: now } : {}),
     ...(stallDue ? { stallCheckAt: now } : {}),
   });
-  const failed = idleDue ? checkOutcomes(d, roadmaps) : [];
+  const failed = idleDue ? await checkOutcomes(d, roadmaps) : [];
   const { assigned, reports } = idleDue ? assignIdle(d, loadRoadmaps(home), launch) : { assigned: [], reports: [] };
   const stalls = stallDue ? await checkStalls(d, loadRoadmaps(home), launch) : [];
   const lines = [
