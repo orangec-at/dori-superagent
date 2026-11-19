@@ -103,8 +103,14 @@ export const writeSession = (root: string, s: LeadSession): void => writeJson(se
 export const readRotation = (root: string): Rotation | undefined => readJson(rotationPath(root));
 export const writeRotation = (root: string, r: Rotation): void => writeJson(rotationPath(root), r);
 export const clearRotation = (root: string): void => rmSync(rotationPath(root), { force: true });
-export const readSummarized = (root: string): string | undefined =>
-  readJson<{ through: string }>(summaryPath(root))?.through;
+/** An unreadable summary.json counts as none, so the summary starts over instead of failing every pass. */
+export const readSummarized = (root: string): string | undefined => {
+  try {
+    return readJson<{ through: string }>(summaryPath(root))?.through;
+  } catch {
+    return undefined;
+  }
+};
 export const writeSummarized = (root: string, through: string): void => writeJson(summaryPath(root), { through });
 
 export const logRotation = (root: string, at: number, line: string): void => {

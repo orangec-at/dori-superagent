@@ -37,6 +37,7 @@ export async function review(
   const sha = await headSha(d, pr);
   const vars = { pr: pr.id, repo: pr.repo, number: String(pr.number), sha };
   const text = prompt("review.md", vars, d.store.root);
+  // Exec'd as argv, not through a shell: an env setting (like agentLaunch's) would go in d.exec's env, not a prefix.
   const [cmd, ...argv] = hook
     ? substitute(hook, { ...vars, text })
     : [d.agentCmd, "-p", "--no-session", ...(model ? ["--model", model] : []), text];

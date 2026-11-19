@@ -34,6 +34,8 @@ export async function startLane(
   opts: { cwd?: string; group?: string; machine?: string; mission?: string } = {},
 ): Promise<Lane> {
   checkNewKey(d, key);
+  // Built first: a bad config.json must refuse the lane before its brief or workspace exists.
+  const launch = agentLaunch(d);
   if (opts.mission !== undefined && !KEY_RE.test(opts.mission)) throw new Refusal(`--mission must match ${KEY_RE}`);
   const { machine } = opts;
   const rt = d.runtimes.default;
@@ -61,7 +63,7 @@ export async function startLane(
   const ref = await openSession(
     rt,
     { name: key, role: "lane", container: "tab", cwd, env, group, ...(machine !== undefined ? { machine } : {}) },
-    `${agentLaunch(d)} ${shq(kickoff)}`,
+    `${launch} ${shq(kickoff)}`,
   );
 
   const now = d.now();
