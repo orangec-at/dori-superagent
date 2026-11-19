@@ -185,7 +185,12 @@ export async function leadRotationTick(d: Deps, procs: Procs = realProcs): Promi
     r = undefined;
   }
   const c = loadLeadRotation(root);
-  dailySummary(d, c, d.now());
+  // The summary is an extra: when it fails, the rotation (and its failure and timeout notices) still goes on.
+  try {
+    dailySummary(d, c, d.now());
+  } catch (e) {
+    process.stderr.write(`dori: lead rotation daily summary skipped (${e instanceof Error ? e.message : String(e)})\n`);
+  }
   if (r?.phase === "handoff" && r.file !== undefined) return finishHandoff(d, c, lead, { ...r, file: r.file }, procs);
   if (r === undefined && !c.auto) return [];
   const now = d.now();

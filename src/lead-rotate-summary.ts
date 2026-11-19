@@ -33,7 +33,8 @@ export function dailySummary(d: Deps, c: LeadRotationConfig, now: number): strin
   const lines = [...counts]
     .sort()
     .map(([day, n]) => `[LEAD ROTATIONS] ${day}: ${n} lead rotation${n === 1 ? "" : "s"}; ${log}`);
-  for (const line of lines) void runHook(d, "onLeadRotation", { key: "lead", text: line, evidence: log });
+  // Recorded first: if summary.json cannot be written, the same lines are not sent again on every pass.
   writeSummarized(root, yesterday);
+  for (const line of lines) void runHook(d, "onLeadRotation", { key: "lead", text: line, evidence: log });
   return lines;
 }
