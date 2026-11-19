@@ -143,12 +143,13 @@ The two loops are plain processes with no inbox and no agent, so they skip steps
     "onReady": ["notify-send", "READY {key}", "{text} {evidence}"],
     "onReport": ["logger", "-t", "dori", "{key}: {text}"],
     "onLost": ["logger", "-t", "dori", "LOST {key}: {text}"],
+    "onLeadRotation": ["logger", "-t", "dori", "{text}"],
     "reviewCommand": ["my-reviewer", "--pr", "{pr}", "--sha", "{sha}"]
   }
 }
 ```
 
-`onReady` runs on `dori ready`, `onReport` on `dori report`, and `onLost` when the duty loop finds a lane whose session vanished. `{key}`, `{text}` and `{evidence}` are replaced inside each element. Hooks run in the background, and a failing hook is one stderr line; it never fails the command. `reviewCommand` replaces the built-in reviewer in `dori review`, gets `{pr}`, `{repo}`, `{number}`, `{sha}` and `{text}` (the rendered review prompt), and must print a `VERDICT: CLEAR` or `VERDICT: BLOCK` line. `DORI_PROMPTS_DIR` points Dori at another directory of prompt files in place of the repo's `prompts/`.
+`onReady` runs on `dori ready`, `onReport` on `dori report`, and `onLost` when the duty loop finds a lane whose session vanished. `onLeadRotation` gets the lead rotation lines (`{key}` is `lead`, `{evidence}` the handoff file or rotations.log): every `[LEAD ROTATE FAILED]` and `[LEAD ROTATE TIMEOUT]` at once, and successful rotations as `leadRotation.notify` says (see the README's Configuration). `{key}`, `{text}` and `{evidence}` are replaced inside each element. Hooks run in the background, and a failing hook is one stderr line; it never fails the command. `reviewCommand` replaces the built-in reviewer in `dori review`, gets `{pr}`, `{repo}`, `{number}`, `{sha}` and `{text}` (the rendered review prompt), and must print a `VERDICT: CLEAR` or `VERDICT: BLOCK` line. `DORI_PROMPTS_DIR` points Dori at another directory of prompt files in place of the repo's `prompts/`.
 
 ## Limits
 

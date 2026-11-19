@@ -2,7 +2,11 @@ import { Refusal } from "./refusal.ts";
 
 export const USAGE = `dori - a proactive multi-session harness on herdr or hc + omo
 
-  dori up [--cwd DIR]                         open lead, duty, duty loop and hourly loop sessions
+  dori up [--cwd DIR]                         open lead, duty, duty loop and hourly loop sessions; every agent session
+                                              dori opens (up, start, lead start, lead rotation, migrate) gets
+                                              ENABLE_CLAUDEAI_MCP_SERVERS=false (claude.ai connectors off) unless
+                                              config.json sets "claudeaiConnectors": true (the one-shot reviewer of
+                                              dori review is not such a session and does not get it)
   dori role <lead|duty|duty-loop|hourly-loop> [REF]
                                               register a session (w1:p3, herdr:w1:p3, hc:t7) under that role (default: this one)
                                               a pane on a saved herdr machine is REF@machine (w4:p3@ubuntu)
@@ -53,13 +57,16 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
                                               or MIGRATE_ROLLBACK (exit 3) per session
   dori lead rotate --now                      ask the lead for a handoff (DORI_HOME/handoff/<time>.md), then start a new
                                               lead session in the same pane with it; the duty loop does this by itself
-                                              once the session grew leadRotation.maxTokens (300000) past its start, or
-                                              is maxHours (24) old ("auto": false or DORI_LEAD_ROTATION=off turns that
-                                              off); every line goes to DORI_HOME/lead/rotations.log; hooks.onLeadRotation
-                                              gets failures at once and rotations per leadRotation.notify: "daily"
-                                              (one summary line a day, default), "each" or "log" (log only)
-                                              agent sessions start with ENABLE_CLAUDEAI_MCP_SERVERS=false unless
-                                              config.json sets "claudeaiConnectors": true
+                                              once the session's context grew leadRotation.maxTokens (300000) past its
+                                              baseline (the footer's last reading in the session's first 10 minutes:
+                                              system prompt, tools, handoff), or it is maxHours (24) old; never within
+                                              60 min of a rotation or a failed try ("auto": false or
+                                              DORI_LEAD_ROTATION=off turns that off); every line goes to
+                                              DORI_HOME/lead/rotations.log; hooks.onLeadRotation gets failures and
+                                              timeouts at once, and rotations per leadRotation.notify: "daily" (default:
+                                              at the first duty pass of a day, one [LEAD ROTATIONS] line per earlier day
+                                              that had rotations; still sent when auto is off), "each" (every
+                                              [LEAD ROTATED] line) or "log" (rotations.log only)
                                               "leadModel": "provider/id" in config.json: --model for the lead only (up, rotation)
   dori lead start|stop <domain> [--text WHY]  open or close a standing lead (DORI_HOME/leads.json): while it runs, its
                                               domain's lane messages and backlog decisions go to it; the lead still gets

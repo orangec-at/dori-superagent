@@ -9,7 +9,10 @@ export type Hooks = {
   readonly onReady?: ArgvTemplate;
   readonly onReport?: ArgvTemplate;
   readonly onLost?: ArgvTemplate;
-  /** Every `[LEAD ROTATED]`, `[LEAD ROTATE TIMEOUT]` and `[LEAD ROTATE FAILED]` line, as `{text}` (#8). */
+  /**
+   * Every `[LEAD ROTATE TIMEOUT]` and `[LEAD ROTATE FAILED]` line, as `{text}` (#8); `[LEAD ROTATED]` lines or the daily
+   * `[LEAD ROTATIONS]` summary as `leadRotation.notify` says.
+   */
   readonly onLeadRotation?: ArgvTemplate;
   readonly reviewCommand?: ArgvTemplate;
 };

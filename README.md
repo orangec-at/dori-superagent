@@ -190,7 +190,7 @@ A repo with no CI at all can opt in by name: `"merge": { "allowNoChecks": ["owne
 
 ### Hooks for your own tooling
 
-`$DORI_HOME/config.json` may name argv templates under `hooks`: `onReady`, `onReport` and `onLost` run in the background when those events happen (with `{key}`, `{text}` and `{evidence}` filled in per argument), and `reviewCommand` replaces the built-in reviewer as long as it prints the same `VERDICT:` line. `DORI_PROMPTS_DIR` points the harness at your own copies of the prompts.
+`$DORI_HOME/config.json` may name argv templates under `hooks`: `onReady`, `onReport`, `onLost` and `onLeadRotation` run in the background when those events happen (with `{key}`, `{text}` and `{evidence}` filled in per argument), and `reviewCommand` replaces the built-in reviewer as long as it prints the same `VERDICT:` line. `DORI_PROMPTS_DIR` points the harness at your own copies of the prompts.
 
 ## Dori mode in depth
 
@@ -271,7 +271,12 @@ Harness environment:
 | `DORI_MAX_LANES`, `DORI_MAX_STARTS`, `DORI_MAX_LOAD` | 3, 2, core count | hourly loop budget |
 | `DORI_TELEMETRY`, `DORI_TELEMETRY_ENDPOINT` | on, `https://t.omo.dev` | `0` turns telemetry off |
 
-Dori mode reads `~/.dori/config.json` (or `DORI_CONFIG`); every field is optional and [`config.example.json`](skills/dori-mode/references/config.example.json) shows them all. The ones you will set first: `leadPane`, `laneWorkspace`, `defaultCwd`, `agentCommand` and `defaultModel`, `repoIdentities` (the Git name and email `verify-pr` expects per repo), `hooks.threadReply` and `hooks.threadDone` (your messenger CLI, as argv templates with `{thread}` and `{text}`), `hooks.transcribe`, and `guard` (load, free memory, free disk and pane count). Timing defaults: a nudge after 15 quiet minutes, the last report posted to the thread after 20, a done claim settled after 5.
+Dori mode reads `~/.dori/config.json` (or `DORI_CONFIG`); every field is optional and [`config.example.json`](skills/dori-mode/references/config.example.json) shows the common ones. The ones you will set first: `leadPane`, `laneWorkspace`, `defaultCwd`, `agentCommand` and `defaultModel`, `repoIdentities` (the Git name and email `verify-pr` expects per repo), `hooks.threadReply` and `hooks.threadDone` (your messenger CLI, as argv templates with `{thread}` and `{text}`), `hooks.transcribe`, and `guard` (load, free memory, free disk and pane count). Timing defaults: a nudge after 15 quiet minutes, the last report posted to the thread after 20, a done claim settled after 5.
+
+The harness (`dori up`, the duty loop) reads `$DORI_HOME/config.json` and does not look at `DORI_CONFIG`. Two keys there shape the sessions it runs:
+
+- `"claudeaiConnectors": true` keeps claude.ai connectors (Notion, Figma, Drive, ...) on in every agent session dori opens (`dori up`, `dori start`, `dori lead start`, lead rotation, `dori migrate`). They are off by default (`ENABLE_CLAUDEAI_MCP_SERVERS=false`) because their tool definitions take about 185K tokens of every session's context. The one-shot reviewer of `dori review` is not such a session and does not get the setting. Any value other than `true` or `false` makes `dori up`, `dori start` and a lead rotation refuse before anything is opened or stopped.
+- `"leadRotation": { "auto": true, "maxTokens": 300000, "maxHours": 24, "handoffMinutes": 15, "notify": "daily" }` (these are the defaults) has the duty loop rotate the lead, as `dori lead rotate --now` does by hand. `maxTokens` counts what the session added to its baseline, the footer's last reading in its first 10 minutes (system prompt, tool definitions, handoff); no automatic rotation runs within 60 minutes of a rotation or a failed try. `"auto": false` or `DORI_LEAD_ROTATION=off` turns automatic rotation off. `notify` says when `hooks.onLeadRotation` hears of a successful rotation: `"daily"` sends, at the first duty pass of a day, one `[LEAD ROTATIONS] <day>: N lead rotations` line per earlier day that had rotations (also while `auto` is off), `"each"` sends every `[LEAD ROTATED]` line, and `"log"` only writes `$DORI_HOME/lead/rotations.log`. Failures and timeouts reach the hook at once in every mode. Any other `notify` value is a config error.
 
 ## Run it in a container
 

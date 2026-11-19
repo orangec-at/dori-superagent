@@ -1,5 +1,13 @@
 {
   "runtime": "herdr",
+  "claudeaiConnectors": false,
+  "leadRotation": {
+    "auto": true,
+    "maxTokens": 300000,
+    "maxHours": 24,
+    "handoffMinutes": 15,
+    "notify": "daily"
+  },
   "stateDir": "~/.dori/state",
   "laneWorkspace": "lanes",
   "workspaces": ["lanes"],
