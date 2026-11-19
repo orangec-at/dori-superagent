@@ -73,7 +73,7 @@ const PERSON_ONLY: readonly [RegExp, string][] = [
     "게시",
   ],
   [
-    /병합|머지|\bmerg\w*|\bforce[- ]?push\w*|\bpush(?:es|ed|ing)?\s+(?:to\b|-f\b|--force)|\b(?:main|master|origin)\b[^.,;\n]{0,10}(?:푸시|push)|(?:푸시|push)[^.,;\n]{0,10}\b(?:main|master|origin)\b/gi,
+    /병합|(?<!나)머지(?!않)|\bmerg\w*|\bforce[- ]?push\w*|\bpush(?:es|ed|ing)?\s+(?:to\b|-f\b|--force)|\b(?:main|master|origin)\b[^.,;\n]{0,10}(?:푸시|push)|(?:푸시|push)[^.,;\n]{0,10}\b(?:main|master|origin)\b/gi,
     "병합",
   ],
   [/배포|릴리스|\bdeploy\w*|\brelease\w*|\bota\b|\bship(?:s|ped|ping)?\b/gi, "배포"],
@@ -85,8 +85,10 @@ const PERSON_ONLY: readonly [RegExp, string][] = [
 /**
  * A Korean keyword is forbidden, not asked, only when a prohibition is attached right to it ("게시는 하지 마",
  * "게시하지 말고", "배포 금지"). Anything looser ("게시하고 반응이 좋지 않으면") counts as a request.
+ * A keyword heading a middle-dot list carries the list's prohibition too ("게시·발행·배포 금지"). List items are single
+ * words; an item with a space ("게시·Muse 전달은 하지 마") is not a list, so the keyword still counts (fail closed).
  */
-const KO_FORBIDS = /^(?:은|는|을|를|도)?\s*(?:하지\s*마|하지\s*말|말\s*것|금지)/;
+const KO_FORBIDS = /^(?:\s*[·ㆍ・‧]\s*[가-힣A-Za-z0-9]+)*(?:은|는|을|를|도)?\s*(?:하지\s*마|하지\s*말|말\s*것|금지)/;
 /** An English keyword is forbidden only when the prohibition is right before it ("don't publish"). */
 const EN_FORBIDS = /\b(?:don'?t|do not|never|no)\s+$/i;
 
