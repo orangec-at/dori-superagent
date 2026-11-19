@@ -53,9 +53,13 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
                                               or MIGRATE_ROLLBACK (exit 3) per session
   dori lead rotate --now                      ask the lead for a handoff (DORI_HOME/handoff/<time>.md), then start a new
                                               lead session in the same pane with it; the duty loop does this by itself
-                                              past leadRotation.maxTokens (300000) or maxHours (24) in config.json
-                                              ("auto": false or DORI_LEAD_ROTATION=off turns that off); every
-                                              [LEAD ROTATED] line goes to DORI_HOME/lead/rotations.log and hooks.onLeadRotation
+                                              once the session grew leadRotation.maxTokens (300000) past its start, or
+                                              is maxHours (24) old ("auto": false or DORI_LEAD_ROTATION=off turns that
+                                              off); every line goes to DORI_HOME/lead/rotations.log; hooks.onLeadRotation
+                                              gets failures at once and rotations per leadRotation.notify: "daily"
+                                              (one summary line a day, default), "each" or "log" (log only)
+                                              agent sessions start with ENABLE_CLAUDEAI_MCP_SERVERS=false unless
+                                              config.json sets "claudeaiConnectors": true
                                               "leadModel": "provider/id" in config.json: --model for the lead only (up, rotation)
   dori lead start|stop <domain> [--text WHY]  open or close a standing lead (DORI_HOME/leads.json): while it runs, its
                                               domain's lane messages and backlog decisions go to it; the lead still gets

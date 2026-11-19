@@ -24,9 +24,23 @@ function renderPrompt(d: Deps, name: string): string {
   return out;
 }
 
+/**
+ * The agent command line every dori-opened session starts with. claude.ai connectors (Atlassian, Notion, Figma, Google
+ * Drive, ...) put ~185K tokens of tool definitions into an interactive session the account has them on, so they are
+ * turned off (`ENABLE_CLAUDEAI_MCP_SERVERS=false`, read by the Claude Code inside omo and by Claude Code itself) unless
+ * `$DORI_HOME/config.json` sets `claudeaiConnectors: true`.
+ */
+export function agentLaunch(d: Deps): string {
+  const config = readConfig(d.store.root);
+  const on: unknown = config === undefined ? undefined : Reflect.get(config, "claudeaiConnectors");
+  if (on !== undefined && typeof on !== "boolean")
+    throw new ConfigError("config.json: claudeaiConnectors must be true or false");
+  return on === true ? d.agentCmd : `ENABLE_CLAUDEAI_MCP_SERVERS=false ${d.agentCmd}`;
+}
+
 /** The agent command `dori up` runs with a role prompt. */
 export const agentCommand = (d: Deps, name: string): string =>
-  `${d.agentCmd} --append-system-prompt ${shq(renderPrompt(d, name))}`;
+  `${agentLaunch(d)} --append-system-prompt ${shq(renderPrompt(d, name))}`;
 
 /** `leadModel` in `$DORI_HOME/config.json` (an agent `--model` value such as `provider/id`); undefined when unset. */
 export function loadLeadModel(root: string): string | undefined {
@@ -42,7 +56,7 @@ export function loadLeadModel(root: string): string | undefined {
 export function leadCommand(d: Deps): string {
   const model = loadLeadModel(d.store.root);
   const flag = model === undefined ? "" : ` --model ${shq(model)}`;
-  return `${d.agentCmd}${flag} --append-system-prompt ${shq(renderPrompt(d, "lead.md"))}`;
+  return `${agentLaunch(d)}${flag} --append-system-prompt ${shq(renderPrompt(d, "lead.md"))}`;
 }
 
 /**

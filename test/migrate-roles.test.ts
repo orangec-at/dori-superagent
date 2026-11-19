@@ -52,7 +52,7 @@ describe("dori migrate: roles and loops", () => {
     expect(lines).toEqual(["MIGRATED lead w1:p1 -> hc:t1"]);
     expect(refText(d.store.roles().lead!)).toBe("hc:t1");
     const start = w.hc.sent[0]!.text;
-    expect(start).toStartWith("omo --append-system-prompt ");
+    expect(start).toStartWith("ENABLE_CLAUDEAI_MCP_SERVERS=false omo --append-system-prompt ");
     const brief = start.split(" ").at(-1)!.replaceAll("'", "");
     expect(readFileSync(brief, "utf8")).toContain("## Handoff");
     expect(d.store.queued({ runtime: "hc", id: "t1" }).map((m) => m.text)).toEqual(["[REPORT k] hi"]);
@@ -91,7 +91,7 @@ describe("dori migrate --resume and refusals", () => {
     const { w, d, lines, opts } = migrateWorld();
     d.store.saveLane({ ...d.store.lane("k")!, sessionPath: "/s/k.jsonl" });
     expect(await migrate(d, { lane: "k" }, opts({ resume: true }))).toBe(0);
-    expect(w.hc.sent[0]!.text).toBe("omo --session '/s/k.jsonl'");
+    expect(w.hc.sent[0]!.text).toBe("ENABLE_CLAUDEAI_MCP_SERVERS=false omo --session '/s/k.jsonl'");
     expect(w.panes.get("w1:p3")).toBeUndefined();
     expect(lines).toEqual(["MIGRATED k w1:p3 -> hc:t1"]);
   });

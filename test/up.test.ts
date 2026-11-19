@@ -17,7 +17,8 @@ describe("dori up", () => {
       await up(d, "/w");
       return 0;
     });
-    const prompt = (name: string) => `omo --append-system-prompt '${join(root, "prompts", name)}'`;
+    const prompt = (name: string) =>
+      `ENABLE_CLAUDEAI_MCP_SERVERS=false omo --append-system-prompt '${join(root, "prompts", name)}'`;
     const split = (near: string, ...env: string[]) => [
       "pane",
       "split",
@@ -122,8 +123,8 @@ describe("dori up", () => {
     });
     const runs = w.calls.filter((c) => c.argv[0] === "pane" && c.argv[1] === "run").map((c) => c.argv[3]);
     expect(runs).toEqual([
-      `omo --model 'anthropic-subscription/claude-fable-5-2' --append-system-prompt '${join(root, "prompts", "lead.md")}'`,
-      `omo --append-system-prompt '${join(root, "prompts", "duty.md")}'`,
+      `ENABLE_CLAUDEAI_MCP_SERVERS=false omo --model 'anthropic-subscription/claude-fable-5-2' --append-system-prompt '${join(root, "prompts", "lead.md")}'`,
+      `ENABLE_CLAUDEAI_MCP_SERVERS=false omo --append-system-prompt '${join(root, "prompts", "duty.md")}'`,
       "dori duty --interval 60",
       "dori loop",
     ]);
@@ -132,7 +133,12 @@ describe("dori up", () => {
       expect(() => leadCommand(d)).toThrow("leadModel must be a non-empty string");
     }
     writeFileSync(join(root, "config.json"), JSON.stringify({ leadModel: " a/b " }));
-    expect(leadCommand(d)).toStartWith("omo --model 'a/b' --append-system-prompt ");
+    expect(leadCommand(d)).toStartWith("ENABLE_CLAUDEAI_MCP_SERVERS=false omo --model 'a/b' --append-system-prompt ");
+    // claude.ai connectors stay off unless config.json turns them on.
+    writeFileSync(join(root, "config.json"), JSON.stringify({ claudeaiConnectors: true }));
+    expect(leadCommand(d)).toStartWith("omo --append-system-prompt ");
+    writeFileSync(join(root, "config.json"), JSON.stringify({ claudeaiConnectors: "no" }));
+    expect(() => leadCommand(d)).toThrow("claudeaiConnectors must be true or false");
   });
 
   test("hc: four terminals in this home's group, prefixed roles, no herdr workspace variable", async () => {
