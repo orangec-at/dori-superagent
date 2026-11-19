@@ -19,8 +19,8 @@ export type LeadRotationConfig = {
   readonly handoffMinutes: number;
   /**
    * Where a successful rotation is announced: `each` runs hooks.onLeadRotation for every `[LEAD ROTATED]` line, `daily`
-   * runs it once a day with one summary line for the day before, `log` only writes rotations.log. Failures and
-   * timeouts always run the hook.
+   * runs it at the first duty pass of a day with one summary line per earlier day that had rotations and was not
+   * summarized yet (also when `auto` is off), `log` only writes rotations.log. Failures and timeouts always run the hook.
    */
   readonly notify: LeadRotationNotify;
 };
