@@ -5,6 +5,7 @@ import { log } from "./backlog.ts";
 import type { Deps } from "./harness.ts";
 import { tellLead } from "./inbox.ts";
 import { audit, HOUR } from "./loop-audit.ts";
+import { autopilotLine } from "./loop-autopilot.ts";
 import { checkBoard } from "./loop-board.ts";
 import { refreshLinks } from "./loop-links.ts";
 import { acquire, release } from "./loop-lock.ts";
@@ -89,6 +90,7 @@ export function summary(run: LoopRun): string {
       ` | items open ${s.items.open} (decide ${s.items.decide}) running ${s.items.running}` +
       ` | load ${s.host.load1.toFixed(1)}/${s.host.cores} mem-free ${s.host.memFreePct}%`,
   ];
+  if (run.autopilot) lines.push(run.autopilot);
   for (const k of ["synced", "findings", "started", "held"] as const)
     if (run[k].length) lines.push(`${k}: ${run[k].join("; ")}`);
   lines.push(...(run.board ?? []), ...run.asked);
@@ -119,6 +121,12 @@ export async function loopTick(d: Deps, opts: LoopOpts = {}): Promise<LoopRun> {
     run.board = await checkBoard(d);
     const links = await refreshLinks(d, opts.linksTimeoutMs);
     if (links) run.findings.push(links);
+    try {
+      const line = autopilotLine(d.store.root, run.at);
+      if (line) run.autopilot = line;
+    } catch (e) {
+      run.findings.push(`autopilot line: ${e instanceof Error ? e.message : String(e)}`);
+    }
     const items = d.store.items();
     const running = new Set(items.filter((i) => i.status === "running").map((i) => i.id));
     const lanes = d.store.lanes().filter((l) => isOpenLane(l.status));

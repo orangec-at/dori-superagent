@@ -113,6 +113,8 @@ export type LoopRun = {
   asked: string[];
   /** `board: ...` lines from the team-board check; absent in runs recorded before it existed. */
   board?: string[];
+  /** The last hour's autopilot hand-outs and stalled projects; absent when there is no readable autopilot record. */
+  autopilot?: string;
 };
 
 export const KEEP_RUNS = 168;
