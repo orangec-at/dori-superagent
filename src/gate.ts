@@ -91,7 +91,9 @@ const NO_CHECKS_ALLOWED = "no checks: allowed by config merge.allowNoChecks";
  */
 export async function mergeGate(d: Deps, prId: string, opts: { dryRun?: boolean } = {}): Promise<string> {
   const pr = parsePr(prId);
-  const allowNoChecks = loadAllowNoChecks(d.store.root).includes(pr.repo);
+  // GitHub's owner/repo is case-insensitive, so the list is too.
+  const repo = pr.repo.toLowerCase();
+  const allowNoChecks = loadAllowNoChecks(d.store.root).some((r) => r.toLowerCase() === repo);
   const sha = await headSha(d, pr);
   const gate = await gateRefusal(d, pr, sha, allowNoChecks);
   if (Array.isArray(gate)) {
