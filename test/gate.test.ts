@@ -100,6 +100,33 @@ describe("review + merge gate", () => {
     await expect(mergeGate(d, "o/r#7")).rejects.toThrow("merge must be an object");
   });
 
+  test("merge.allowNoChecks also lets through gh's exit 0 + [] form", async () => {
+    const { w, d } = setup();
+    writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ merge: { allowNoChecks: ["o/r"] } }));
+    gh(w, []);
+    w.reviewer = () => ({ code: 0, stdout: "VERDICT: CLEAR" });
+    await review(d, "o/r#7");
+    expect(await mergeGate(d, "o/r#7")).toBe(
+      `MERGED o/r#7 head=${head} (no checks: allowed by config merge.allowNoChecks)`,
+    );
+    expect(w.usage.filter((e) => e.name === "dori.merge_decided")).toEqual([
+      { name: "dori.merge_decided", outcome: "merged" },
+    ]);
+  });
+
+  test("merge.allowNoChecks matches owner/repo without case, as GitHub does", async () => {
+    const { w, d } = setup();
+    writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ merge: { allowNoChecks: ["Orangec-At/R"] } }));
+    gh(w, []);
+    w.reviewer = () => ({ code: 0, stdout: "VERDICT: CLEAR" });
+    await review(d, "orangec-at/r#7");
+    expect(await mergeGate(d, "orangec-at/r#7", { dryRun: true })).toBe(
+      `MERGE_OK orangec-at/r#7 head=${head} (dry run) (no checks: allowed by config merge.allowNoChecks)`,
+    );
+    gh(w, [{ name: "test", bucket: "pending" }]);
+    await expect(mergeGate(d, "orangec-at/r#7")).rejects.toThrow("test=pending");
+  });
+
   test("exit 0 without a VERDICT line: bounded stdout tail kept privately, no receipt", async () => {
     const { w, d } = setup();
     gh(w, []);

@@ -53,6 +53,19 @@ describe("autopilot check-off: output markers with words between the particle an
     ["파일로 저장", (o) => `${o}/in.md 요약을 ${o}/res.md 파일로 저장`],
     ["에 있는 (not a marker) before the output", (o) => `${o}/in.md에 있는 표를 ${o}/res.md에 써줘`],
     ["에 쓰지 말고 (negated) before the output", (o) => `${o}/in.md에 쓰지 말고 ${o}/res.md에 써줘`],
+    // #56 리뷰 LOW 1: 이미 쓰여 있다는 뜻인데 출력 표시로 읽히던 말투. 입력(in.md)이 오래돼도 막지 않아야 한다.
+    ["에 정리해둔 (kept there) marks no input", (o) => `${o}/in.md에 정리해둔 표를 ${o}/res.md에 써줘`],
+    ["에 작성해 놓은 marks no input", (o) => `${o}/in.md에 작성해 놓은 초안을 ${o}/res.md에 정리`],
+    ["에 작성하신 marks no input", (o) => `${o}/in.md에 작성하신 메모를 ${o}/res.md에 써줘`],
+    ["에 기록됨 marks no input", (o) => `${o}/in.md에 기록됨 표시가 있는 줄만 ${o}/res.md에 써줘`],
+    ["에 쓰는 형식대로 marks no input", (o) => `${o}/in.md에 쓰는 형식대로 ${o}/res.md에 써줘`],
+    ["에 저장하는 marks no input", (o) => `${o}/in.md에 저장하는 규칙을 ${o}/res.md에 정리`],
+    ["에 정리했던 marks no input", (o) => `${o}/in.md에 정리했던 내용을 ${o}/res.md에 써줘`],
+    // #56 리뷰 LOW 2: 표시된 출력이 하나라도 있으면 표시 없는 경로(in.md도 갱신)는 입력으로 본다. 의도된 한계를 고정.
+    [
+      "one marked output and an unmarked second output (documented limit)",
+      (o) => `${o}/res.md에 쓰고 ${o}/in.md도 갱신`,
+    ],
     [
       "the overlap-check roadmap line (27)",
       (o) =>
@@ -116,6 +129,19 @@ describe("autopilot check-off: output markers with words between the particle an
       "정리된 (already summarized) marks no input, so the missing output blocks",
       (o) => `${o}/in.md에 정리된 내용을 ${o}/res.md로 옮겨줘`,
       (o) => touch(`${o}/in.md`, FRESH),
+    ],
+    [
+      "정리해둔 (already kept) marks no input, so the missing output blocks",
+      (o) => `${o}/in.md에 정리해둔 내용을 ${o}/res.md로 옮겨줘`,
+      (o) => touch(`${o}/in.md`, FRESH),
+    ],
+    [
+      "정리해둬 (imperative) is still a marker, so its stale output blocks",
+      (o) => `${o}/in.md를 읽고 ${o}/res.md에 정리해둬`,
+      (o) => {
+        touch(`${o}/in.md`, FRESH);
+        touch(`${o}/res.md`, STALE);
+      },
     ],
   ];
   for (const [name, first, prep] of open)
