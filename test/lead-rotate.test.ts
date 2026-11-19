@@ -5,13 +5,15 @@ import { main } from "../src/cli.ts";
 import { dutyTick } from "../src/duty.ts";
 import { hooksSettled } from "../src/hooks.ts";
 import { send } from "../src/inbox.ts";
-import { contextTokens, leadRotationTick, QUIET_MS, rotationDue } from "../src/lead-rotate.ts";
+import { BASELINE_MS, contextTokens, leadRotationTick, QUIET_MS, rotationDue } from "../src/lead-rotate.ts";
 import {
   LEAD_ROTATION_DEFAULTS,
   loadLeadRotation,
   operationsPath,
   readRotation,
+  readSession,
   rotationLog,
+  writeSession,
 } from "../src/lead-rotate-state.ts";
 import { setup } from "./harness-setup.ts";
 import { href } from "./fake.ts";
@@ -21,12 +23,15 @@ const footer = (used: string) =>
 
 const BUSY = "Working... (esc to interrupt)\n";
 
-function rig(config: object = {}) {
+/** `fresh`: the lead session is new to dori; otherwise it has been running for a while with a baseline of 0. */
+function rig(config: object = {}, fresh = false) {
   const s = setup();
   writeFileSync(
     join(s.d.store.root, "config.json"),
-    JSON.stringify({ hooks: { onLeadRotation: ["notify", "{text}"] }, ...config }),
+    JSON.stringify({ hooks: { onLeadRotation: ["notify", "{text}"] }, leadRotation: { notify: "each" }, ...config }),
   );
+  if (!fresh)
+    writeSession(s.d.store.root, { ref: "w1:p1", startedAt: s.w.clock - BASELINE_MS, tokens: 1, baseTokens: 0 });
   const notified: string[] = [];
   s.w.reviewer = (argv) => {
     notified.push(argv.join(" "));
@@ -49,10 +54,38 @@ describe("lead rotation (#8)", () => {
     expect(rotationDue(c, { ref: "w1:p1", startedAt: 0, tokens: 299_000 }, 23 * h)).toBeUndefined();
     expect(rotationDue(c, { ref: "w1:p1", startedAt: 0, tokens: 300_000 }, 0)).toBe("context 300K >= 300K");
     expect(rotationDue(c, { ref: "w1:p1", startedAt: 0 }, 25 * h)).toBe("session 25h old >= 24h");
+    // The limit counts growth over the session's baseline.
+    expect(rotationDue(c, { ref: "w1:p1", startedAt: 0, tokens: 599_000, baseTokens: 336_000 }, h)).toBeUndefined();
+    expect(rotationDue(c, { ref: "w1:p1", startedAt: 0, tokens: 640_000, baseTokens: 336_000 }, h)).toBe(
+      "context 640K = start 336K + 304K >= +300K",
+    );
     const { d } = rig({ leadRotation: { maxTokens: 500_000, auto: false } });
     expect(loadLeadRotation(d.store.root)).toEqual({ ...c, maxTokens: 500_000, auto: false });
+    expect(c.notify).toBe("daily");
     writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ leadRotation: { maxHours: -1 } }));
     expect(() => loadLeadRotation(d.store.root)).toThrow("leadRotation.maxHours must be a positive number");
+    writeFileSync(join(d.store.root, "config.json"), JSON.stringify({ leadRotation: { notify: "dm" } }));
+    expect(() => loadLeadRotation(d.store.root)).toThrow("leadRotation.notify must be one of each, daily, log");
+  });
+
+  test("a session that starts over the limit is rotated only after it grew by maxTokens past its baseline", async () => {
+    const { w, d, lead, procs } = rig({}, true);
+    // The old session's footer may still be on screen for the first pass; the last reading in the window counts.
+    lead.screen = footer("640K");
+    expect(await leadRotationTick(d, procs)).toEqual([]);
+    w.clock += 60_000;
+    lead.screen = footer("336K");
+    expect(await leadRotationTick(d, procs)).toEqual([]);
+    for (const used of ["340K", "345K", "500K", "630K"]) {
+      w.clock += BASELINE_MS / 2;
+      lead.screen = footer(used);
+      expect(await leadRotationTick(d, procs)).toEqual([]);
+    }
+    expect(readSession(d.store.root)).toMatchObject({ baseTokens: 340_000, tokens: 630_000 });
+    lead.screen = footer("640K");
+    const [asked] = await leadRotationTick(d, procs);
+    expect(asked).toMatchObject({ action: "lead-handoff-requested" });
+    expect(asked?.detail).toStartWith("context 640K = start 340K + 300K >= +300K");
   });
 
   test("over the limit and idle: handoff asked, inbox held, new session started with it, queue kept for it", async () => {
@@ -79,7 +112,7 @@ describe("lead rotation (#8)", () => {
     expect(rotated).toMatchObject({ pane: "w1:p1", action: "lead-rotated" });
     expect(killed).toEqual([101]);
     expect(lead.ran).toHaveLength(1);
-    expect(lead.ran[0]).toStartWith("omo --append-system-prompt ");
+    expect(lead.ran[0]).toStartWith("ENABLE_CLAUDEAI_MCP_SERVERS=false omo --append-system-prompt ");
     expect(lead.ran[0]).toContain(`cat '${file}'`);
     expect(readRotation(d.store.root)).toBeUndefined();
     expect(d.store.roles().lead).toEqual(href("w1:p1"));
@@ -101,7 +134,9 @@ describe("lead rotation (#8)", () => {
     await leadRotationTick(d, procs);
     writeFileSync(handoffFile(lead.received.at(-1)!), "# handoff\n");
     expect(await leadRotationTick(d, procs)).toMatchObject([{ action: "lead-rotated" }]);
-    expect(lead.ran[0]).toStartWith("omo --model 'anthropic-subscription/claude-fable-5-2' --append-system-prompt ");
+    expect(lead.ran[0]).toStartWith(
+      "ENABLE_CLAUDEAI_MCP_SERVERS=false omo --model 'anthropic-subscription/claude-fable-5-2' --append-system-prompt ",
+    );
   });
 
   test("the request names the operations document, and the new session gets it after the handoff once it exists", async () => {
@@ -114,6 +149,8 @@ describe("lead rotation (#8)", () => {
     await leadRotationTick(d, procs);
     expect(lead.ran[0]).not.toContain(`cat '${ops}'`);
 
+    lead.screen = footer("20K");
+    await leadRotationTick(d, procs);
     w.clock += QUIET_MS;
     writeFileSync(ops, "# operations\n");
     lead.screen = footer("360K");

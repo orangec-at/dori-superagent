@@ -20,6 +20,7 @@ import {
   writeRotation,
   writeSession,
 } from "./lead-rotate-state.ts";
+import { dailySummary } from "./lead-rotate-summary.ts";
 import { refText } from "./refs.ts";
 import type { Probe, SessionRef } from "./runtime/types.ts";
 import { type Procs, realProcs } from "./self-update-restart.ts";
@@ -29,6 +30,11 @@ export const QUIET_MS = 60 * 60_000;
 /** How long the old agent may take to exit after SIGTERM before the rotation gives up. */
 export const STOP_WAIT_MS = 30_000;
 const POLL_MS = 500;
+/**
+ * A session's baseline is its footer's last reading within this long after it started: long enough for the tool
+ * definitions and the handoff to load, and for the old session's footer (still on screen right after a swap) to go.
+ */
+export const BASELINE_MS = 10 * 60_000;
 const FOOTER_LINES = 10;
 const UNITS: Readonly<Record<string, number>> = { "": 1, K: 1_000, M: 1_000_000 };
 
@@ -40,10 +46,16 @@ export function contextTokens(screen: string): number | undefined {
 
 const kTokens = (n: number): string => `${Math.round(n / 1000)}K`;
 
-/** Why the session should be rotated, or undefined while it is under both limits. */
+/**
+ * Why the session should be rotated, or undefined while it is under both limits. The token limit counts what the
+ * session added to its baseline, so a session that starts large is not rotated on every pass.
+ */
 export function rotationDue(c: LeadRotationConfig, s: LeadSession, now: number): string | undefined {
-  if (s.tokens !== undefined && s.tokens >= c.maxTokens)
-    return `context ${kTokens(s.tokens)} >= ${kTokens(c.maxTokens)}`;
+  const base = s.baseTokens ?? 0;
+  if (s.tokens !== undefined && s.tokens - base >= c.maxTokens)
+    return base === 0
+      ? `context ${kTokens(s.tokens)} >= ${kTokens(c.maxTokens)}`
+      : `context ${kTokens(s.tokens)} = start ${kTokens(base)} + ${kTokens(s.tokens - base)} >= +${kTokens(c.maxTokens)}`;
   const hours = (now - s.startedAt) / 3_600_000;
   if (hours >= c.maxHours) return `session ${Math.floor(hours)}h old >= ${c.maxHours}h`;
   return undefined;
@@ -58,7 +70,8 @@ export const handoffRequest = (file: string, ops: string): string =>
   "그 자체로 완결되게 쓴다: 앞선 인수인계 문서를 읽으라고 가리키지 않는다. 지금도 유효한 내용은 가리키지 말고 옮겨 적고, 끝났거나 낡은 것은 뺀다. " +
   `2) 상시 운영 문서 ${ops}: 날마다 같은 내용(연락·답장 방법, 사람과 권한 규칙, 병합·반영 절차, 상시 주의)을 담는다. ` +
   "없으면 만들고, 있으면 바뀐 곳만 고치고 낡은 줄은 지운다. 이 내용은 인수인계 문서에 다시 쓰지 않는다. " +
-  "새 세션은 첫 메시지로 두 문서를 함께 받고 그것만 보고 이어서 일한다. 다 쓰면 멈춰.";
+  "새 세션은 첫 메시지로 두 문서를 함께 받고 그것만 보고 이어서 일한다. " +
+  "인수인계 문서는 3만 자를 넘기지 않는다: 길어지면 끝난 일과 경위를 빼고, 자세한 기록은 PR·파일 경로로 가리킨다. 다 쓰면 멈춰.";
 
 /** The lead command `dori up` runs, with the handoff (and the operations document, when there is one) as first message. */
 const restartCommand = (d: Deps, file: string): string => {
@@ -68,7 +81,11 @@ const restartCommand = (d: Deps, file: string): string => {
   return `${leadCommand(d)} "$(printf '%s\\n\\n' ${shq(header)}; cat ${shq(file)}${opsPart})"`;
 };
 
-/** Reads the footer and keeps session.json current; a context that fell below half means a new session was started by hand. */
+/**
+ * Reads the footer and keeps session.json current; a context that fell below half means a new session was started by
+ * hand. Within BASELINE_MS of the start (or at the first reading of a session dori has not seen before) the reading
+ * also becomes the baseline.
+ */
 async function observe(d: Deps, lead: SessionRef, now: number): Promise<LeadSession> {
   const ref = refText(lead);
   const prev = readSession(d.store.root);
@@ -81,15 +98,18 @@ async function observe(d: Deps, lead: SessionRef, now: number): Promise<LeadSess
   }
   if (tokens !== undefined) {
     if (s.tokens !== undefined && tokens < s.tokens / 2) s = { ref, startedAt: now };
-    s = { ...s, tokens };
+    const early = now - s.startedAt < BASELINE_MS || s.tokens === undefined;
+    s = { ...s, tokens, ...(early ? { baseTokens: tokens } : {}) };
   }
   writeSession(d.store.root, s);
   return s;
 }
 
-const notify = (d: Deps, now: number, line: string, file: string): void => {
+/** Logs a rotation line; the hook runs for every failure or timeout, and for a rotation only in `each` mode. */
+const notify = (d: Deps, c: LeadRotationConfig, now: number, line: string, file: string): void => {
   logRotation(d.store.root, now, line);
-  void runHook(d, "onLeadRotation", { key: "lead", text: line, evidence: file });
+  if (c.notify === "each" || !line.startsWith("[LEAD ROTATED]"))
+    void runHook(d, "onLeadRotation", { key: "lead", text: line, evidence: file });
 };
 
 /** Stops the agent in front of the lead pane and starts `dori up`'s lead command there with the handoff as first message. */
@@ -130,20 +150,20 @@ async function finishHandoff(
       clearRotation(root);
       quiet({});
       const line = `[LEAD ROTATE FAILED] ${pane}: ${e instanceof Error ? e.message : String(e)}; handoff ${r.file}`;
-      notify(d, now, line, r.file);
+      notify(d, c, now, line, r.file);
       await tellLead(d, line, "duty");
       return [{ pane, action: "lead-rotate-failed", detail: line }];
     }
     clearRotation(root);
     writeSession(root, { ref: pane, startedAt: now, quietUntil: now + QUIET_MS });
-    notify(d, now, `[LEAD ROTATED] ${pane}: ${r.reason}; handoff ${r.file}`, r.file);
+    notify(d, c, now, `[LEAD ROTATED] ${pane}: ${r.reason}; handoff ${r.file}`, r.file);
     return [{ pane, action: "lead-rotated", detail: `${r.reason}; handoff ${r.file}` }];
   }
   if (now - r.at < c.handoffMinutes * 60_000) return [];
   clearRotation(root);
   quiet({});
   const line = `[LEAD ROTATE TIMEOUT] ${pane}: no handoff at ${r.file} after ${c.handoffMinutes} min; the lead keeps its session (next automatic try in ${QUIET_MS / 60_000} min)`;
-  notify(d, now, line, r.file);
+  notify(d, c, now, line, r.file);
   // The hold is lifted first, so this notice and every message queued meanwhile reach the lead.
   await tellLead(d, line, "duty");
   return [{ pane, action: "lead-rotate-timeout", detail: line }];
@@ -165,6 +185,7 @@ export async function leadRotationTick(d: Deps, procs: Procs = realProcs): Promi
     r = undefined;
   }
   const c = loadLeadRotation(root);
+  dailySummary(d, c, d.now());
   if (r?.phase === "handoff" && r.file !== undefined) return finishHandoff(d, c, lead, { ...r, file: r.file }, procs);
   if (r === undefined && !c.auto) return [];
   const now = d.now();

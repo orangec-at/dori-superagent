@@ -84,7 +84,7 @@ describe("standing lead start and stop", () => {
     const { w, d, on } = world();
     const { state } = await on();
     const ran = w.panes.get(state.sessionRef.id)!.ran[0]!;
-    expect(ran).toStartWith("omo --append-system-prompt ");
+    expect(ran).toStartWith("ENABLE_CLAUDEAI_MCP_SERVERS=false omo --append-system-prompt ");
     const rendered = readFileSync(join(d.store.root, "prompts", "standing-lead-vibeguard.md"), "utf8");
     expect(rendered).toContain("standing lead for the **vibeguard** domain");
     expect(rendered).toContain("lane keys starting with vg-");

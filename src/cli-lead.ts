@@ -1,6 +1,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { type Args, need, one, USAGE } from "./cli-args.ts";
+import { agentLaunch } from "./cli-up.ts";
 import { shq } from "./delivery.ts";
 import { prompt, type Deps } from "./harness.ts";
 import { rotateNow } from "./lead-rotate.ts";
@@ -98,7 +99,7 @@ export async function startStanding(d: Deps, domain: string, opts: { group?: str
       env: { DORI_HOME: d.store.root, DORI_LANE: `lead-${domain}`, DORI_STANDING_LEAD: domain },
       ...(group !== undefined ? { group } : {}),
     },
-    `${d.agentCmd} --append-system-prompt ${shq(renderPrompt(d, def, trialEndsAt))} ${shq(kickoff)}`,
+    `${agentLaunch(d)} --append-system-prompt ${shq(renderPrompt(d, def, trialEndsAt))} ${shq(kickoff)}`,
   );
   const state: LeadState = { domain, sessionRef, startedAt: now, trialStartedAt, trialEndsAt };
   saveLeadState(d.store.root, state);

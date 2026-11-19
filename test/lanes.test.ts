@@ -11,7 +11,7 @@ describe("lanes", () => {
     const { w, d, lead, brief } = setup();
     const lane = await startLane(d, "fix-login", brief, { group: "w1" });
     const pane = w.panes.get(lane.paneId)!;
-    expect(pane.ran[0]).toStartWith("omo 'Read your brief at ");
+    expect(pane.ran[0]).toStartWith("ENABLE_CLAUDEAI_MCP_SERVERS=false omo 'Read your brief at ");
     expect(await Bun.file(lane.brief).text()).toContain("dori ready fix-login --text");
     expect(lead.received).toEqual([`[START fix-login] lane opened in ${lane.paneId}`]);
     await expect(startLane(d, "fix-login", brief, { group: "w1" })).rejects.toThrow(Refusal);
@@ -24,7 +24,7 @@ describe("lanes", () => {
       JSON.stringify({ leadModel: "anthropic-subscription/claude-fable-5-2" }),
     );
     const lane = await startLane(d, "fix-login", brief, { group: "w1" });
-    expect(w.panes.get(lane.paneId)!.ran[0]).toStartWith("omo 'Read your brief at ");
+    expect(w.panes.get(lane.paneId)!.ran[0]).toStartWith("ENABLE_CLAUDEAI_MCP_SERVERS=false omo 'Read your brief at ");
   });
 
   test("start --mission keeps the mission id on the lane and refuses one that is not a key before opening anything", async () => {

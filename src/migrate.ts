@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { need, one, USAGE, type Args } from "./cli-args.ts";
+import { agentLaunch } from "./cli-up.ts";
 import { shq } from "./delivery.ts";
 import { prompt, promptText, type Deps } from "./harness.ts";
 import { Refusal } from "./refusal.ts";
@@ -52,7 +53,7 @@ function laneSubject(d: Deps, key: string): Subject {
       env: { DORI_LANE: key, DORI_HOME: d.store.root },
       ...(group === undefined ? {} : { group }),
     }),
-    command: (brief) => `${d.agentCmd} ${shq(kickoff(brief))}`,
+    command: (brief) => `${agentLaunch(d)} ${shq(kickoff(brief))}`,
     setHold: (on) => save(({ migration: _, ...l }) => (on ? { ...l, migration: true } : l)),
     switchTo: (ref) =>
       save((l) => ({ ...l, sessionRef: ref, migratedFrom: [...(l.migratedFrom ?? []), l.sessionRef] })),
@@ -76,7 +77,7 @@ function roleSubject(d: Deps, role: Role, from: SessionRef): Subject {
       env: role === "lead" ? {} : { DORI_HOME: d.store.root },
       ...(group === undefined ? {} : { group }),
     }),
-    command: (brief) => `${d.agentCmd} --append-system-prompt ${shq(brief)}`,
+    command: (brief) => `${agentLaunch(d)} --append-system-prompt ${shq(brief)}`,
     setHold: () => {},
     switchTo: (ref) => d.store.setRole(role, ref),
   };
@@ -89,7 +90,7 @@ async function resumeCommand(d: Deps, s: Subject): Promise<string> {
   const { status } = await d.runtimes.for(s.from).probe(s.from);
   if (status !== "idle" && status !== "done")
     throw new Refusal(`--resume refused for ${s.name}: its session is ${status}, not idle or done`);
-  return `${d.agentCmd} --session ${shq(s.sessionPath)}`;
+  return `${agentLaunch(d)} --session ${shq(s.sessionPath)}`;
 }
 
 /** Steps (1)-(3) for an agent session, then the swap. Resumes at the journal's phase. */

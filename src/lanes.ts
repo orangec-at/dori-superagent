@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { agentLaunch } from "./cli-up.ts";
 import { shq } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
 import { settled, type SendResult } from "./inbox.ts";
@@ -60,7 +61,7 @@ export async function startLane(
   const ref = await openSession(
     rt,
     { name: key, role: "lane", container: "tab", cwd, env, group, ...(machine !== undefined ? { machine } : {}) },
-    `${d.agentCmd} ${shq(kickoff)}`,
+    `${agentLaunch(d)} ${shq(kickoff)}`,
   );
 
   const now = d.now();
