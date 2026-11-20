@@ -5,6 +5,8 @@ import { LINKS_STYLE, linksPane } from "./board-links-html.ts";
 import type { LiveState } from "./board-live.ts";
 import { LIVE_STYLE } from "./board-live-html.ts";
 import { OFFICE_STYLE } from "./board-office-html.ts";
+import type { Timeline } from "./board-timeline.ts";
+import { TIMELINE_STYLE, timelinePane } from "./board-timeline-html.ts";
 import { hrefOf, listPane, type View } from "./board-list-html.ts";
 import { DETAIL_STYLE, detailPane, missionDetail, rowFace } from "./board-detail-html.ts";
 import { MISSION_STYLE, missionCard, missionPane } from "./board-mission-html.ts";
@@ -89,6 +91,8 @@ export type PageOptions = {
   links?: LinksRead;
   /** The bots' state now, read only for the 지금 and 사무실 tabs. */
   live?: LiveState | null;
+  /** The timelines, read only for the 일정 tab. */
+  timelines?: Timeline[] | null;
   /** The messenger copies; "locked" when the viewer may not write (a DM or channel is shown only to a writer). */
   channels?: Sources;
 };
@@ -108,7 +112,8 @@ export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions)
   const proj = projView ? s.projects.find((g) => g.name === o.view.p) : undefined;
   const open = Boolean(o.view.c || mission || picked || proj);
   const linksView = o.view.tab === "map" && !open;
-  const bare = linksView || projView || chanView;
+  const timeView = o.view.tab === "timeline" && !open;
+  const bare = linksView || timeView || projView || chanView;
   // A message from a mission is about its row the operator acts on, else its first bot or lane: the lead sees which.
   const about = mission
     ? (mission.needs ?? mission.actors.find((a) => /^(bot|lane|standing):/.test(a.id))?.id ?? "lead")
@@ -138,19 +143,21 @@ export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions)
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="도리 보드"><meta name="board-version" content="${esc(o.version)}">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/icon-180.png">
-<link rel="icon" href="/icon-192.png"><title>도리 보드</title><style>${STYLE}${MISSION_STYLE}${DETAIL_STYLE}${LINKS_STYLE}${PROJECTS_STYLE}${AGENTS_STYLE}${LIVE_STYLE}${OFFICE_STYLE}</style>
+<link rel="icon" href="/icon-192.png"><title>도리 보드</title><style>${STYLE}${MISSION_STYLE}${DETAIL_STYLE}${LINKS_STYLE}${PROJECTS_STYLE}${AGENTS_STYLE}${LIVE_STYLE}${OFFICE_STYLE}${TIMELINE_STYLE}</style>
 <script src="/board.js" defer></script></head><body${open ? ' class="has-c"' : ""}>
 <div class="app${linksView ? " lk" : projView || chanView ? " pj" : ""}">${bare ? "" : `<input class="dt" id="dt" type="checkbox" aria-label="${mission ? "참여" : "미션"} 패널"><label class="dtb" for="dt">${mission ? "참여" : "미션"}</label>`}
 <aside class="list" aria-label="작업 목록"><header class="lh"><b>도리 보드</b><a class="meta" href="${esc(hrefOf(o.view))}">${kst} KST</a></header>
-${open ? "" : flash}${readOnly}${listPane(t.rows, { ...s, links: o.links ?? null, live: o.live ?? null, ...(o.view.tab === "proj" ? { proj: projectsList(s, o.view, now) } : {}), ...(o.view.tab === "chan" ? { chan: channelsList(vs, s, o.view, now) } : {}) }, o.view, now, mission || bare ? null : (o.view.c ?? "lead"), o.token)}</aside>
+${open ? "" : flash}${readOnly}${listPane(t.rows, { ...s, links: o.links ?? null, live: o.live ?? null, timelines: o.timelines ?? null, ...(o.view.tab === "proj" ? { proj: projectsList(s, o.view, now) } : {}), ...(o.view.tab === "chan" ? { chan: channelsList(vs, s, o.view, now) } : {}) }, o.view, now, mission || bare ? null : (o.view.c ?? "lead"), o.token)}</aside>
 <main class="pane">${
     linksView
       ? linksPane(o.links ?? null, s.avatars)
-      : chanView
-        ? `${open ? flash : ""}${picked ? channelPane(picked[0], picked[1], s, o.token, now, back) : `<p class="note">채널을 고르면 메시지가 보여요.</p>`}`
-        : projView
-          ? `${open ? flash : ""}${(proj ?? s.projects[0]) ? projectPane((proj ?? s.projects[0])!, s, d, o.view, now, back, o.token) : `<p class="note">진행 중인 프로젝트가 없어요.</p>`}`
-          : `${open ? flash : ""}${mission ? missionPane(mission, now, back) : record(t, now, o.token, back, card ? missionCard(card, "inline") : "", rowFace(r, s.avatars))}
+      : timeView
+        ? timelinePane(o.timelines ?? [])
+        : chanView
+          ? `${open ? flash : ""}${picked ? channelPane(picked[0], picked[1], s, o.token, now, back) : `<p class="note">채널을 고르면 메시지가 보여요.</p>`}`
+          : projView
+            ? `${open ? flash : ""}${(proj ?? s.projects[0]) ? projectPane((proj ?? s.projects[0])!, s, d, o.view, now, back, o.token) : `<p class="note">진행 중인 프로젝트가 없어요.</p>`}`
+            : `${open ? flash : ""}${mission ? missionPane(mission, now, back) : record(t, now, o.token, back, card ? missionCard(card, "inline") : "", rowFace(r, s.avatars))}
 ${composer}`
   }</main>${bare ? "" : `${mission ? missionDetail(mission) : detailPane(r, card, s.routines, s.missions, now, s.avatars)}<label class="dts" for="dt" aria-hidden="true"></label>`}</div><a id="news" href="${esc(hrefOf(o.view))}" hidden>새 소식이 있어요 · 눌러서 보기</a>
 </body></html>
