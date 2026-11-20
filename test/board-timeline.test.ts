@@ -109,15 +109,17 @@ test("every field is escaped, a non-http link stays text, and the turn summary c
   );
 });
 
-test("the 일정 tab is served after 사무실, read only, with the list and the wide pane", async () => {
+test("the 드로우하타 일정 tab is served after 사무실, read only, with the list and the wide pane", async () => {
   const s = start();
   timelinesIn(s.home, { "drawhatha.json": file([item()]) });
   const html = await (await fetch(`${s.url}/?tab=timeline`, { headers: tailnet() })).text();
-  expect(html).toContain('사무실</a><a class="tab on" href="/?tab=timeline">일정</a>');
+  expect(html).toContain(
+    '사무실</a><a class="tab on" href="/?tab=timeline">드로우하타 일정</a><a class="tab" href="/?tab=agent">',
+  );
   expect(html).toContain('<section class="tlx" data-project="drawhatha">');
   expect(html).toContain('<div class="tld"><section data-project="drawhatha">');
   expect(html).not.toContain('class="dt"');
   const work = await (await fetch(`${s.url}/`, { headers: tailnet() })).text();
-  expect(work).toContain('<a class="tab" href="/?tab=timeline">일정</a>');
+  expect(work).toContain('<a class="tab" href="/?tab=timeline">드로우하타 일정</a>');
   expect(work).not.toContain('class="tld"');
 });
