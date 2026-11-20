@@ -240,5 +240,5 @@ export function listPane(
                           : workTab(rows, v, now, selected, s.cards, s.avatars);
   const active = s.missions.filter((m) => m.status !== "완료").length;
   const busy = s.agents.filter((a) => a.state === "working").length;
-  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("asks", "확인 필요", s.checks.length)}${tab("live", "지금", 0)}${tab("office", "사무실", 0)}${tab("timeline", "일정", 0)}${tab("agent", "에이전트", busy)}${tab("proj", "프로젝트", 0)}${tab("chan", "채널", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}${tab("map", "연결", 0)}</nav>${body}`;
+  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("asks", "확인 필요", s.checks.length)}${tab("live", "지금", 0)}${tab("office", "사무실", 0)}${tab("timeline", "드로우하타 일정", 0)}${tab("agent", "에이전트", busy)}${tab("proj", "프로젝트", 0)}${tab("chan", "채널", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}${tab("map", "연결", 0)}</nav>${body}`;
 }
