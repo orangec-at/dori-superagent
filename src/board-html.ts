@@ -142,7 +142,7 @@ export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions)
 <script src="/board.js" defer></script></head><body${open ? ' class="has-c"' : ""}>
 <div class="app${linksView ? " lk" : projView || chanView ? " pj" : ""}">${bare ? "" : `<input class="dt" id="dt" type="checkbox" aria-label="${mission ? "참여" : "미션"} 패널"><label class="dtb" for="dt">${mission ? "참여" : "미션"}</label>`}
 <aside class="list" aria-label="작업 목록"><header class="lh"><b>도리 보드</b><a class="meta" href="${esc(hrefOf(o.view))}">${kst} KST</a></header>
-${open ? "" : flash}${readOnly}${listPane(t.rows, { ...s, links: o.links ?? null, live: o.live ?? null, ...(o.view.tab === "proj" ? { proj: projectsList(s, o.view, now) } : {}), ...(o.view.tab === "chan" ? { chan: channelsList(vs, s, o.view, now) } : {}) }, o.view, now, mission || bare ? null : (o.view.c ?? "lead"))}</aside>
+${open ? "" : flash}${readOnly}${listPane(t.rows, { ...s, links: o.links ?? null, live: o.live ?? null, ...(o.view.tab === "proj" ? { proj: projectsList(s, o.view, now) } : {}), ...(o.view.tab === "chan" ? { chan: channelsList(vs, s, o.view, now) } : {}) }, o.view, now, mission || bare ? null : (o.view.c ?? "lead"), o.token)}</aside>
 <main class="pane">${
     linksView
       ? linksPane(o.links ?? null, s.avatars)

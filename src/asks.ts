@@ -14,13 +14,29 @@ export type Ask = {
   options: { key: string; text: string }[];
   recommend?: string;
   link?: string;
+  /** Who answers it; absent in files written before `--for`, read as jaeil (see `askFor`). */
+  for?: AskFor;
+  /** A short project label the board shows beside it. */
+  project?: string;
   status: "open" | "closed";
   createdAt: number;
   closedAt?: number;
   sent?: { choice: string; at: number };
 };
 
-export const ASK_LIMITS = { question: 500, option: 200, options: 6, link: 500 } as const;
+export const ASK_LIMITS = { question: 500, option: 200, options: 6, link: 500, project: 40 } as const;
+/** The people an ask can wait on. Only jaeil answers on the board; bokyung answers on Slack and the lead closes it. */
+export const ASK_FOR = ["jaeil", "bokyung"] as const;
+export type AskFor = (typeof ASK_FOR)[number];
+export const askFor = (a: Pick<Ask, "for">): AskFor => a.for ?? "jaeil";
+
+/** The `--for` value: jaeil when absent. */
+export function parseFor(v: string | undefined): AskFor {
+  if (v === undefined) return "jaeil";
+  const who = ASK_FOR.find((x) => x === v);
+  if (!who) throw new Refusal(`--for must be one of ${ASK_FOR.join(", ")}, got ${v}`);
+  return who;
+}
 const OPTION_KEY = /^[A-Z0-9]{1,3}$/;
 /** Words `dori ask` reads as subcommands, so an ask can never be named after one. */
 const SUBCOMMANDS = new Set(["close", "list"]);
@@ -80,7 +96,15 @@ export function parseOptions(values: readonly string[]): Ask["options"] {
 export function askAdd(
   home: string,
   id: string,
-  o: { question: string; options: Ask["options"]; recommend?: string; link?: string; now: number },
+  o: {
+    question: string;
+    options: Ask["options"];
+    recommend?: string;
+    link?: string;
+    for?: AskFor;
+    project?: string;
+    now: number;
+  },
 ): Ask {
   if (SUBCOMMANDS.has(id)) throw new Refusal(`ask id "${id}" is a dori ask subcommand`);
   file(home, id);
@@ -93,12 +117,17 @@ export function askAdd(
     );
   if (o.link !== undefined && (!/^https?:\/\/\S+$/.test(o.link) || o.link.length > ASK_LIMITS.link))
     throw new Refusal("--link must be an http(s) URL");
+  const project = o.project?.trim();
+  if (project !== undefined && (!project || project.length > ASK_LIMITS.project || /[\r\n]/.test(project)))
+    throw new Refusal(`--project must be 1-${ASK_LIMITS.project} characters on one line`);
   const ask: Ask = {
     id,
     question,
     options: o.options,
     ...(o.recommend !== undefined ? { recommend: o.recommend } : {}),
     ...(o.link !== undefined ? { link: o.link } : {}),
+    for: o.for ?? "jaeil",
+    ...(project !== undefined ? { project } : {}),
     status: "open",
     createdAt: o.now,
   };
@@ -123,10 +152,14 @@ export function markSent(home: string, id: string, choice: string, now: number):
   return sent;
 }
 
-/** The open ask the choice answers; Refusal when there is none or the choice is not one of its options. */
+/**
+ * The open ask the board's choice answers; Refusal when there is none, it is not jaeil's (another person answers on
+ * Slack), or the choice is not one of its options.
+ */
 export function openAsk(home: string, id: string, choice: string): Ask {
   const ask = KEY_RE.test(id) ? readAsk(home, id) : undefined;
   if (ask?.status !== "open") throw new Refusal(`no open ask ${id}`);
+  if (askFor(ask) !== "jaeil") throw new Refusal(`${id} is for ${askFor(ask)}: answered on Slack, not the board`);
   if (!ask.options.some((o) => o.key === choice)) throw new Refusal(`${choice} is not an option of ${id}`);
   return ask;
 }

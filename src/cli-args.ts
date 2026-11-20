@@ -79,7 +79,8 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
                                               decisions, a request box, bot cards, projects; writes only from an allowed
                                               Tailscale-User-Login (DORI_HOME/board.json allow) and go to the lead's inbox
   dori ask <id> --question Q --option A=T [--option B=T ...] [--recommend A] [--link URL]
-                                              put a decision on the board; ask close <id> takes it off, ask list shows them
+     [--for jaeil|bokyung] [--project P]      put a decision on the board (--for: who answers, default jaeil; bokyung's are
+                                              read only on the board); ask close <id> takes it off, ask list shows them
   dori reply <address> <text> [--file F ...]  answer a front end: slack:<channel>:<thread_ts> (files too),
                                               discord:<channel>, hermes:<machine>/<profile> (its Bot Chat);
                                               REPLIED, or REPLY_FAILED <address>: <reason> and exit 1

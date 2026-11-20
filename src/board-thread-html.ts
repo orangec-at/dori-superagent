@@ -75,7 +75,8 @@ const DELIVERY: Record<string, [string, string]> = {
 const link = (url: string): string =>
   /^https?:\/\//.test(url) ? `<a href="${esc(url)}" rel="noopener" target="_blank">${esc(url)}</a>` : esc(url);
 
-function askCard(a: Ask, now: number, token: string | null): string {
+/** A decision card; `answer` false (an ask another person answers on Slack) leaves out the buttons. */
+export function askCard(a: Ask, now: number, token: string | null, answer = true): string {
   const options = a.options
     .map(
       (o) =>
@@ -88,9 +89,17 @@ function askCard(a: Ask, now: number, token: string | null): string {
     a.options.map((o) => `<button name="choice" value="${esc(o.key)}">${esc(o.key)}</button>`).join("");
   const sent = a.sent ? `<p class="sent">보냄: ${esc(a.sent.choice)} · ${ago(now, a.sent.at)}</p>` : "";
   const more = a.link ? `<p><a href="${esc(a.link)}" rel="noopener" target="_blank">자세히 보기</a></p>` : "";
-  return `<article class="ask" id="ask-${esc(a.id)}"><p class="kicker">결정 · ${esc(a.id)} · ${ago(now, a.createdAt)}</p>
+  const project = a.project ? `<span class="proj">${esc(a.project)}</span> ` : "";
+  const reply = answer
+    ? form(
+        "/decide",
+        token,
+        `<input type="hidden" name="id" value="${esc(a.id)}"><div class="buttons">${buttons}</div>`,
+      )
+    : "";
+  return `<article class="ask" id="ask-${esc(a.id)}"><p class="kicker">${project}결정 · ${esc(a.id)} · ${ago(now, a.createdAt)}</p>
 <p class="q">${esc(a.question)}</p><ol class="opts">${options}</ol>${more}
-${form("/decide", token, `<input type="hidden" name="id" value="${esc(a.id)}"><div class="buttons">${buttons}</div>`)}${sent}</article>`;
+${reply}${sent}</article>`;
 }
 
 /** `face` is the avatar beside an answer; an answer right after another keeps only its empty place (`.mav:empty`). */

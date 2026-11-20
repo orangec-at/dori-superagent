@@ -1,4 +1,4 @@
-import { askAdd, askClose, asks, parseOptions } from "./asks.ts";
+import { askAdd, askClose, askFor, asks, parseFor, parseOptions } from "./asks.ts";
 import { serveBoard } from "./board.ts";
 import { loadBoardConfig } from "./board-config.ts";
 import { HUB_EVERY_MS, refreshHub } from "./board-hub.ts";
@@ -14,14 +14,19 @@ import { Refusal } from "./refusal.ts";
 import { slackCall, slackReply, slackReplyPath } from "./slack-api.ts";
 import { slackSync } from "./slack-sync.ts";
 
-/** `dori ask <id> --question Q --option A=.. [--recommend A] [--link URL]`, `dori ask close <id>`, `dori ask list`. */
+/**
+ * `dori ask <id> --question Q --option A=.. [--recommend A] [--link URL] [--for jaeil|bokyung] [--project P]`,
+ * `dori ask close <id>`, `dori ask list`.
+ */
 export function runAsk(d: Deps, a: Args, x: string | undefined): number {
   const home = d.store.root;
   if (x === "list") {
     const all = asks(home).filter((k) => k.status === "open");
     if (all.length === 0) console.log("NO_ASKS");
     for (const k of all)
-      console.log(`${k.id} ${k.sent ? `sent=${k.sent.choice}` : "unanswered"} ${k.question.replace(/\s+/g, " ")}`);
+      console.log(
+        `${k.id} for=${askFor(k)}${k.project ? ` project=${k.project.replace(/\s+/g, "_")}` : ""} ${k.sent ? `sent=${k.sent.choice}` : "unanswered"} ${k.question.replace(/\s+/g, " ")}`,
+      );
     return 0;
   }
   if (x === "close") {
@@ -33,15 +38,18 @@ export function runAsk(d: Deps, a: Args, x: string | undefined): number {
   const id = need(x, "ask id");
   const recommend = one(a, "recommend");
   const link = one(a, "link");
+  const project = one(a, "project");
   const ask = askAdd(home, id, {
     question: need(one(a, "question"), "--question"),
     options: parseOptions(a.flags.get("option") ?? []),
     ...(recommend !== undefined ? { recommend } : {}),
     ...(link !== undefined ? { link } : {}),
+    for: parseFor(one(a, "for")),
+    ...(project !== undefined ? { project } : {}),
     now: d.now(),
   });
   console.log(
-    `ASKED ${ask.id} options=${ask.options.map((o) => o.key).join(",")}${ask.recommend ? ` recommend=${ask.recommend}` : ""}`,
+    `ASKED ${ask.id} for=${askFor(ask)} options=${ask.options.map((o) => o.key).join(",")}${ask.recommend ? ` recommend=${ask.recommend}` : ""}`,
   );
   return 0;
 }
