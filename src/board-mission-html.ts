@@ -40,7 +40,7 @@ border-radius:10px;background:var(--panel);color:var(--text);font-size:12.5px;li
 const STATUS_CLASS: Record<MissionStatus, string> = { 대기: "idle", 진행: "run", 완료: "ok", 막힘: "stuck" };
 export const statusPill = (s: MissionStatus): string => `<span class="st st-${STATUS_CLASS[s]}">${s}</span>`;
 
-const hue = (id: string): number => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+export const hue = (id: string): number => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 /** The participant's picture when it has one, else a letter circle in a colour of its own. */
 export const avatar = (a: Actor, size = ""): string =>
   a.img
