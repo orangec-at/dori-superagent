@@ -216,7 +216,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
           version: versionOf(state),
           view,
           links: view.tab === "map" ? readLinks(store.root) : null,
-          live: view.tab === "live" ? liveState(store, now) : null,
+          live: view.tab === "live" || view.tab === "office" ? liveState(store, now) : null,
           channels: pageSources(sources, !("code" in w)),
           ...(flash ? { flash } : {}),
         });
