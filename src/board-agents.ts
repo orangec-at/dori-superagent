@@ -54,7 +54,7 @@ const one = (s: string): string => firstLine(decodeEscapes(s));
 const urls = (s: string): string[] => [...new Set(s.match(/https?:\/\/[^\s"'<>)\]]+/g) ?? [])].slice(0, LINKS_MAX);
 
 /** The parsed JSON objects of a file's last lines; a line cut by the tail or not JSON is skipped. */
-function tailJson(path: string): Record<string, unknown>[] {
+export function tailJson(path: string): Record<string, unknown>[] {
   if (!existsSync(path)) return [];
   const size = statSync(path).size;
   const buf = Buffer.alloc(Math.min(size, TAIL_BYTES));

@@ -2,6 +2,8 @@ import { AGENTS_STYLE } from "./board-agents-html.ts";
 import { channelPane, channelsList, openChannel, type Sources } from "./board-channels-html.ts";
 import type { LinksRead } from "./board-links-file.ts";
 import { LINKS_STYLE, linksPane } from "./board-links-html.ts";
+import type { LiveState } from "./board-live.ts";
+import { LIVE_STYLE } from "./board-live-html.ts";
 import { hrefOf, listPane, type View } from "./board-list-html.ts";
 import { DETAIL_STYLE, detailPane, missionDetail, rowFace } from "./board-detail-html.ts";
 import { MISSION_STYLE, missionCard, missionPane } from "./board-mission-html.ts";
@@ -84,6 +86,8 @@ export type PageOptions = {
   view: View;
   flash?: string;
   links?: LinksRead;
+  /** The bots' state now, read only for the 지금 tab. */
+  live?: LiveState | null;
   /** The messenger copies; "locked" when the viewer may not write (a DM or channel is shown only to a writer). */
   channels?: Sources;
 };
@@ -133,11 +137,11 @@ export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions)
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="도리 보드"><meta name="board-version" content="${esc(o.version)}">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/icon-180.png">
-<link rel="icon" href="/icon-192.png"><title>도리 보드</title><style>${STYLE}${MISSION_STYLE}${DETAIL_STYLE}${LINKS_STYLE}${PROJECTS_STYLE}${AGENTS_STYLE}</style>
+<link rel="icon" href="/icon-192.png"><title>도리 보드</title><style>${STYLE}${MISSION_STYLE}${DETAIL_STYLE}${LINKS_STYLE}${PROJECTS_STYLE}${AGENTS_STYLE}${LIVE_STYLE}</style>
 <script src="/board.js" defer></script></head><body${open ? ' class="has-c"' : ""}>
 <div class="app${linksView ? " lk" : projView || chanView ? " pj" : ""}">${bare ? "" : `<input class="dt" id="dt" type="checkbox" aria-label="${mission ? "참여" : "미션"} 패널"><label class="dtb" for="dt">${mission ? "참여" : "미션"}</label>`}
 <aside class="list" aria-label="작업 목록"><header class="lh"><b>도리 보드</b><a class="meta" href="${esc(hrefOf(o.view))}">${kst} KST</a></header>
-${open ? "" : flash}${readOnly}${listPane(t.rows, { ...s, links: o.links ?? null, ...(o.view.tab === "proj" ? { proj: projectsList(s, o.view, now) } : {}), ...(o.view.tab === "chan" ? { chan: channelsList(vs, s, o.view, now) } : {}) }, o.view, now, mission || bare ? null : (o.view.c ?? "lead"))}</aside>
+${open ? "" : flash}${readOnly}${listPane(t.rows, { ...s, links: o.links ?? null, live: o.live ?? null, ...(o.view.tab === "proj" ? { proj: projectsList(s, o.view, now) } : {}), ...(o.view.tab === "chan" ? { chan: channelsList(vs, s, o.view, now) } : {}) }, o.view, now, mission || bare ? null : (o.view.c ?? "lead"))}</aside>
 <main class="pane">${
     linksView
       ? linksPane(o.links ?? null, s.avatars)

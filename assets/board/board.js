@@ -2,6 +2,7 @@
 // /api/version says something changed, unless the operator is writing (then it shows a "new" pill instead).
 (() => {
   const POLL_MS = 10_000;
+  const LIVE_MS = 30_000;
   let version = document.querySelector('meta[name="board-version"]')?.getAttribute("content") ?? "";
   const news = document.getElementById("news");
   const box = document.querySelector(".composer textarea");
@@ -106,4 +107,14 @@
   }
   setInterval(poll, POLL_MS);
   document.addEventListener("visibilitychange", poll);
+
+  // The 지금 tab reads the clock (방금 끝남 turns into 대기, a run past its timeout into 상태 확인 안 됨), which
+  // /api/version does not see: it reloads on its own, unless the operator is writing.
+  if (document.querySelector("[data-live]"))
+    setInterval(() => {
+      if (document.hidden || writing()) return;
+      const url = new URL(location.href);
+      url.searchParams.delete("sent");
+      location.replace(url.pathname + url.search);
+    }, LIVE_MS);
 })();
