@@ -11,7 +11,9 @@ import { chanPost } from "./board-chan.ts";
 import { readLinks } from "./board-links-file.ts";
 import { type BoardConfig, decideEnvelope, requestEnvelope } from "./board-config.ts";
 import { boardHtml, REQUEST_MAX } from "./board-html.ts";
+import { liveState } from "./board-live.ts";
 import { viewOf } from "./board-list-html.ts";
+import { MANIFEST } from "./board-manifest.ts";
 import { type BoardState, boardState } from "./board-state.ts";
 import { rows } from "./board-status.ts";
 import { threadOf } from "./board-thread.ts";
@@ -44,20 +46,10 @@ const STATIC: Record<string, [string, string]> = {
   "/board.js": ["board.js", "text/javascript; charset=utf-8"],
 };
 const ASSETS = join(import.meta.dir, "..", "assets", "board");
-
-const MANIFEST = {
-  name: "도리 보드",
-  short_name: "도리",
-  start_url: "/",
-  scope: "/",
-  display: "standalone",
-  orientation: "portrait",
-  background_color: "#111317",
-  theme_color: "#111317",
-  icons: [
-    { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
-    { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
-  ],
+/** The JSON reads: answered only to a viewer board-auth.ts accepts as a writer (they carry what the page shows). */
+const READ_API: Record<string, (store: Store, now: number) => unknown> = {
+  "/api/board": boardState,
+  "/api/live": liveState,
 };
 
 const SECURITY_HEADERS = {
@@ -224,17 +216,19 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
           version: versionOf(state),
           view,
           links: view.tab === "map" ? readLinks(store.root) : null,
+          live: view.tab === "live" ? liveState(store, now) : null,
           channels: pageSources(sources, !("code" in w)),
           ...(flash ? { flash } : {}),
         });
         return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", ...SECURITY_HEADERS } });
       }
       if (url.pathname === "/api/version") return Response.json({ v: polledVersion() }, { headers: SECURITY_HEADERS });
-      if (url.pathname === "/api/board") {
+      const api = READ_API[url.pathname];
+      if (api) {
         const w = await auth.writer(req);
         return "code" in w
           ? reject("read", w.code, w.why, 403)
-          : Response.json(boardState(store, o.now()), { headers: SECURITY_HEADERS });
+          : Response.json(api(store, o.now()), { headers: SECURITY_HEADERS });
       }
       if (url.pathname.startsWith("/avatar/")) return avatarResponse(store.root, url.pathname.slice("/avatar/".length));
       if (url.pathname === "/manifest.webmanifest")

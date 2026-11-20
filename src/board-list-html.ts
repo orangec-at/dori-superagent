@@ -2,6 +2,8 @@ import type { AgentActivity } from "./board-agents.ts";
 import { agentsTab } from "./board-agents-html.ts";
 import type { LinksRead } from "./board-links-file.ts";
 import { linksList } from "./board-links-html.ts";
+import type { LiveState } from "./board-live.ts";
+import { liveTab } from "./board-live-html.ts";
 import { avatar, rowMission, statusPill } from "./board-mission-html.ts";
 import type { Mission, MissionCard } from "./board-mission-types.ts";
 import type { ProjectGroup } from "./board-state.ts";
@@ -10,7 +12,7 @@ import { FILTERS, type TaskFilter } from "./board-tasks.ts";
 import { rowAvatar, strip } from "./board-detail-html.ts";
 import { ago, esc, mark } from "./board-thread-html.ts";
 
-export type Tab = "work" | "agent" | "proj" | "chan" | "mission" | "pr" | "backlog" | "map";
+export type Tab = "work" | "live" | "agent" | "proj" | "chan" | "mission" | "pr" | "backlog" | "map";
 export type Filter = "all" | "mine" | "working";
 /**
  * What the page shows: the list tab, its filter, and the selected row or mission (null: the list alone on a phone);
@@ -25,7 +27,7 @@ export type View = {
   d: string | null;
   k?: TaskFilter | null;
 };
-const TABS: readonly Tab[] = ["agent", "proj", "chan", "mission", "pr", "backlog", "map"];
+const TABS: readonly Tab[] = ["live", "agent", "proj", "chan", "mission", "pr", "backlog", "map"];
 
 export function viewOf(params: URLSearchParams): View {
   const tab = params.get("tab");
@@ -178,6 +180,7 @@ export function listPane(
     avatars: Record<string, string>;
     agents: AgentActivity[];
     links?: LinksRead;
+    live?: LiveState | null;
     /** The 프로젝트 or 채널 tab's body, rendered by the page (it needs the messenger copies). */
     proj?: string;
     chan?: string;
@@ -192,22 +195,24 @@ export function listPane(
   const tab = (t: Tab, label: string, n: number): string =>
     `<a class="tab${v.tab === t ? " on" : ""}" href="${esc(hrefOf(v, { tab: t, f: "all" }))}">${label}${n ? ` ${n}` : ""}</a>`;
   const body =
-    v.tab === "agent"
-      ? agentsTab(s.agents, s.avatars, now)
-      : v.tab === "proj"
-        ? (s.proj ?? "")
-        : v.tab === "chan"
-          ? (s.chan ?? "")
-          : v.tab === "mission"
-            ? missionTab(s.missions, v, now)
-            : v.tab === "pr"
-              ? prTab(rows, v, now, selected)
-              : v.tab === "backlog"
-                ? backlogTab(projects)
-                : v.tab === "map"
-                  ? linksList(s.links ?? null, s.avatars)
-                  : workTab(rows, v, now, selected, s.cards, s.avatars);
+    v.tab === "live"
+      ? liveTab(s.live ?? null, s.avatars, now)
+      : v.tab === "agent"
+        ? agentsTab(s.agents, s.avatars, now)
+        : v.tab === "proj"
+          ? (s.proj ?? "")
+          : v.tab === "chan"
+            ? (s.chan ?? "")
+            : v.tab === "mission"
+              ? missionTab(s.missions, v, now)
+              : v.tab === "pr"
+                ? prTab(rows, v, now, selected)
+                : v.tab === "backlog"
+                  ? backlogTab(projects)
+                  : v.tab === "map"
+                    ? linksList(s.links ?? null, s.avatars)
+                    : workTab(rows, v, now, selected, s.cards, s.avatars);
   const active = s.missions.filter((m) => m.status !== "완료").length;
   const busy = s.agents.filter((a) => a.state === "working").length;
-  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("agent", "에이전트", busy)}${tab("proj", "프로젝트", 0)}${tab("chan", "채널", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}${tab("map", "연결", 0)}</nav>${body}`;
+  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("live", "지금", 0)}${tab("agent", "에이전트", busy)}${tab("proj", "프로젝트", 0)}${tab("chan", "채널", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}${tab("map", "연결", 0)}</nav>${body}`;
 }
