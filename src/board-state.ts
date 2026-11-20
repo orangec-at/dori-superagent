@@ -1,22 +1,15 @@
-import { type Ask, asks } from "./asks.ts";
+import type { Ask } from "./asks.ts";
 import { type AgentActivity, agentActivity } from "./board-agents.ts";
 import { type BotCard, botCards, firstLine } from "./board-bots.ts";
 import { type ChatMessage, chatTail } from "./board-chat.ts";
 import { agentsOrNone, avatarUrls } from "./board-avatars.ts";
 import { type Hub, readHub } from "./board-hub.ts";
-import { askText, type HubEvent, itemEvents, laneEvents, lanePurpose } from "./board-hub-state.ts";
+import { openAsks } from "./board-asks.ts";
+import { type HubEvent, itemEvents, laneEvents, lanePurpose } from "./board-hub-state.ts";
 import { missionState } from "./board-missions.ts";
 import { routines } from "./board-mission-sources.ts";
 import type { Mission, MissionCard, Routine } from "./board-mission-types.ts";
-import {
-  type Link,
-  messageProject,
-  OTHER,
-  projectAliases,
-  projectResolver,
-  projectSeeds,
-  type Subject,
-} from "./board-projects.ts";
+import { type Link, OTHER, projectAliases, projectResolver, projectSeeds, type Subject } from "./board-projects.ts";
 import { lanePrs, type Pr } from "./board-prs.ts";
 import type { Milestone } from "./board-tasks.ts";
 import { type StandingCard, standingCards } from "./board-status.ts";
@@ -63,7 +56,9 @@ export type ProjectGroup = {
 
 export type BoardState = {
   generatedAt: number;
+  /** The open asks jaeil answers, and every open ask for the 확인 필요 tab (see openAsks). */
   asks: Ask[];
+  checks: Ask[];
   /** Lanes the operator should look at: ready (a PR to check), waiting, lost. */
   attention: ProjectLane[];
   bots: BotCard[];
@@ -221,12 +216,7 @@ export function boardState(store: Store, now: number): BoardState {
     const lane = newest ? lanes.find((l) => l.key === newest.key) : undefined;
     g.purpose = g.note ?? (lane ? lanePurpose(lane.brief, lane.key) : null);
   }
-  const open = asks(store.root).filter((a) => a.status === "open");
-  for (const a of open) {
-    const byKey = groups.get(projectOf({ key: a.id, cwd: "", repos: [] }));
-    const g = byKey && byKey.name !== OTHER ? byKey : groups.get(messageProject(askText(a), sorted) ?? "");
-    g?.asks.push(a);
-  }
+  const { asks: open, checks } = openAsks(store.root, groups, sorted, projectOf);
   const standing = standingCards(store, now);
   const agents = agentsOrNone(store.root);
   const bots = botCards(store.root, now, agents);
@@ -242,6 +232,7 @@ export function boardState(store: Store, now: number): BoardState {
     chat,
     agents: agentActivity(store, now, bots, chat),
     asks: open,
+    checks,
     hub: readHub(store.root),
     attention: attention.sort((a, b) => b.at - a.at),
     bots,

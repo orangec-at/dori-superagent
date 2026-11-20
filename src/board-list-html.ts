@@ -1,5 +1,7 @@
+import type { Ask } from "./asks.ts";
 import type { AgentActivity } from "./board-agents.ts";
 import { agentsTab } from "./board-agents-html.ts";
+import { asksTab } from "./board-asks-html.ts";
 import type { LinksRead } from "./board-links-file.ts";
 import { linksList } from "./board-links-html.ts";
 import type { LiveState } from "./board-live.ts";
@@ -13,7 +15,18 @@ import { FILTERS, type TaskFilter } from "./board-tasks.ts";
 import { rowAvatar, strip } from "./board-detail-html.ts";
 import { ago, esc, mark } from "./board-thread-html.ts";
 
-export type Tab = "work" | "live" | "office" | "agent" | "proj" | "chan" | "mission" | "pr" | "backlog" | "map";
+export type Tab =
+  | "work"
+  | "asks"
+  | "live"
+  | "office"
+  | "agent"
+  | "proj"
+  | "chan"
+  | "mission"
+  | "pr"
+  | "backlog"
+  | "map";
 export type Filter = "all" | "mine" | "working";
 /**
  * What the page shows: the list tab, its filter, and the selected row or mission (null: the list alone on a phone);
@@ -28,7 +41,7 @@ export type View = {
   d: string | null;
   k?: TaskFilter | null;
 };
-const TABS: readonly Tab[] = ["live", "office", "agent", "proj", "chan", "mission", "pr", "backlog", "map"];
+const TABS: readonly Tab[] = ["asks", "live", "office", "agent", "proj", "chan", "mission", "pr", "backlog", "map"];
 
 export function viewOf(params: URLSearchParams): View {
   const tab = params.get("tab");
@@ -176,6 +189,7 @@ export function listPane(
   rows: Row[],
   s: {
     projects: ProjectGroup[];
+    checks: Ask[];
     missions: Mission[];
     cards: Record<string, MissionCard>;
     avatars: Record<string, string>;
@@ -189,6 +203,7 @@ export function listPane(
   v: View,
   now: number,
   selected: string | null,
+  token: string | null = null,
 ): string {
   const { projects } = s;
   const prCount = rows.reduce((n, r) => n + (r.kind === "lane" ? r.prs.length : 0), 0);
@@ -196,26 +211,28 @@ export function listPane(
   const tab = (t: Tab, label: string, n: number): string =>
     `<a class="tab${v.tab === t ? " on" : ""}" href="${esc(hrefOf(v, { tab: t, f: "all" }))}">${label}${n ? ` ${n}` : ""}</a>`;
   const body =
-    v.tab === "live"
-      ? liveTab(s.live ?? null, s.avatars, now)
-      : v.tab === "office"
-        ? officeTab(s.live ?? null, s.avatars)
-        : v.tab === "agent"
-          ? agentsTab(s.agents, s.avatars, now)
-          : v.tab === "proj"
-            ? (s.proj ?? "")
-            : v.tab === "chan"
-              ? (s.chan ?? "")
-              : v.tab === "mission"
-                ? missionTab(s.missions, v, now)
-                : v.tab === "pr"
-                  ? prTab(rows, v, now, selected)
-                  : v.tab === "backlog"
-                    ? backlogTab(projects)
-                    : v.tab === "map"
-                      ? linksList(s.links ?? null, s.avatars)
-                      : workTab(rows, v, now, selected, s.cards, s.avatars);
+    v.tab === "asks"
+      ? asksTab(s.checks, now, token)
+      : v.tab === "live"
+        ? liveTab(s.live ?? null, s.avatars, now)
+        : v.tab === "office"
+          ? officeTab(s.live ?? null, s.avatars)
+          : v.tab === "agent"
+            ? agentsTab(s.agents, s.avatars, now)
+            : v.tab === "proj"
+              ? (s.proj ?? "")
+              : v.tab === "chan"
+                ? (s.chan ?? "")
+                : v.tab === "mission"
+                  ? missionTab(s.missions, v, now)
+                  : v.tab === "pr"
+                    ? prTab(rows, v, now, selected)
+                    : v.tab === "backlog"
+                      ? backlogTab(projects)
+                      : v.tab === "map"
+                        ? linksList(s.links ?? null, s.avatars)
+                        : workTab(rows, v, now, selected, s.cards, s.avatars);
   const active = s.missions.filter((m) => m.status !== "완료").length;
   const busy = s.agents.filter((a) => a.state === "working").length;
-  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("live", "지금", 0)}${tab("office", "사무실", 0)}${tab("agent", "에이전트", busy)}${tab("proj", "프로젝트", 0)}${tab("chan", "채널", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}${tab("map", "연결", 0)}</nav>${body}`;
+  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("asks", "확인 필요", s.checks.length)}${tab("live", "지금", 0)}${tab("office", "사무실", 0)}${tab("agent", "에이전트", busy)}${tab("proj", "프로젝트", 0)}${tab("chan", "채널", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}${tab("map", "연결", 0)}</nav>${body}`;
 }

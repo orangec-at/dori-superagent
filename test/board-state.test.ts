@@ -158,6 +158,7 @@ test("a home without agents.json, assignment file or delegation log still render
     standingError: null,
     chat: [],
     asks: [],
+    checks: [],
     attention: [],
     bots: [],
     projects: [],
