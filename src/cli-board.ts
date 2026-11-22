@@ -1,5 +1,6 @@
 import { askAdd, askClose, askFor, asks, parseFor, parseOptions } from "./asks.ts";
 import { serveBoard } from "./board.ts";
+import { reusedProbe } from "./board-lead-live.ts";
 import { loadBoardConfig } from "./board-config.ts";
 import { HUB_EVERY_MS, refreshHub } from "./board-hub.ts";
 import { collectLinks } from "./board-links.ts";
@@ -96,6 +97,7 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
     now: d.now,
     config,
     toLead: (text) => send(d, "lead", text, "board"),
+    leadPane: reusedProbe((ref) => d.runtimes.for(ref).probe(ref), d.now),
   });
   console.log(
     `BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length} devices=${config.allowNodes.length} access=${config.access ? config.access.allowEmails.length : "off"} copy=${config.copyTo || "off"} discord=${discord ? "on" : "off"} slack=${slack ? "on" : "off"}`,

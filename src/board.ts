@@ -11,6 +11,7 @@ import { chanPost } from "./board-chan.ts";
 import { readLinks } from "./board-links-file.ts";
 import { type BoardConfig, decideEnvelope, requestEnvelope } from "./board-config.ts";
 import { boardHtml, REQUEST_MAX } from "./board-html.ts";
+import { type LeadProbe, tabLive } from "./board-lead-live.ts";
 import { liveState } from "./board-live.ts";
 import { readTimelines } from "./board-timeline.ts";
 import { viewOf } from "./board-list-html.ts";
@@ -38,6 +39,8 @@ export type BoardOptions = {
   fetchCerts?: CertFetch;
   /** The messenger copies (Discord, Slack) the 채널 tab shows and POST /chan (/discord on an older page) sends through. */
   sources?: ChannelSource[];
+  /** Reads the lead's pane for its 사무실 seat; without one the seat is 상태 모름. */
+  leadPane?: LeadProbe;
 };
 
 const STATIC: Record<string, [string, string]> = {
@@ -217,7 +220,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
           version: versionOf(state),
           view,
           links: view.tab === "map" ? readLinks(store.root) : null,
-          live: view.tab === "live" || view.tab === "office" ? liveState(store, now) : null,
+          live: await tabLive(view.tab, store, now, o.leadPane),
           timelines: view.tab === "timeline" ? readTimelines(store.root) : null,
           channels: pageSources(sources, !("code" in w)),
           ...(flash ? { flash } : {}),
