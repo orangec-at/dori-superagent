@@ -31,7 +31,7 @@ export function officeLook(b: BotLive): Look {
     return one(
       "typing",
       "bubble",
-      b.task ?? b.word,
+      b.task ?? (b.row ? "" : b.word),
       b.basis ?? (b.running > 1 ? `${b.word} · ${b.running}건` : b.word),
     );
   if (b.status === "done") return one("sit", "check", "✓", at(`${hhmm(b.at ?? 0)} 끝냄`));
