@@ -109,6 +109,26 @@ function seeded() {
   return s;
 }
 
+test("only the first or last lines of a failed delegation's output make it 결과 모름, not a bot's text quoting them", () => {
+  const { store, home } = start();
+  writeFileSync(
+    join(home, "agents.json"),
+    JSON.stringify(["dido", "endo"].map((name) => ({ name, host: "", profile: name }))),
+  );
+  const rows = ["dido", "endo"].map((agent) => ({ at: iso(NOW - 30 * MIN), agent, text: `@${agent} 로그 정리` }));
+  writeFileSync(join(home, "delegate-runs.jsonl"), jsonl(rows.map((r) => ({ ...r, until: iso(NOW) }))));
+  const quoting = "요약합니다.\n첫 줄\n로그에 Gateway disconnected가 보였습니다.\n그 뒤 빌드\n실패\nexit 1";
+  const trailing = "반쯤 했습니다.\n중간\n더\nError: Gateway disconnected; turn outcome is unknown.";
+  writeFileSync(
+    join(home, "delegations.jsonl"),
+    jsonl([quoting, trailing].map((output, i) => ({ ...rows[i], outcome: "failed", output, endedAt: iso(NOW) }))),
+  );
+  expect(liveState(store, NOW).bots.map((b) => [b.name, b.status])).toEqual([
+    ["dido", "failed"],
+    ["endo", "unsure"],
+  ]);
+});
+
 test("liveState reads the delegation logs into one row per bot of agents.json, in its order", () => {
   const { store } = seeded();
   expect(liveState(store, NOW)).toEqual({

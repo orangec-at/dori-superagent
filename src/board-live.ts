@@ -62,8 +62,17 @@ const START_SLACK_MS = 60_000;
 const TITLE_MAX = 80;
 /** A messenger turn marked as running longer than this is a mark the gateway left behind, not a turn. */
 const ACTIVE_MAX_MS = 3 * 3_600_000;
-/** A delegation that ended because the gateway went away: the bot may well have finished, its result is unknown. */
+/**
+ * A delegation that ended because the gateway went away: the bot may well have finished, its result is unknown. Read
+ * only from the first and last lines of its output, where `dori delegate` prints the error, so a bot's own text that
+ * merely quotes it stays a plain failure.
+ */
 const LOST = /turn outcome is unknown|gateway disconnected/i;
+const EDGE_LINES = 2;
+const lostTurn = (output: string): boolean => {
+  const lines = output.trim().split("\n");
+  return [...lines.slice(0, EDGE_LINES), ...lines.slice(-EDGE_LINES)].some((l) => LOST.test(l));
+};
 const LOST_OUTCOME = "lost";
 
 /**
@@ -171,7 +180,7 @@ export function liveRecords(home: string): Map<string, BotRecords> {
     const at = ms(e["at"]);
     if (typeof e["agent"] !== "string" || Number.isNaN(at)) continue;
     const end = ms(e["endedAt"]);
-    const outcome = e["outcome"] !== "ok" && LOST.test(String(e["output"] ?? "")) ? LOST_OUTCOME : String(e["outcome"]);
+    const outcome = e["outcome"] !== "ok" && lostTurn(String(e["output"] ?? "")) ? LOST_OUTCOME : String(e["outcome"]);
     const done = { at: Number.isNaN(end) ? at : end, outcome };
     ends.set(`${e["agent"]}|${at}`, { agent: e["agent"], start: at, text: String(e["text"] ?? ""), end: done });
   }

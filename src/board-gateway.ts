@@ -9,6 +9,12 @@ import type { Exec } from "./runtime/exec.ts";
  * local` entries are `dori delegate` runs, already on the delegation records, and are left out. The script prints
  * only times and platform names per profile, never a message. The board process runs it every minute under a time
  * limit (over ssh for a bot with a host), never on a page load; a machine it cannot read is null (모름).
+ *
+ * hermes (gateway/session_lifecycle.py, read 2026-11-22) writes the marker with `updated_at` a moment after it when a
+ * turn starts, and clears the marker when the turn ends (`clear_turn_active`, best effort; a gateway that crashed
+ * leaves it until its next start). A turn that writes again after it started (update_session after the reply) and
+ * still carries a marker is one whose clear was lost: a marker `ACTIVE_SLACK_S` older than its own session's
+ * `updated_at` is dropped. A trailing `Z` is read as UTC on any python3 (fromisoformat takes it only from 3.11).
  */
 export type GatewaySeen = {
   at: number | null;
@@ -25,8 +31,11 @@ const NONE: GatewaySeen = { at: null, platform: null, active: null, activePlatfo
 const PROFILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const PLATFORM = /^[a-z][a-z0-9_-]{0,19}$/;
 
+const ACTIVE_SLACK_S = 5;
+
 export const GATEWAY_SCRIPT = `import datetime, glob, json, os
 def ms(v):
+    if v.endswith("Z"): v = v[:-1] + "+00:00"
     try: return int(datetime.datetime.fromisoformat(v).timestamp() * 1000)
     except Exception: return None
 out = {}
@@ -38,8 +47,9 @@ for p in [h + "/sessions/sessions.json"] + glob.glob(h + "/profiles/*/sessions/s
         part = k.split(":")
         if not isinstance(v, dict) or len(part) < 3 or part[0] != "agent" or v.get("platform") in (None, "local"): continue
         o = out.setdefault(part[1], {"at": None, "platform": None, "active": None, "activePlatform": None})
-        for f, t, pf in (("updated_at", "at", "platform"), ("active_turn_started_at", "active", "activePlatform")):
-            x = ms(v.get(f) or "")
+        at, active = ms(v.get("updated_at") or ""), ms(v.get("active_turn_started_at") or "")
+        if at and active and at > active + ${ACTIVE_SLACK_S * 1000}: active = None
+        for x, t, pf in ((at, "at", "platform"), (active, "active", "activePlatform")):
             if x and (o[t] is None or x > o[t]): o[t] = x; o[pf] = v.get("platform")
 print(json.dumps(out))
 `;

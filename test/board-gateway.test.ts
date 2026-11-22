@@ -188,39 +188,60 @@ test("the reader runs the script here and over ssh per machine, with a time limi
   ]);
 });
 
-test("the script reads every profile's messenger sessions, newest first, and leaves dori delegate's local ones out", async () => {
+async function runScript(files: Record<string, object>): Promise<Record<string, GatewaySeen> | null> {
   const home = mkdtempSync(join(tmpdir(), "dori-gw-"));
   try {
-    mkdirSync(join(home, ".hermes", "sessions"), { recursive: true });
-    mkdirSync(join(home, ".hermes", "profiles", "bido", "sessions"), { recursive: true });
-    writeFileSync(
-      join(home, ".hermes", "sessions", "sessions.json"),
-      JSON.stringify({
-        _README: "mirror",
-        "agent:dido:slack:group:C1": { platform: "slack", updated_at: "2026-11-22T16:32:55.031158" },
-        "agent:dido:discord:dm:1": { platform: "discord", updated_at: "2026-11-22T16:00:00" },
-        "agent:dido:local:dm:local-1": {
-          platform: "local",
-          updated_at: "2026-11-22T17:00:00",
-          active_turn_started_at: "2026-11-22T08:00:00+00:00",
-        },
-        "agent:endo:discord:dm:2": { platform: "discord", active_turn_started_at: "2026-11-22T07:41:51+00:00" },
-      }),
-    );
-    writeFileSync(
-      join(home, ".hermes", "profiles", "bido", "sessions", "sessions.json"),
-      JSON.stringify({ "agent:bido:discord:dm:3": { platform: "discord", updated_at: "2026-11-22T13:47:33" } }),
-    );
+    for (const [p, v] of Object.entries(files)) {
+      mkdirSync(join(home, ".hermes", p, ".."), { recursive: true });
+      writeFileSync(join(home, ".hermes", p), JSON.stringify(v));
+    }
     const out = await spawnExec("python3", ["-c", GATEWAY_SCRIPT], {
       env: { HOME: home, TZ: "UTC", PATH: process.env["PATH"] ?? "" },
     });
-    expect(out.code).toBe(0);
-    expect(parseGateway(out.stdout)).toEqual({
-      dido: seen({ at: Date.UTC(2026, 10, 22, 16, 32, 55, 31), platform: "slack" }),
-      endo: seen({ active: Date.UTC(2026, 10, 22, 7, 41, 51), activePlatform: "discord" }),
-      bido: seen({ at: Date.UTC(2026, 10, 22, 13, 47, 33), platform: "discord" }),
-    });
+    return out.code === 0 ? parseGateway(out.stdout) : null;
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+}
+
+test("the script reads every profile's messenger sessions, newest first, and leaves dori delegate's local ones out", async () => {
+  const read = await runScript({
+    "sessions/sessions.json": {
+      _README: "mirror",
+      "agent:dido:slack:group:C1": { platform: "slack", updated_at: "2026-11-22T16:32:55.031158" },
+      "agent:dido:discord:dm:1": { platform: "discord", updated_at: "2026-11-22T16:00:00" },
+      "agent:dido:local:dm:local-1": {
+        platform: "local",
+        updated_at: "2026-11-22T17:00:00",
+        active_turn_started_at: "2026-11-22T08:00:00+00:00",
+      },
+      "agent:endo:discord:dm:2": { platform: "discord", active_turn_started_at: "2026-11-22T07:41:51+00:00" },
+    },
+    "profiles/bido/sessions/sessions.json": {
+      "agent:bido:discord:dm:3": { platform: "discord", updated_at: "2026-11-22T13:47:33" },
+    },
+  });
+  expect(read).toEqual({
+    dido: seen({ at: Date.UTC(2026, 10, 22, 16, 32, 55, 31), platform: "slack" }),
+    endo: seen({ active: Date.UTC(2026, 10, 22, 7, 41, 51), activePlatform: "discord" }),
+    bido: seen({ at: Date.UTC(2026, 10, 22, 13, 47, 33), platform: "discord" }),
+  });
+});
+
+test("the script drops a turn mark its own session wrote past, keeps one written with its start, and reads Z as UTC", async () => {
+  const m = "2026-11-22T09:00:00+00:00";
+  const marked = (platform: string, updated_at: string) => ({ platform, updated_at, active_turn_started_at: m });
+  const nine = Date.UTC(2026, 10, 22, 9, 0, 0);
+  const read = await runScript({
+    "sessions/sessions.json": {
+      "agent:dido:slack:group:C1": marked("slack", "2026-11-22T09:30:00"),
+      "agent:endo:discord:dm:2": marked("discord", "2026-11-22T09:00:00.004"),
+      "agent:bido:slack:dm:3": { platform: "slack", updated_at: "2026-11-22T08:15:00Z" },
+    },
+  });
+  expect(read).toEqual({
+    dido: seen({ at: nine + 30 * MIN, platform: "slack" }),
+    endo: seen({ at: nine + 4, platform: "discord", active: nine, activePlatform: "discord" }),
+    bido: seen({ at: nine - 45 * MIN, platform: "slack" }),
+  });
 });
