@@ -26,10 +26,13 @@ export const LIVE_WORD: Record<LiveStatus, string> = {
 /**
  * `task`: the title of the work (null when there is none: idle, or no record); `at`: when the run started (working),
  * ended (done, failed, idle) or the last record about it was written (unknown; null when there is none); `running`: how
- * many runs are at work at once.
+ * many runs are at work at once. `row`: the board row id when it is not `bot:<name>` (the lead's seat is `lead`); `role`:
+ * a role shown beside the name.
  */
 export type BotLive = {
   name: string;
+  row?: string;
+  role?: string;
   label: string;
   machine: string;
   task: string | null;

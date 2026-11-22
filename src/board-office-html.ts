@@ -31,7 +31,7 @@ export function officeLook(b: BotLive): Look {
   if (b.status === "done") return one("sit", "check", "✓", b.at === null ? b.word : `${hhmm(b.at)} 끝냄`);
   if (b.status === "failed") return one("sit", "bang", "!", b.at === null ? b.word : `${b.word} · ${hhmm(b.at)}`);
   if (b.status === "idle") return one("rest", null, "", b.word);
-  return one("sit", "ask", "?", b.at === null ? "기록 없음" : b.word, true);
+  return one("sit", "ask", "?", b.at === null && !b.row ? "기록 없음" : b.word, true);
 }
 
 /** A room's sign: the Mac mini under any of the names its bots give it, else the machine's own name. */
@@ -83,13 +83,14 @@ export const OFFICE_STYLE = `.of{display:flex;flex-direction:column;gap:12px;mar
 @media (prefers-reduced-motion:reduce){.of *,.of *::before,.of *::after{animation:none!important}}`;
 
 function seat(b: BotLive, imgs: Record<string, string>): string {
-  const id = `bot:${b.name}`;
+  const id = b.row ?? `bot:${b.name}`;
+  const href = b.row ? `/?c=${encodeURIComponent(b.row)}` : `/?c=bot:${encodeURIComponent(b.name)}`;
   const img = imgs[id];
   const look = officeLook(b);
   const face = avatar(img ? { id, label: b.label, sub: "", img } : { id, label: b.label, sub: "" }, "hd");
-  const about = `${b.label} · ${b.word}${b.task ? ` · ${b.task}` : ""}`;
+  const about = `${b.label}${b.role ? ` (${b.role})` : ""} · ${b.word}${b.task ? ` · ${b.task}` : ""}`;
   const say = look.say ? `<i>${esc(look.say)}</i>` : "";
-  return `<a class="seat o-${b.status}" href="/?c=bot:${encodeURIComponent(b.name)}" data-bot="${esc(b.name)}" data-look="${look.pose}" title="${esc(about)}" aria-label="${esc(about)}">
+  return `<a class="seat o-${b.status}" href="${href}" data-bot="${esc(b.name)}" data-look="${look.pose}" title="${esc(about)}" aria-label="${esc(about)}">
 <span class="say${look.mark ? ` m-${look.mark}` : ""}">${say}</span><span class="spot">${CHAIR}<span class="who" style="--h:${hue(id)}">${face}<span class="bd"></span><span class="arm l"></span><span class="arm r"></span></span>${DESK}${look.pose === "rest" ? '<span class="zz">z</span>' : ""}</span>
 <b class="tag">${esc(b.label)}</b><span class="cap">${esc(look.caption)}</span></a>`;
 }
@@ -102,7 +103,7 @@ export function officeTab(live: LiveState | null, imgs: Record<string, string>):
   const rooms = officeZones(live.bots)
     .map(
       (z) =>
-        `<section class="room" data-machine="${esc(z.label)}"><header class="wall"><b>${esc(z.label)}</b><span>봇 ${z.bots.length}</span></header>` +
+        `<section class="room" data-machine="${esc(z.label)}"><header class="wall"><b>${esc(z.label)}</b><span>${z.bots.some((b) => b.row) ? "lead · " : ""}봇 ${z.bots.filter((b) => !b.row).length}</span></header>` +
         `<div class="desks">${z.bots.map((b) => seat(b, imgs)).join("")}</div></section>`,
     )
     .join("");

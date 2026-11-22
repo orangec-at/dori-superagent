@@ -96,6 +96,7 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
     now: d.now,
     config,
     toLead: (text) => send(d, "lead", text, "board"),
+    leadPane: (ref) => d.runtimes.for(ref).probe(ref),
   });
   console.log(
     `BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length} devices=${config.allowNodes.length} access=${config.access ? config.access.allowEmails.length : "off"} copy=${config.copyTo || "off"} discord=${discord ? "on" : "off"} slack=${slack ? "on" : "off"}`,
