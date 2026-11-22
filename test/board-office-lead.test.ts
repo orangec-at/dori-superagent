@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendChat } from "../src/board-chat.ts";
-import { type LeadPane, leadLive, reusedProbe, runtimeLeadProbe, tabLive } from "../src/board-lead-live.ts";
+import { type LeadPane, leadLive, reusedProbe, runtimeLeadProbe, tabLive, turnShown } from "../src/board-lead-live.ts";
 import { officeTab } from "../src/board-office-html.ts";
 import type { Probe, SessionRef, SessionRuntime } from "../src/runtime/types.ts";
 import type { Lane } from "../src/store-types.ts";
@@ -159,6 +159,9 @@ test("an idle pane whose screen shows a turn is working; a failed read throws an
   expect(await read(ref)).toEqual({ status: "working", title: "인계" });
   screen = "❯";
   expect(await read(ref)).toEqual({ status: "idle", title: "인계" });
+  probe = async () => ({ status: "done", shellInFront: false });
+  screen = "✻ Working… (esc to interrupt)\n❯\n";
+  expect(await read(ref)).toEqual({ status: "working" });
   probe = async () => {
     throw new Error('Executable not found in $PATH: "herdr"');
   };
@@ -173,4 +176,18 @@ test("an idle pane whose screen shows a turn is working; a failed read throws an
   );
   await expect(broken(ref)).rejects.toThrow("unknown runtime");
   expect(logs.at(-1)).toBe("BOARD_LEAD_PROBE w3:p1 failed: unknown runtime");
+});
+
+const OMO_BOTTOM = [
+  "── • Working (0s • esc to interrupt) ──",
+  "❯",
+  "────",
+  "… • 325K/1M (32.5%)",
+  "(😺 OmO Native) mem:x",
+];
+test("a turn shows only on the screen's last non-blank lines: the mark higher up is the session's own text", () => {
+  expect(turnShown([" 할 일", ...OMO_BOTTOM, "", ""].join("\n"))).toBe(true);
+  expect(turnShown(["────", "❯", "────", "… • 0/1M", "(😺 OmO Native)"].join("\n"))).toBe(false);
+  const quoted = ['grep -c "esc to interrupt"', ...Array.from({ length: 8 }, (_, i) => `줄 ${i}`)];
+  expect(turnShown([...quoted, "❯", "────"].join("\n"))).toBe(false);
 });

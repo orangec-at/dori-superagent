@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { LEAD_ROLE, type LeadPane, type LeadSeen, leadLive, TURN_MARK } from "./board-lead-live.ts";
+import { LEAD_ROLE, type LeadPane, type LeadSeen, leadLive, TURN_LINES, TURN_MARK } from "./board-lead-live.ts";
 import type { BotLive } from "./board-live.ts";
 import type { Exec } from "./runtime/exec.ts";
 import { paneStatus } from "./runtime/herdr/probe.ts";
@@ -45,7 +45,8 @@ export function officeRemotes(home: string): OfficeRemote[] {
 }
 
 /**
- * The shell run on the remote: its lead's pane (`herdr pane get`), @@BUSY when its screen shows a turn, and its newest
+ * The shell run on the remote: its lead's pane (`herdr pane get`), @@BUSY when its screen shows a turn (as turnShown
+ * reads it: the mark in the last non-blank lines), and its newest
  * lane records, each after a marker line. PATH gets the user's own bin directories: a non-login ssh shell lacks them.
  */
 export function remoteScript(home: string | null): string {
@@ -54,7 +55,7 @@ export function remoteScript(home: string | null): string {
     `H="${h}"; PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"`,
     `L=$(sed -n 's/.*"lead"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$H/roles.json" 2>/dev/null | head -n 1); L=\${L#herdr:}`,
     `echo "@@LEAD $L"; [ -n "$L" ] && herdr pane get "$L" 2>/dev/null | head -c 20000`,
-    `[ -n "$L" ] && herdr pane read "$L" --lines 30 2>/dev/null | grep -q "${TURN_MARK}" && { echo; echo "@@BUSY"; }`,
+    `[ -n "$L" ] && herdr pane read "$L" --lines 30 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n ${TURN_LINES} | grep -q "${TURN_MARK}" && { echo; echo "@@BUSY"; }`,
     `for f in $(ls -t "$H"/lanes/*.json 2>/dev/null | head -n ${LANES_READ}); do echo; echo "@@LANE"; head -c 200000 "$f"; done; echo`,
   ].join("\n");
 }
@@ -87,7 +88,7 @@ export function parseRemote(stdout: string): RemoteRead {
         seen = { at: e["at"], what: `lane ${String(lane?.["key"])} 시작` };
   }
   const status = pane ? paneStatus(pane) : null;
-  const busy = status === "idle" && parts.some((p) => p.startsWith("BUSY"));
+  const busy = status !== "gone" && parts.some((p) => p.startsWith("BUSY"));
   return { pane: status ? { status: busy ? "working" : status, ...(title ? { title } : {}) } : null, seen };
 }
 

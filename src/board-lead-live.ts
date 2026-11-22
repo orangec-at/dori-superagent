@@ -111,14 +111,27 @@ export function reusedProbe(probe: LeadProbe, now: () => number, ms = PROBE_REUS
   };
 }
 
-/** omo prints this on its status line for the whole of a turn, tool runs included. */
+/**
+ * omo (and Claude Code) print this on the status line just above the input box for the whole of a turn, tool runs
+ * included, and never between turns. Only the bottom lines count: the same words higher up are the session's own text.
+ */
 export const TURN_MARK = "esc to interrupt";
+export const TURN_LINES = 8;
 const SCREEN_LINES = 30;
 
+/** The screen's last TURN_LINES non-blank lines show a turn in progress. */
+export const turnShown = (screen: string): boolean =>
+  screen
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .slice(-TURN_LINES)
+    .some((l) => l.includes(TURN_MARK));
+
 /**
- * The lead's pane through its runtime, as the board process reads it. herdr can report an omo at work as `idle` (it
- * does not follow omo's turns), so an idle pane whose screen shows a turn (TURN_MARK) is working. A read that fails
- * (herdr not on the board's PATH, say) throws, so the seat is 상태 모름, and is one log line each time its reason changes.
+ * The lead's pane through its runtime, as the board process reads it. herdr's status word does not follow an omo
+ * session's turns (it says `idle` or `done` mid-turn), so a screen that shows a turn (turnShown) is working whatever
+ * herdr says; otherwise herdr's word, after the runtime's own #62 screen check. A read that fails (herdr not on the
+ * board's PATH, say) throws, so the seat is 상태 모름, and is one log line each time its reason changes.
  */
 export function runtimeLeadProbe(
   runtimeOf: (ref: SessionRef) => SessionRuntime,
@@ -129,7 +142,7 @@ export function runtimeLeadProbe(
     try {
       const rt = runtimeOf(ref);
       const p = await rt.probe(ref);
-      const busy = p.status === "idle" && (await rt.read(ref, SCREEN_LINES).catch(() => "")).includes(TURN_MARK);
+      const busy = p.status !== "gone" && turnShown(await rt.read(ref, SCREEN_LINES).catch(() => ""));
       lastFailure = "";
       return { status: busy ? "working" : p.status, ...(p.title ? { title: p.title } : {}) };
     } catch (e) {

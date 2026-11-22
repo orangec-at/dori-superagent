@@ -48,6 +48,8 @@ test("the remote script reads the given dori home, else ~/.dori, and marks the p
   const idle = OUT.replace('"working"', '"idle"');
   expect(parseRemote(idle)?.pane?.status).toBe("idle");
   expect(parseRemote(`${idle}\n@@BUSY\n`)?.pane?.status).toBe("working");
+  expect(parseRemote(`${OUT.replace('"working"', '"done"')}\n@@BUSY\n`)?.pane?.status).toBe("working");
+  expect(remoteScript(null)).toContain("grep -v '^[[:space:]]*$' | tail -n 8 | grep -q \"esc to interrupt\"");
   expect(parseRemote("@@LEAD \n")).toEqual({ pane: null, seen: null });
   expect(parseRemote("Permission denied")).toBeNull();
 });
