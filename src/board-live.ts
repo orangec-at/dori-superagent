@@ -6,6 +6,7 @@ import { readAssignments } from "./autopilot-store.ts";
 import { tailJson } from "./board-agents.ts";
 import { agentsOrNone } from "./board-avatars.ts";
 import { botLabel, DELEGATION_TAIL_BYTES, decodeEscapes } from "./board-bots.ts";
+import type { GatewayLookup, GatewaySeen } from "./board-gateway.ts";
 import type { Store } from "./store.ts";
 
 /**
@@ -15,11 +16,12 @@ import type { Store } from "./store.ts";
  * shows is `unknown` with the time of the last record, never guessed. It carries a one-line title of the work, never
  * the instruction, the bot's output or a host address: the pixel office reads this same data.
  */
-export type LiveStatus = "working" | "done" | "failed" | "idle" | "unknown";
+export type LiveStatus = "working" | "done" | "failed" | "unsure" | "idle" | "unknown";
 export const LIVE_WORD: Record<LiveStatus, string> = {
   working: "일하는 중",
   done: "방금 끝남",
   failed: "실패",
+  unsure: "결과 모름",
   idle: "대기",
   unknown: "상태 확인 안 됨",
 };
@@ -27,7 +29,8 @@ export const LIVE_WORD: Record<LiveStatus, string> = {
  * `task`: the title of the work (null when there is none: idle, or no record); `at`: when the run started (working),
  * ended (done, failed, idle) or the last record about it was written (unknown; null when there is none); `running`: how
  * many runs are at work at once. `row`: the board row id when it is not `bot:<name>` (the lead's seat is `lead`); `role`:
- * a role shown beside the name; `linkless`: a seat with no record on this board (another computer's lead).
+ * a role shown beside the name; `linkless`: a seat with no record on this board (another computer's lead); `basis`:
+ * what the status was read from, in a few words (a bot's seat: 위임 일하는 중, Slack에서 일하는 중, 위임 실패 16:19).
  */
 export type BotLive = {
   name: string;
@@ -41,6 +44,7 @@ export type BotLive = {
   word: string;
   at: number | null;
   running: number;
+  basis?: string;
 };
 export type LiveState = { generatedAt: number; bots: BotLive[] };
 
@@ -56,6 +60,11 @@ const RUN_GRACE_MS = 60_000;
 /** The autopilot writes its hand-out right after the run starts: one this much newer than the newest start never ran. */
 const START_SLACK_MS = 60_000;
 const TITLE_MAX = 80;
+/** A messenger turn marked as running longer than this is a mark the gateway left behind, not a turn. */
+const ACTIVE_MAX_MS = 3 * 3_600_000;
+/** A delegation that ended because the gateway went away: the bot may well have finished, its result is unknown. */
+const LOST = /turn outcome is unknown|gateway disconnected/i;
+const LOST_OUTCOME = "lost";
 
 /**
  * The work in one line of at most 80 characters: the first sentence of the instruction's first line, without the leading @bot, links, email
@@ -101,10 +110,46 @@ export function botLive(r: BotRecords, now: number): Live {
     return one("unknown", taskTitle(r.handed.text), r.handed.at);
   if (!last) return one("unknown", null, null);
   if (!last.end) return one("unknown", taskTitle(last.text), last.at);
-  if (last.end.outcome !== "ok") return one("failed", taskTitle(last.text), last.end.at);
+  if (last.end.outcome !== "ok")
+    return one(last.end.outcome === LOST_OUTCOME ? "unsure" : "failed", taskTitle(last.text), last.end.at);
   return now - last.end.at < JUST_DONE_MS
     ? one("done", taskTitle(last.text), last.end.at)
     : one("idle", null, last.end.at);
+}
+
+/** The time of day in KST, as the board's header shows it. */
+const hhmm = (at: number): string => new Date(at + 9 * 3_600_000).toISOString().slice(11, 16);
+const PLACE: Record<string, string> = { slack: "Slack", discord: "Discord", telegram: "Telegram" };
+const place = (platform: string | null): string => (platform && PLACE[platform]) || platform || "메신저";
+
+function delegationBasis(d: Live): string {
+  if (d.at === null) return "기록 없음";
+  if (d.status === "working") return d.running > 1 ? `위임 ${d.running}건 일하는 중` : "위임 일하는 중";
+  if (d.status === "failed") return `위임 실패 ${hhmm(d.at)}`;
+  if (d.status === "unsure") return `위임 결과 모름 ${hhmm(d.at)}`;
+  if (d.status === "done") return `위임 끝남 ${hhmm(d.at)}`;
+  return d.status === "idle" ? `마지막 위임 ${hhmm(d.at)}` : `마지막 기록 ${hhmm(d.at)}`;
+}
+
+/**
+ * A bot's seat at `now`: its delegations (botLive) and its messenger activity (`gw`; null when its machine could not be
+ * read, undefined when no reader is wired). A delegation at work comes first, then a messenger turn running now; else
+ * whichever is newer wins, so a 실패 or 결과 모름 is cleared by any newer messenger turn as by a newer delegation.
+ */
+export function seatLive(r: BotRecords, gw: GatewaySeen | null | undefined, now: number): Live & { basis: string } {
+  const d = botLive(r, now);
+  if (d.status === "working") return { ...d, basis: delegationBasis(d) };
+  if (gw?.active != null && now - gw.active < ACTIVE_MAX_MS) {
+    const p = place(gw.activePlatform);
+    return { status: "working", task: `${p} 대화`, at: gw.active, running: 1, basis: `${p}에서 일하는 중` };
+  }
+  if (gw?.at != null && gw.at > (d.at ?? Number.NEGATIVE_INFINITY)) {
+    const p = place(gw.platform);
+    return now - gw.at < JUST_DONE_MS
+      ? { status: "done", task: `${p} 대화`, at: gw.at, running: 0, basis: `${p}에서 답함 ${hhmm(gw.at)}` }
+      : { status: "idle", task: null, at: gw.at, running: 0, basis: `마지막 ${p} ${hhmm(gw.at)}` };
+  }
+  return { ...d, basis: gw === null ? `${delegationBasis(d)} · 메신저 확인 안 됨` : delegationBasis(d) };
 }
 
 const ms = (v: unknown): number => (typeof v === "string" ? Date.parse(v) : Number.NaN);
@@ -126,7 +171,8 @@ export function liveRecords(home: string): Map<string, BotRecords> {
     const at = ms(e["at"]);
     if (typeof e["agent"] !== "string" || Number.isNaN(at)) continue;
     const end = ms(e["endedAt"]);
-    const done = { at: Number.isNaN(end) ? at : end, outcome: String(e["outcome"]) };
+    const outcome = e["outcome"] !== "ok" && LOST.test(String(e["output"] ?? "")) ? LOST_OUTCOME : String(e["outcome"]);
+    const done = { at: Number.isNaN(end) ? at : end, outcome };
     ends.set(`${e["agent"]}|${at}`, { agent: e["agent"], start: at, text: String(e["text"] ?? ""), end: done });
   }
   const path = join(home, "delegations.jsonl");
@@ -158,10 +204,10 @@ const machineOf = (a: Agent): string =>
   "기록 없음";
 
 /** Every bot of agents.json in its order, as the 지금 tab and GET /api/live show it. */
-export function liveState(store: Store, now: number): LiveState {
+export function liveState(store: Store, now: number, gateway?: GatewayLookup): LiveState {
   const records = liveRecords(store.root);
   const bots = agentsOrNone(store.root).map((a) => {
-    const s = botLive(records.get(a.name) ?? { runs: [], handed: null }, now);
+    const s = seatLive(records.get(a.name) ?? { runs: [], handed: null }, gateway?.(a), now);
     return { name: a.name, label: botLabel(a), machine: machineOf(a), ...s, word: LIVE_WORD[s.status] };
   });
   return { generatedAt: now, bots };

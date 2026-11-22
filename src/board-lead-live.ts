@@ -1,5 +1,6 @@
 import { hostname } from "node:os";
 import { chatTail } from "./board-chat.ts";
+import type { GatewayLookup } from "./board-gateway.ts";
 import { type BotLive, LIVE_WORD, type LiveState, type LiveStatus, liveState, taskTitle } from "./board-live.ts";
 import type { AgentStatus, SessionRef, SessionRuntime } from "./runtime/types.ts";
 import type { Store } from "./store.ts";
@@ -16,7 +17,7 @@ export type LeadProbe = (ref: SessionRef) => Promise<LeadPane>;
 /** The newest thing a lead did on record and its time. */
 export type LeadSeen = { at: number; what: string };
 /** What the board process reads for the 사무실 tab: this lead's pane, and the other computers' leads' seats. */
-export type OfficeReaders = { lead?: LeadProbe; remotes?: () => BotLive[] };
+export type OfficeReaders = { lead?: LeadProbe; remotes?: () => BotLive[]; gateway?: GatewayLookup };
 
 export const LEAD_NAME = "도리도라";
 export const LEAD_ROLE = "조율(lead)";
@@ -93,7 +94,7 @@ export async function officeLive(store: Store, now: number, read: OfficeReaders 
   const ref = store.roles().lead;
   const machine = ref?.machine ?? (hostname().split(".")[0] || "기록 없음");
   const lead = leadLive(await readPane(ref, read.lead), leadSeen(store), machine);
-  const live = liveState(store, now);
+  const live = liveState(store, now, read.gateway);
   return { ...live, bots: [lead, ...live.bots, ...(read.remotes?.() ?? [])] };
 }
 
@@ -156,6 +157,6 @@ export function runtimeLeadProbe(
 
 /** What the 지금 tab (the bots) and the 사무실 tab (the lead, then the bots) draw; null on every other tab. */
 export async function tabLive(tab: string, store: Store, now: number, read?: OfficeReaders): Promise<LiveState | null> {
-  if (tab === "live") return liveState(store, now);
+  if (tab === "live") return liveState(store, now, read?.gateway);
   return tab === "office" ? officeLive(store, now, read) : null;
 }

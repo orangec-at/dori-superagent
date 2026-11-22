@@ -14,7 +14,7 @@ export type Mark = "bubble" | "check" | "bang" | "ask" | null;
 export type Look = { pose: Pose; mark: Mark; dim: boolean; say: string; caption: string };
 export type Zone = { machine: string; label: string; bots: BotLive[] };
 
-const ORDER: LiveStatus[] = ["working", "done", "failed", "unknown", "idle"];
+const ORDER: LiveStatus[] = ["working", "done", "failed", "unsure", "unknown", "idle"];
 /** The time of day in KST, as the board's header shows it. */
 const hhmm = (at: number): string => new Date(at + 9 * 3_600_000).toISOString().slice(11, 16);
 
@@ -26,12 +26,19 @@ export function officeLook(b: BotLive): Look {
     say,
     caption,
   });
+  const at = (fallback: string): string => b.basis ?? (b.at === null ? b.word : fallback);
   if (b.status === "working")
-    return one("typing", "bubble", b.task ?? b.word, b.running > 1 ? `${b.word} · ${b.running}건` : b.word);
-  if (b.status === "done") return one("sit", "check", "✓", b.at === null ? b.word : `${hhmm(b.at)} 끝냄`);
-  if (b.status === "failed") return one("sit", "bang", "!", b.at === null ? b.word : `${b.word} · ${hhmm(b.at)}`);
-  if (b.status === "idle") return one("rest", null, "", b.word);
-  return one("sit", "ask", "?", b.at === null && !b.row ? "기록 없음" : b.word, true);
+    return one(
+      "typing",
+      "bubble",
+      b.task ?? b.word,
+      b.basis ?? (b.running > 1 ? `${b.word} · ${b.running}건` : b.word),
+    );
+  if (b.status === "done") return one("sit", "check", "✓", at(`${hhmm(b.at ?? 0)} 끝냄`));
+  if (b.status === "failed") return one("sit", "bang", b.task ?? "!", at(`${b.word} · ${hhmm(b.at ?? 0)}`));
+  if (b.status === "unsure") return one("sit", "ask", b.task ?? "?", at(`${b.word} · ${hhmm(b.at ?? 0)}`));
+  if (b.status === "idle") return one("rest", null, "", b.basis ?? b.word);
+  return one("sit", "ask", "?", b.basis ?? (b.at === null && !b.row ? "기록 없음" : b.word), true);
 }
 
 /** A room's sign: the Mac mini under any of the names its bots give it, else the machine's own name. */
@@ -62,7 +69,7 @@ export const OFFICE_STYLE = `.of{display:flex;flex-direction:column;gap:12px;mar
 .desks{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:10px 6px;padding:8px 6px 10px}
 .seat{display:flex;flex-direction:column;align-items:center;min-width:0;color:var(--text);padding:2px;border:2px solid transparent}.seat:hover,.seat:focus-visible{border-color:var(--link);outline:none}
 .say{position:relative;height:36px;max-width:100%;display:flex;align-items:flex-end}.say i{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font:600 11.5px/1.3 inherit;font-style:normal;background:var(--panel);color:var(--text);border:2px solid var(--text);padding:1px 5px;overflow-wrap:anywhere;text-align:center;box-shadow:2px 2px 0 var(--line)}
-.say i::after{content:"";position:absolute;bottom:-4px;left:58%;width:6px;height:6px;background:var(--text)}.m-check i,.m-bang i,.m-ask i{font-size:15px;line-height:1.1;padding:1px 7px}
+.say i::after{content:"";position:absolute;bottom:-4px;left:58%;width:6px;height:6px;background:var(--text)}.say i.one{font-size:15px;line-height:1.1;padding:1px 7px}
 .m-check i{background:var(--green);border-color:var(--green);color:#06210f}.m-check i::after{background:var(--green)}.m-bang i{background:var(--red);border-color:var(--red);color:#fff}.m-bang i::after{background:var(--red)}
 .m-ask i{border-style:dashed}.say:empty{visibility:hidden}
 .spot{position:relative;width:92px;height:70px;max-width:100%}.dk{position:absolute;left:0;bottom:0;width:92px;height:46px}.ch{position:absolute;left:48px;bottom:14px;width:30px;height:38px}
@@ -74,11 +81,11 @@ export const OFFICE_STYLE = `.of{display:flex;flex-direction:column;gap:12px;mar
 .zz{position:absolute;left:76px;top:2px;font:700 12px/1 monospace;color:var(--muted)}
 .o-working .scr{fill:color-mix(in srgb,var(--blue) 55%,#0c1416)}.o-working .ln{fill:#d7e8ff;animation:scr 1.2s steps(2) infinite}
 .o-working .arm{bottom:-6px;animation:tp .5s steps(2) infinite}.o-working .arm.r{animation-delay:.25s}
-.o-done .scr{fill:color-mix(in srgb,var(--green) 45%,#0c1416)}.o-failed .scr{fill:color-mix(in srgb,var(--red) 55%,#0c1416)}
+.o-done .scr{fill:color-mix(in srgb,var(--green) 45%,#0c1416)}.o-failed .scr{fill:color-mix(in srgb,var(--red) 55%,#0c1416)}.o-unsure .scr{fill:color-mix(in srgb,var(--needs) 45%,#0c1416)}
 .o-idle .who{transform:rotate(-7deg) translateY(2px)}.o-idle .mug{fill:#e8e1d2}.o-idle .zz{animation:zz 2.4s steps(4) infinite}
 .o-unknown .spot,.o-unknown .tag,.o-unknown .say{opacity:.42;filter:grayscale(1)}
 .tag{margin-top:3px;max-width:100%;font-size:13px;background:var(--panel);border:2px solid var(--line);padding:0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cap{max-width:100%;font-size:11.5px;color:var(--muted);text-align:center;overflow-wrap:anywhere}.o-working .cap{color:var(--blue)}.o-done .cap{color:var(--green)}.o-failed .cap{color:var(--red)}
+.cap{max-width:100%;font-size:11.5px;color:var(--muted);text-align:center;overflow-wrap:anywhere}.o-working .cap{color:var(--blue)}.o-done .cap{color:var(--green)}.o-failed .cap{color:var(--red)}.o-unsure .cap{color:var(--needs)}
 @keyframes tp{50%{transform:translateY(-3px)}}@keyframes scr{50%{opacity:.25}}@keyframes zz{0%{transform:translate(0,4px);opacity:0}50%{opacity:1}100%{transform:translate(4px,-6px);opacity:0}}
 @media (prefers-reduced-motion:reduce){.of *,.of *::before,.of *::after{animation:none!important}}`;
 
@@ -89,7 +96,7 @@ function seat(b: BotLive, imgs: Record<string, string>): string {
   const look = officeLook(b);
   const face = avatar(img ? { id, label: b.label, sub: "", img } : { id, label: b.label, sub: "" }, "hd");
   const about = `${b.label}${b.role ? ` (${b.role})` : ""} · ${b.word}${b.task ? ` · ${b.task}` : ""}`;
-  const say = look.say ? `<i>${esc(look.say)}</i>` : "";
+  const say = look.say ? `<i${[...look.say].length === 1 ? ' class="one"' : ""}>${esc(look.say)}</i>` : "";
   const tag = b.linkless ? "span" : "a";
   return `<${tag} class="seat o-${b.status}"${b.linkless ? "" : ` href="${href}"`} ${b.row ? `data-row="${esc(b.row)}"` : `data-bot="${esc(b.name)}"`} data-look="${look.pose}" title="${esc(about)}" aria-label="${esc(about)}">
 <span class="say${look.mark ? ` m-${look.mark}` : ""}">${say}</span><span class="spot">${CHAIR}<span class="who" style="--h:${hue(id)}">${face}<span class="bd"></span><span class="arm l"></span><span class="arm r"></span></span>${DESK}${look.pose === "rest" ? '<span class="zz">z</span>' : ""}</span>
