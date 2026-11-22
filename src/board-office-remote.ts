@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { LEAD_ROLE, type LeadPane, type LeadSeen, leadLive, TURN_LINES, TURN_MARK } from "./board-lead-live.ts";
+import { LEAD_ROLE, type LeadPane, leadLive, TURN_LINES, TURN_MARK } from "./board-lead-live.ts";
+import { type LeadSeen, newestSeen } from "./board-lead-seen.ts";
 import type { BotLive } from "./board-live.ts";
 import type { Exec } from "./runtime/exec.ts";
 import { paneStatus } from "./runtime/herdr/probe.ts";
@@ -9,7 +10,7 @@ import { paneStatus } from "./runtime/herdr/probe.ts";
  * The other computers' leads on the 사무실 tab: each `office.remotes` entry of DORI_HOME/board.json is one more room
  * (`machine`) with its lead's seat (`lead`, its name; `role`, default 조율(lead)). The board process reads them over
  * `ssh <ssh>` every 30 s under a time limit, never on a page load: the lead's pane as that machine's roles.json names
- * it and its newest lane start, from that machine's dori home (`home`, default ~/.dori). A machine that is off or that
+ * it and its newest record (as newestSeen reads them), from that machine's dori home (`home`, default ~/.dori). A machine that is off or that
  * ssh cannot reach is 연결 안 됨; the tab never waits on it.
  */
 export type OfficeRemote = { machine: string; ssh: string; lead: string; role: string; home: string | null };
@@ -19,6 +20,8 @@ export type RemoteRead = { pane: LeadPane | null; seen: LeadSeen | null } | null
 export const REMOTE_EVERY_MS = 30_000;
 const TIMEOUT_S = 15;
 const LANES_READ = 20;
+const ASKS_READ = 20;
+const LINES_READ = 50;
 export const REMOTE_OFF = "연결 안 됨";
 const SSH = /^[A-Za-z0-9][A-Za-z0-9._@-]{0,99}$/;
 const HOME = /^\/[A-Za-z0-9._/-]{1,200}$/;
@@ -46,8 +49,8 @@ export function officeRemotes(home: string): OfficeRemote[] {
 
 /**
  * The shell run on the remote: its lead's pane (`herdr pane get`), @@BUSY when its screen shows a turn (as turnShown
- * reads it: the mark in the last non-blank lines), and its newest
- * lane records, each after a marker line. PATH gets the user's own bin directories: a non-login ssh shell lacks them.
+ * reads it: the mark in the last non-blank lines), and its newest lanes, asks, delegation starts and board chat
+ * lines, each after a marker (a JSON line's on the same line). PATH gets the user's own bin directories: a non-login ssh shell lacks them.
  */
 export function remoteScript(home: string | null): string {
   const h = home ?? "$HOME/.dori";
@@ -57,6 +60,9 @@ export function remoteScript(home: string | null): string {
     `echo "@@LEAD $L"; [ -n "$L" ] && herdr pane get "$L" 2>/dev/null | head -c 20000`,
     `[ -n "$L" ] && herdr pane read "$L" --lines 30 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n ${TURN_LINES} | grep -q "${TURN_MARK}" && { echo; echo "@@BUSY"; }`,
     `for f in $(ls -t "$H"/lanes/*.json 2>/dev/null | head -n ${LANES_READ}); do echo; echo "@@LANE"; head -c 200000 "$f"; done; echo`,
+    `for f in $(ls -t "$H"/asks/*.json 2>/dev/null | head -n ${ASKS_READ}); do echo "@@ASK"; head -c 20000 "$f"; echo; done`,
+    `tail -n ${LINES_READ} "$H/delegate-runs.jsonl" 2>/dev/null | cut -c 1-4000 | sed 's/^/@@RUN /'`,
+    `tail -n ${LINES_READ} "$H/board-chat.jsonl" 2>/dev/null | cut -c 1-4000 | sed 's/^/@@CHAT /'`,
   ].join("\n");
 }
 
@@ -69,7 +75,7 @@ const json = (s: string): Record<string, unknown> | null => {
   }
 };
 
-/** What remoteScript printed: the pane (null when herdr gave none) and the newest lane start. */
+/** What remoteScript printed: the pane (null when herdr gave none) and the newest record. */
 export function parseRemote(stdout: string): RemoteRead {
   const [, ...parts] = stdout.split(/^@@/m);
   const lead = parts.find((p) => p.startsWith("LEAD"));
@@ -78,18 +84,15 @@ export function parseRemote(stdout: string): RemoteRead {
   const pane = (got?.["result"] as Record<string, unknown> | undefined)?.["pane"] as
     | Record<string, unknown>
     | undefined;
-  const title = typeof pane?.["title"] === "string" ? pane["title"] : undefined;
-  let seen: LeadSeen | null = null;
-  for (const p of parts.filter((x) => x.startsWith("LANE"))) {
-    const lane = json(p.slice(4).trim());
-    const log = Array.isArray(lane?.["log"]) ? (lane["log"] as Record<string, unknown>[]) : [];
-    for (const e of log)
-      if (e?.["kind"] === "start" && typeof e["at"] === "number" && e["at"] > (seen?.at ?? Number.NEGATIVE_INFINITY))
-        seen = { at: e["at"], what: `lane ${String(lane?.["key"])} 시작` };
-  }
+  const all = (mark: string): Record<string, unknown>[] =>
+    parts.flatMap((p) => {
+      const v = p.startsWith(mark) ? json(p.slice(mark.length).trim()) : null;
+      return v ? [v] : [];
+    });
+  const seen = newestSeen({ lanes: all("LANE"), asks: all("ASK"), runs: all("RUN"), chat: all("CHAT") });
   const status = pane ? paneStatus(pane) : null;
   const busy = status !== "gone" && parts.some((p) => p.startsWith("BUSY"));
-  return { pane: status ? { status: busy ? "working" : status, ...(title ? { title } : {}) } : null, seen };
+  return { pane: status ? { status: busy ? "working" : status } : null, seen };
 }
 
 /** A remote lead's seat: as the local lead's from a read, else 연결 안 됨. It has no record on this board to link to. */

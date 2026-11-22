@@ -42,9 +42,18 @@ test("the remote script reads the given dori home, else ~/.dori, and marks the p
   expect(remoteScript(null)).toContain('H="$HOME/.dori"');
   expect(remoteScript(null)).toContain('echo "@@LEAD $L"; [ -n "$L" ] && herdr pane get "$L"');
   expect(parseRemote(OUT)).toEqual({
-    pane: { status: "working", title: "보경 님 요청 정리" },
+    pane: { status: "working" },
     seen: { at: NOW - 5 * 60_000, what: "lane new 시작" },
   });
+  expect(remoteScript(null)).toContain(`tail -n 50 "$H/delegate-runs.jsonl"`);
+  expect(remoteScript(null)).toContain('ls -t "$H"/asks/*.json');
+  const ask = JSON.stringify({ id: "bk-go", createdAt: NOW - 3 * 60_000 }, null, 2);
+  const run = (at: number, text: string) => JSON.stringify({ at: new Date(at).toISOString(), agent: "bori2", text });
+  const chat = JSON.stringify({ at: NOW - 4 * 60_000, from: "lead", text: "네" });
+  const more = `${OUT}@@ASK\n${ask}\n@@RUN ${run(NOW - 2 * 60_000, "[autopilot x y] z")}\n@@CHAT ${chat}\n`;
+  expect(parseRemote(more)?.seen).toEqual({ at: NOW - 3 * 60_000, what: "질문 올림 · bk-go" });
+  const newest = `${more}@@RUN ${run(NOW - 60_000, "표 정리해 줘")}\n`;
+  expect(parseRemote(newest)?.seen).toEqual({ at: NOW - 60_000, what: "bori2에게 위임 · 표 정리해 줘" });
   const idle = OUT.replace('"working"', '"idle"');
   expect(parseRemote(idle)?.pane?.status).toBe("idle");
   expect(parseRemote(`${idle}\n@@BUSY\n`)?.pane?.status).toBe("working");
@@ -86,9 +95,10 @@ test("a remote lead's seat comes from the last ssh read; no read yet, a failed s
     role: "조율(lead)",
     linkless: true,
     status: "working",
-    task: "보경 님 요청 정리",
+    task: "lane new 시작",
     word: "일하는 중 · 09:55",
   });
+  expect(officeTab({ generatedAt: NOW, bots: r.seats() }, {})).not.toContain("보경 님 요청 정리");
   answer = { code: 255, stdout: "", stderr: "ssh: connect to host bokdora port 22: No route to host" };
   await r.tick();
   expect(r.seats()[0]).toMatchObject({ status: "unknown", word: "연결 안 됨", task: null, at: null });

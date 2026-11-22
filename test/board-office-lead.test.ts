@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendChat } from "../src/board-chat.ts";
 import { type LeadPane, leadLive, reusedProbe, runtimeLeadProbe, tabLive, turnShown } from "../src/board-lead-live.ts";
@@ -27,17 +27,19 @@ const lane = (key: string, at: number): Lane => ({
 function seeded() {
   const s = start();
   writeFileSync(join(s.home, "agents.json"), JSON.stringify(AGENTS));
+  rmSync(join(s.home, "asks"), { recursive: true });
   s.store.setRole("lead", { runtime: "herdr", id: "w3:p1" });
   return s;
 }
 
-test("the lead takes the first seat, named 도리도라 with its role, its pane's status and title, linked to its record", async () => {
+test("the lead takes the first seat, named 도리도라 with its role, its pane's status and newest record, linked to its record", async () => {
   const s = seeded();
+  s.store.saveLane(lane("board-office-lead", NOW - 30 * MIN));
   const asked: SessionRef[] = [];
   const live = await tabLive("office", s.store, NOW, {
     lead: async (ref) => {
       asked.push(ref);
-      return { status: "working", title: "보드 사무실 작업 조율" };
+      return { status: "working" };
     },
   });
   expect(asked).toEqual([{ runtime: "herdr", id: "w3:p1" }]);
@@ -46,16 +48,16 @@ test("the lead takes the first seat, named 도리도라 with its role, its pane'
     label: "도리도라",
     role: "조율(lead)",
     status: "working",
-    task: "보드 사무실 작업 조율",
+    task: "lane board-office-lead 시작",
   });
   const html = officeTab(live, {});
   expect(html).toContain('<a class="seat o-working" href="/?c=lead" data-row="lead" data-look="typing"');
-  expect(html).toContain('title="도리도라 (조율(lead)) · 일하는 중 · 보드 사무실 작업 조율"');
-  expect(html).toContain("<i>보드 사무실 작업 조율</i>");
+  expect(html).toContain('title="도리도라 (조율(lead)) · 일하는 중 · 09:30 · lane board-office-lead 시작"');
+  expect(html).toContain("<i>lane board-office-lead 시작</i>");
   expect(await tabLive("live", s.store, NOW)).toMatchObject({ bots: [{ name: "yeondo" }] });
 });
 
-test("without a pane title the lead's line and time come from its newest record: a lane it started or a board reply", async () => {
+test("the lead's line and time come from its newest record: a lane it started or a board reply", async () => {
   const s = seeded();
   s.store.saveLane(lane("board-office-lead", NOW - 30 * MIN));
   appendChat(s.home, { at: NOW - 50 * MIN, from: "lead", text: "확인했어요" });
@@ -118,11 +120,10 @@ test("after a rotation moves the lead to another pane its seat follows roles.jso
   expect(asked).toEqual(["w3:p1", "w5:p2"]);
 });
 
-test("a long pane title is cut like a bot's task title", () => {
-  const task =
-    leadLive({ status: "working", title: `${"가".repeat(100)} https://x.example/a` }, null, "fedora").task ?? "";
-  expect(task).toHaveLength(80);
-  expect(task.endsWith("…")).toBe(true);
+test("with no record a working lead's bubble is empty: no session title, no status word", () => {
+  const seat = leadLive({ status: "working" }, null, "fedora");
+  expect(seat).toMatchObject({ task: null, word: "일하는 중", at: null });
+  expect(officeTab({ generatedAt: NOW, bots: [seat] }, {})).toContain('<span class="say m-bubble"></span>');
 });
 
 test("the pane read is reused within its window, per pane, and read again after it", async () => {
@@ -146,7 +147,7 @@ test("the pane read is reused within its window, per pane, and read again after 
   expect(asked).toEqual(["w3:p1", "w5:p2", "w5:p2"]);
 });
 
-test("an idle pane whose screen shows a turn is working; a failed read throws and is logged once per reason", async () => {
+test("an idle pane whose screen shows a turn is working, its title unread; a failed read throws and is logged once per reason", async () => {
   let probe: () => Promise<Probe> = async () => ({ status: "idle", title: "인계", shellInFront: false });
   let screen = "── • Working (10s • esc to interrupt) ──\n❯";
   const rt = { probe: () => probe(), read: async () => screen } as unknown as SessionRuntime;
@@ -156,9 +157,9 @@ test("an idle pane whose screen shows a turn is working; a failed read throws an
     (l) => logs.push(l),
   );
   const ref: SessionRef = { runtime: "herdr", id: "w3:p1" };
-  expect(await read(ref)).toEqual({ status: "working", title: "인계" });
+  expect(await read(ref)).toEqual({ status: "working" });
   screen = "❯";
-  expect(await read(ref)).toEqual({ status: "idle", title: "인계" });
+  expect(await read(ref)).toEqual({ status: "idle" });
   probe = async () => ({ status: "done", shellInFront: false });
   screen = "✻ Working… (esc to interrupt)\n❯\n";
   expect(await read(ref)).toEqual({ status: "working" });
