@@ -18,7 +18,7 @@ const bot = (name: string, status: LiveStatus, o: Partial<BotLive> = {}): BotLiv
   ...o,
 });
 
-test("each of the five states has its own look: typing with the title, a check with the time, rest, !, dim ?", () => {
+test("each state has its own look: typing with the title, a check with the time, rest, ! or ? with the title, dim ?", () => {
   expect(officeLook(bot("a", "working", { task: "공개 사례 조사", running: 1 }))).toEqual({
     pose: "typing",
     mark: "bubble",
@@ -39,8 +39,16 @@ test("each of the five states has its own look: typing with the title, a check w
     pose: "sit",
     mark: "bang",
     dim: false,
-    say: "!",
+    say: "빌드",
     caption: "실패 · 09:55",
+  });
+  expect(officeLook(bot("d", "failed")).say).toBe("!");
+  expect(officeLook(bot("u", "unsure", { task: "시안 v4" }))).toEqual({
+    pose: "sit",
+    mark: "ask",
+    dim: false,
+    say: "시안 v4",
+    caption: "결과 모름 · 09:55",
   });
   expect(officeLook(bot("e", "unknown"))).toEqual({
     pose: "sit",
@@ -82,7 +90,7 @@ test("a seat shows the state's look and links to the bot's conversation; the tit
   expect(html).toContain('<a class="seat o-working" href="/?c=bot:yeondo" data-bot="yeondo" data-look="typing"');
   expect(html).toContain("<i>공개 사례 &lt;조사&gt;</i>");
   expect(html).toContain('src="/avatar/yeondo.png"');
-  expect(html).toContain('<span class="say m-bang"><i>!</i></span>');
+  expect(html).toContain('<span class="say m-bang"><i class="one">!</i></span>');
   expect(html).toContain('data-machine="ubuntu"');
   expect(html).toContain("일하는 중 1 · 실패 1");
   expect(html).toContain("data-live");
@@ -101,7 +109,7 @@ test("with no bots the tab says so; with bots but no records every seat is dim w
   );
   const html = officeTab(liveState(s.store, NOW), {});
   expect(html.match(/class="seat o-unknown"/g)).toHaveLength(2);
-  expect(html.match(/<span class="say m-ask"><i>\?<\/i><\/span>/g)).toHaveLength(2);
+  expect(html.match(/<span class="say m-ask"><i class="one">\?<\/i><\/span>/g)).toHaveLength(2);
   expect(html.match(/기록 없음/g)).toHaveLength(2);
   expect(html).toContain('data-machine="Mac mini"');
 });

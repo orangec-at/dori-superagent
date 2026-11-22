@@ -123,6 +123,7 @@ test("liveState reads the delegation logs into one row per bot of agents.json, i
         word: "일하는 중",
         at: NOW - 2 * MIN,
         running: 1,
+        basis: "위임 일하는 중",
       },
       {
         name: "endo",
@@ -133,6 +134,7 @@ test("liveState reads the delegation logs into one row per bot of agents.json, i
         word: "대기",
         at: NOW - 40 * MIN,
         running: 0,
+        basis: "마지막 위임 09:20",
       },
       {
         name: "bido",
@@ -143,6 +145,7 @@ test("liveState reads the delegation logs into one row per bot of agents.json, i
         word: "상태 확인 안 됨",
         at: null,
         running: 0,
+        basis: "기록 없음",
       },
     ],
   });

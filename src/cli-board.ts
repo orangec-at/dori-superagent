@@ -1,5 +1,7 @@
 import { askAdd, askClose, askFor, asks, parseFor, parseOptions } from "./asks.ts";
 import { serveBoard } from "./board.ts";
+import { agentsOrNone } from "./board-avatars.ts";
+import { GATEWAY_EVERY_MS, gatewayReader } from "./board-gateway.ts";
 import { reusedProbe, runtimeLeadProbe } from "./board-lead-live.ts";
 import { officeRemotes, REMOTE_EVERY_MS, remoteLeads } from "./board-office-remote.ts";
 import { loadBoardConfig } from "./board-config.ts";
@@ -99,6 +101,10 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
   );
   void remotes.tick();
   setInterval(() => void remotes.tick(), REMOTE_EVERY_MS);
+  // The bots' messenger turns, from each machine's hermes gateway (ssh for a bot with a host), the same way.
+  const gateway = gatewayReader(d.exec, () => agentsOrNone(d.store.root), log);
+  void gateway.tick();
+  setInterval(() => void gateway.tick(), GATEWAY_EVERY_MS);
   const server = serveBoard(d.store, {
     sources,
     host: one(a, "host") ?? "127.0.0.1",
@@ -106,7 +112,7 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
     now: d.now,
     config,
     toLead: (text) => send(d, "lead", text, "board"),
-    office: { lead, remotes: remotes.seats },
+    office: { lead, remotes: remotes.seats, gateway: gateway.seen },
   });
   console.log(
     `BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length} devices=${config.allowNodes.length} access=${config.access ? config.access.allowEmails.length : "off"} copy=${config.copyTo || "off"} discord=${discord ? "on" : "off"} slack=${slack ? "on" : "off"}`,

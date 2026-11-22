@@ -51,9 +51,9 @@ const STATIC: Record<string, [string, string]> = {
 };
 const ASSETS = join(import.meta.dir, "..", "assets", "board");
 /** The JSON reads: answered only to a viewer board-auth.ts accepts as a writer (they carry what the page shows). */
-const READ_API: Record<string, (store: Store, now: number) => unknown> = {
+const READ_API: Record<string, (store: Store, now: number, o: BoardOptions) => unknown> = {
   "/api/board": boardState,
-  "/api/live": liveState,
+  "/api/live": (store, now, o) => liveState(store, now, o.office?.gateway),
 };
 
 const SECURITY_HEADERS = {
@@ -233,7 +233,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
         const w = await auth.writer(req);
         return "code" in w
           ? reject("read", w.code, w.why, 403)
-          : Response.json(api(store, o.now()), { headers: SECURITY_HEADERS });
+          : Response.json(api(store, o.now(), o), { headers: SECURITY_HEADERS });
       }
       if (url.pathname.startsWith("/avatar/")) return avatarResponse(store.root, url.pathname.slice("/avatar/".length));
       if (url.pathname === "/manifest.webmanifest")
