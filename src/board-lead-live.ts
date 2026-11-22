@@ -19,6 +19,7 @@ export const LEAD_ROLE = "조율(lead)";
 export const LEAD_UNKNOWN = "상태 모름";
 /** A pane read that takes longer than this is 상태 모름: the page never waits on a stuck runtime. */
 const PROBE_MS = 2_000;
+const PROBE_REUSE_MS = 10_000;
 const CHAT_LINES = 50;
 
 /** The time of day in KST, as the board's header shows it. */
@@ -50,7 +51,7 @@ export function leadLive(pane: LeadPane | null, seen: { at: number; what: string
     label: LEAD_NAME,
     role: LEAD_ROLE,
     machine,
-    task: pane?.title?.trim() || seen?.what || null,
+    task: (pane?.title && taskTitle(pane.title)) || seen?.what || null,
     status,
     word: seen ? `${base} · ${hhmm(seen.at)}` : base,
     at: seen?.at ?? null,
@@ -65,7 +66,10 @@ async function readPane(ref: SessionRef | undefined, probe: LeadProbe | undefine
     timer = setTimeout(() => resolve(null), PROBE_MS);
   });
   try {
-    return await Promise.race([probe(ref).catch(() => null), late]);
+    const read = Promise.resolve()
+      .then(() => probe(ref))
+      .catch(() => null);
+    return await Promise.race([read, late]);
   } finally {
     clearTimeout(timer);
   }
@@ -78,6 +82,20 @@ export async function officeLive(store: Store, now: number, probe?: LeadProbe): 
   const lead = leadLive(await readPane(ref, probe), leadSeen(store), machine);
   const live = liveState(store, now);
   return { ...live, bots: [lead, ...live.bots] };
+}
+
+/**
+ * `probe` with its answer reused for `ms` per pane, so the 사무실 tab's reloads (every open page, every 30 s) do not
+ * each wait on the runtime. A failed read is reused too: it is 상태 모름 until the window ends.
+ */
+export function reusedProbe(probe: LeadProbe, now: () => number, ms = PROBE_REUSE_MS): LeadProbe {
+  let last: { key: string; at: number; answer: Promise<LeadPane> } | null = null;
+  return (ref) => {
+    const key = JSON.stringify(ref);
+    if (last?.key !== key || now() - last.at >= ms)
+      last = { key, at: now(), answer: Promise.resolve().then(() => probe(ref)) };
+    return last.answer;
+  };
 }
 
 /** What the 지금 tab (the bots) and the 사무실 tab (the lead, then the bots) draw; null on every other tab. */

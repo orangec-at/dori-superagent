@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendChat } from "../src/board-chat.ts";
-import { type LeadPane, leadLive, tabLive } from "../src/board-lead-live.ts";
+import { type LeadPane, leadLive, reusedProbe, tabLive } from "../src/board-lead-live.ts";
 import { officeTab } from "../src/board-office-html.ts";
 import type { SessionRef } from "../src/runtime/types.ts";
 import type { Lane } from "../src/store-types.ts";
@@ -47,7 +47,7 @@ test("the lead takes the first seat, named 도리도라 with its role, its pane'
     task: "보드 사무실 작업 조율",
   });
   const html = officeTab(live, {});
-  expect(html).toContain('<a class="seat o-working" href="/?c=lead" data-bot="lead" data-look="typing"');
+  expect(html).toContain('<a class="seat o-working" href="/?c=lead" data-row="lead" data-look="typing"');
   expect(html).toContain('title="도리도라 (조율(lead)) · 일하는 중 · 보드 사무실 작업 조율"');
   expect(html).toContain("<i>보드 사무실 작업 조율</i>");
   expect(await tabLive("live", s.store, NOW)).toMatchObject({ bots: [{ name: "yeondo" }] });
@@ -78,6 +78,10 @@ test("a pane that cannot be read, or no reader at all, is 상태 모름 and the 
   const html = officeTab(failed, {});
   expect(html).toContain('<a class="seat o-unknown" href="/?c=lead"');
   expect(html).toContain('<span class="cap">상태 모름</span>');
+  const thrown = await tabLive("office", s.store, NOW, () => {
+    throw new Error("no such runtime");
+  });
+  expect(thrown?.bots[0]).toMatchObject({ status: "unknown", word: "상태 모름" });
   expect(leadLive({ status: "gone" }, null, "fedora")).toMatchObject({ status: "unknown", word: "상태 모름" });
   expect(leadLive({ status: "blocked" }, { at: NOW, what: "x" }, "fedora").word).toBe("상태 모름 · 10:00");
   const page = await (await fetch(`${s.url}/?tab=office`, { headers: tailnet() })).text();
@@ -104,4 +108,32 @@ test("after a rotation moves the lead to another pane its seat follows roles.jso
     'o-idle" href="/?c=lead"',
   );
   expect(asked).toEqual(["w3:p1", "w5:p2"]);
+});
+
+test("a long pane title is cut like a bot's task title", () => {
+  const task =
+    leadLive({ status: "working", title: `${"가".repeat(100)} https://x.example/a` }, null, "fedora").task ?? "";
+  expect(task).toHaveLength(80);
+  expect(task.endsWith("…")).toBe(true);
+});
+
+test("the pane read is reused within its window, per pane, and read again after it", async () => {
+  let clock = 0;
+  const asked: string[] = [];
+  const probe = reusedProbe(
+    async (ref) => {
+      asked.push(ref.id);
+      return { status: "idle" };
+    },
+    () => clock,
+    1_000,
+  );
+  const ref = (id: string): SessionRef => ({ runtime: "herdr", id });
+  await probe(ref("w3:p1"));
+  clock = 999;
+  await probe(ref("w3:p1"));
+  await probe(ref("w5:p2"));
+  clock = 2_000;
+  await probe(ref("w5:p2"));
+  expect(asked).toEqual(["w3:p1", "w5:p2", "w5:p2"]);
 });
