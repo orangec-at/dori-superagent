@@ -1,6 +1,7 @@
 import { askAdd, askClose, askFor, asks, parseFor, parseOptions } from "./asks.ts";
 import { serveBoard } from "./board.ts";
-import { reusedProbe } from "./board-lead-live.ts";
+import { reusedProbe, runtimeLeadProbe } from "./board-lead-live.ts";
+import { officeRemotes, REMOTE_EVERY_MS, remoteLeads } from "./board-office-remote.ts";
 import { loadBoardConfig } from "./board-config.ts";
 import { HUB_EVERY_MS, refreshHub } from "./board-hub.ts";
 import { collectLinks } from "./board-links.ts";
@@ -90,6 +91,14 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
   const hub = (): void => void refreshHub(d.exec, d.store, d.now()).then((l) => l && console.log(l));
   hub();
   setInterval(hub, HUB_EVERY_MS);
+  // The other computers' leads are read over ssh here on a timer; a page load only reads the last answers.
+  const remotes = remoteLeads(d.exec, officeRemotes(d.store.root), log);
+  const lead = reusedProbe(
+    runtimeLeadProbe((ref) => d.runtimes.for(ref), log),
+    d.now,
+  );
+  void remotes.tick();
+  setInterval(() => void remotes.tick(), REMOTE_EVERY_MS);
   const server = serveBoard(d.store, {
     sources,
     host: one(a, "host") ?? "127.0.0.1",
@@ -97,7 +106,7 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
     now: d.now,
     config,
     toLead: (text) => send(d, "lead", text, "board"),
-    leadPane: reusedProbe((ref) => d.runtimes.for(ref).probe(ref), d.now),
+    office: { lead, remotes: remotes.seats },
   });
   console.log(
     `BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length} devices=${config.allowNodes.length} access=${config.access ? config.access.allowEmails.length : "off"} copy=${config.copyTo || "off"} discord=${discord ? "on" : "off"} slack=${slack ? "on" : "off"}`,
