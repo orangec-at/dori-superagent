@@ -90,9 +90,10 @@ function seat(b: BotLive, imgs: Record<string, string>): string {
   const face = avatar(img ? { id, label: b.label, sub: "", img } : { id, label: b.label, sub: "" }, "hd");
   const about = `${b.label}${b.role ? ` (${b.role})` : ""} · ${b.word}${b.task ? ` · ${b.task}` : ""}`;
   const say = look.say ? `<i>${esc(look.say)}</i>` : "";
-  return `<a class="seat o-${b.status}" href="${href}" ${b.row ? `data-row="${esc(b.row)}"` : `data-bot="${esc(b.name)}"`} data-look="${look.pose}" title="${esc(about)}" aria-label="${esc(about)}">
+  const tag = b.linkless ? "span" : "a";
+  return `<${tag} class="seat o-${b.status}"${b.linkless ? "" : ` href="${href}"`} ${b.row ? `data-row="${esc(b.row)}"` : `data-bot="${esc(b.name)}"`} data-look="${look.pose}" title="${esc(about)}" aria-label="${esc(about)}">
 <span class="say${look.mark ? ` m-${look.mark}` : ""}">${say}</span><span class="spot">${CHAIR}<span class="who" style="--h:${hue(id)}">${face}<span class="bd"></span><span class="arm l"></span><span class="arm r"></span></span>${DESK}${look.pose === "rest" ? '<span class="zz">z</span>' : ""}</span>
-<b class="tag">${esc(b.label)}</b><span class="cap">${esc(look.caption)}</span></a>`;
+<b class="tag">${esc(b.label)}</b><span class="cap">${esc(look.caption)}</span></${tag}>`;
 }
 
 /** The tab's body: the counts as on the 지금 tab, then a room per machine. `data-live` makes board.js reload it. */

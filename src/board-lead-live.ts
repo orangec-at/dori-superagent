@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
 import { chatTail } from "./board-chat.ts";
 import { type BotLive, LIVE_WORD, type LiveState, type LiveStatus, liveState, taskTitle } from "./board-live.ts";
-import type { AgentStatus, SessionRef } from "./runtime/types.ts";
+import type { AgentStatus, SessionRef, SessionRuntime } from "./runtime/types.ts";
 import type { Store } from "./store.ts";
 
 /**
@@ -13,6 +13,10 @@ import type { Store } from "./store.ts";
 export type LeadPane = { readonly status: AgentStatus; readonly title?: string };
 /** Reads the lead's pane: the runtime's probe on the board process, a stub in tests. */
 export type LeadProbe = (ref: SessionRef) => Promise<LeadPane>;
+/** The newest thing a lead did on record and its time. */
+export type LeadSeen = { at: number; what: string };
+/** What the board process reads for the 사무실 tab: this lead's pane, and the other computers' leads' seats. */
+export type OfficeReaders = { lead?: LeadProbe; remotes?: () => BotLive[] };
 
 export const LEAD_NAME = "도리도라";
 export const LEAD_ROLE = "조율(lead)";
@@ -26,7 +30,7 @@ const CHAT_LINES = 50;
 const hhmm = (at: number): string => new Date(at + 9 * 3_600_000).toISOString().slice(11, 16);
 
 /** The newest thing the lead did on record and its time: a lane started or a reply on the board. */
-export function leadSeen(store: Store): { at: number; what: string } | null {
+export function leadSeen(store: Store): LeadSeen | null {
   const seen = [
     ...store
       .lanes()
@@ -35,21 +39,27 @@ export function leadSeen(store: Store): { at: number; what: string } | null {
       .filter((m) => m.from === "lead")
       .map((m) => ({ at: m.at, what: `답함 · ${taskTitle(m.text)}` })),
   ];
-  return seen.reduce<{ at: number; what: string } | null>((a, b) => (a && a.at >= b.at ? a : b), null);
+  return seen.reduce<LeadSeen | null>((a, b) => (a && a.at >= b.at ? a : b), null);
 }
 
 const statusOf = (pane: LeadPane | null): LiveStatus =>
   pane?.status === "working" ? "working" : pane?.status === "idle" || pane?.status === "done" ? "idle" : "unknown";
 
-/** The lead as one seat: its pane's status (null when it could not be read), the pane title or else the newest record. */
-export function leadLive(pane: LeadPane | null, seen: { at: number; what: string } | null, machine: string): BotLive {
+/**
+ * A lead as one seat (this board's lead unless `who` says otherwise): its pane's status (null when it could not be
+ * read), the pane title or else the newest record.
+ */
+export function leadLive(
+  pane: LeadPane | null,
+  seen: LeadSeen | null,
+  machine: string,
+  who = { row: "lead", label: LEAD_NAME, role: LEAD_ROLE },
+): BotLive {
   const status = statusOf(pane);
   const base = status === "unknown" ? LEAD_UNKNOWN : LIVE_WORD[status];
   return {
     name: "lead",
-    row: "lead",
-    label: LEAD_NAME,
-    role: LEAD_ROLE,
+    ...who,
     machine,
     task: (pane?.title && taskTitle(pane.title)) || seen?.what || null,
     status,
@@ -75,13 +85,16 @@ async function readPane(ref: SessionRef | undefined, probe: LeadProbe | undefine
   }
 }
 
-/** The 사무실 tab's state: the lead's seat first, then every bot of agents.json as the 지금 tab reads them. */
-export async function officeLive(store: Store, now: number, probe?: LeadProbe): Promise<LiveState> {
+/**
+ * The 사무실 tab's state: the lead's seat first, then every bot of agents.json as the 지금 tab reads them, then the other
+ * computers' leads.
+ */
+export async function officeLive(store: Store, now: number, read: OfficeReaders = {}): Promise<LiveState> {
   const ref = store.roles().lead;
   const machine = ref?.machine ?? (hostname().split(".")[0] || "기록 없음");
-  const lead = leadLive(await readPane(ref, probe), leadSeen(store), machine);
+  const lead = leadLive(await readPane(ref, read.lead), leadSeen(store), machine);
   const live = liveState(store, now);
-  return { ...live, bots: [lead, ...live.bots] };
+  return { ...live, bots: [lead, ...live.bots, ...(read.remotes?.() ?? [])] };
 }
 
 /**
@@ -98,8 +111,51 @@ export function reusedProbe(probe: LeadProbe, now: () => number, ms = PROBE_REUS
   };
 }
 
+/**
+ * omo (and Claude Code) print this on the status line just above the input box for the whole of a turn, tool runs
+ * included, and never between turns. Only the bottom lines count: the same words higher up are the session's own text.
+ */
+export const TURN_MARK = "esc to interrupt";
+export const TURN_LINES = 8;
+const SCREEN_LINES = 30;
+
+/** The screen's last TURN_LINES non-blank lines show a turn in progress. */
+export const turnShown = (screen: string): boolean =>
+  screen
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .slice(-TURN_LINES)
+    .some((l) => l.includes(TURN_MARK));
+
+/**
+ * The lead's pane through its runtime, as the board process reads it. herdr's status word does not follow an omo
+ * session's turns (it says `idle` or `done` mid-turn), so a screen that shows a turn (turnShown) is working whatever
+ * herdr says; otherwise herdr's word, after the runtime's own #62 screen check. A read that fails (herdr not on the
+ * board's PATH, say) throws, so the seat is 상태 모름, and is one log line each time its reason changes.
+ */
+export function runtimeLeadProbe(
+  runtimeOf: (ref: SessionRef) => SessionRuntime,
+  log: (line: string) => void,
+): LeadProbe {
+  let lastFailure = "";
+  return async (ref) => {
+    try {
+      const rt = runtimeOf(ref);
+      const p = await rt.probe(ref);
+      const busy = p.status !== "gone" && turnShown(await rt.read(ref, SCREEN_LINES).catch(() => ""));
+      lastFailure = "";
+      return { status: busy ? "working" : p.status, ...(p.title ? { title: p.title } : {}) };
+    } catch (e) {
+      const why = (e instanceof Error ? e.message : String(e)).split("\n")[0] ?? "";
+      if (why !== lastFailure) log(`BOARD_LEAD_PROBE ${ref.id} failed: ${why}`);
+      lastFailure = why;
+      throw e;
+    }
+  };
+}
+
 /** What the 지금 tab (the bots) and the 사무실 tab (the lead, then the bots) draw; null on every other tab. */
-export async function tabLive(tab: string, store: Store, now: number, probe?: LeadProbe): Promise<LiveState | null> {
+export async function tabLive(tab: string, store: Store, now: number, read?: OfficeReaders): Promise<LiveState | null> {
   if (tab === "live") return liveState(store, now);
-  return tab === "office" ? officeLive(store, now, probe) : null;
+  return tab === "office" ? officeLive(store, now, read) : null;
 }

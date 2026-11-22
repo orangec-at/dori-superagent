@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Server } from "bun";
 import { askAdd } from "../src/asks.ts";
 import type { CertFetch } from "../src/board-access.ts";
-import type { LeadProbe } from "../src/board-lead-live.ts";
+import type { OfficeReaders } from "../src/board-lead-live.ts";
 import { serveBoard } from "../src/board.ts";
 import type { BoardConfig } from "../src/board-config.ts";
 import type { ChannelCopy, ChannelSource } from "../src/channel-source.ts";
@@ -39,7 +39,7 @@ export function start(
     fetchCerts?: CertFetch;
     discord?: ChannelCopy;
     sources?: ChannelSource[];
-    leadPane?: LeadProbe;
+    office?: OfficeReaders;
   } = {},
 ) {
   const root = mkdtempSync(join(tmpdir(), "dori-board-"));
@@ -69,7 +69,7 @@ export function start(
       }),
     log: (l) => logs.push(l),
     ...(o.fetchCerts ? { fetchCerts: o.fetchCerts } : {}),
-    ...(o.leadPane ? { leadPane: o.leadPane } : {}),
+    ...(o.office ? { office: o.office } : {}),
     sources: [...(o.discord ? [{ id: "discord", label: "Discord", ...o.discord }] : []), ...(o.sources ?? [])],
   });
   servers.push(server);

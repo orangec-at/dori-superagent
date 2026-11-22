@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendChat } from "../src/board-chat.ts";
-import { type LeadPane, leadLive, reusedProbe, tabLive } from "../src/board-lead-live.ts";
+import { type LeadPane, leadLive, reusedProbe, runtimeLeadProbe, tabLive, turnShown } from "../src/board-lead-live.ts";
 import { officeTab } from "../src/board-office-html.ts";
-import type { SessionRef } from "../src/runtime/types.ts";
+import type { Probe, SessionRef, SessionRuntime } from "../src/runtime/types.ts";
 import type { Lane } from "../src/store-types.ts";
 import { NOW, start, tailnet } from "./board-setup.ts";
 
@@ -34,9 +34,11 @@ function seeded() {
 test("the lead takes the first seat, named 도리도라 with its role, its pane's status and title, linked to its record", async () => {
   const s = seeded();
   const asked: SessionRef[] = [];
-  const live = await tabLive("office", s.store, NOW, async (ref) => {
-    asked.push(ref);
-    return { status: "working", title: "보드 사무실 작업 조율" };
+  const live = await tabLive("office", s.store, NOW, {
+    lead: async (ref) => {
+      asked.push(ref);
+      return { status: "working", title: "보드 사무실 작업 조율" };
+    },
   });
   expect(asked).toEqual([{ runtime: "herdr", id: "w3:p1" }]);
   expect(live?.bots.map((b) => b.name)).toEqual(["lead", "yeondo"]);
@@ -57,7 +59,7 @@ test("without a pane title the lead's line and time come from its newest record:
   const s = seeded();
   s.store.saveLane(lane("board-office-lead", NOW - 30 * MIN));
   appendChat(s.home, { at: NOW - 50 * MIN, from: "lead", text: "확인했어요" });
-  const idle = async (): Promise<LeadPane> => ({ status: "idle" });
+  const idle = { lead: async (): Promise<LeadPane> => ({ status: "idle" }) };
   const lead = (await tabLive("office", s.store, NOW, idle))?.bots[0];
   expect(lead).toMatchObject({
     status: "idle",
@@ -71,15 +73,19 @@ test("without a pane title the lead's line and time come from its newest record:
 
 test("a pane that cannot be read, or no reader at all, is 상태 모름 and the tab still draws", async () => {
   const s = seeded();
-  const failed = await tabLive("office", s.store, NOW, async () => {
-    throw new Error("herdr down");
+  const failed = await tabLive("office", s.store, NOW, {
+    lead: async () => {
+      throw new Error("herdr down");
+    },
   });
   expect(failed?.bots[0]).toMatchObject({ status: "unknown", word: "상태 모름", task: null, at: null });
   const html = officeTab(failed, {});
   expect(html).toContain('<a class="seat o-unknown" href="/?c=lead"');
   expect(html).toContain('<span class="cap">상태 모름</span>');
-  const thrown = await tabLive("office", s.store, NOW, () => {
-    throw new Error("no such runtime");
+  const thrown = await tabLive("office", s.store, NOW, {
+    lead: () => {
+      throw new Error("no such runtime");
+    },
   });
   expect(thrown?.bots[0]).toMatchObject({ status: "unknown", word: "상태 모름" });
   expect(leadLive({ status: "gone" }, null, "fedora")).toMatchObject({ status: "unknown", word: "상태 모름" });
@@ -93,9 +99,11 @@ test("a pane that cannot be read, or no reader at all, is 상태 모름 and the 
 test("after a rotation moves the lead to another pane its seat follows roles.json", async () => {
   const asked: string[] = [];
   const s = start({
-    leadPane: async (ref) => {
-      asked.push(ref.id);
-      return { status: "idle" };
+    office: {
+      lead: async (ref) => {
+        asked.push(ref.id);
+        return { status: "idle" };
+      },
     },
   });
   writeFileSync(join(s.home, "agents.json"), JSON.stringify(AGENTS));
@@ -136,4 +144,50 @@ test("the pane read is reused within its window, per pane, and read again after 
   clock = 2_000;
   await probe(ref("w5:p2"));
   expect(asked).toEqual(["w3:p1", "w5:p2", "w5:p2"]);
+});
+
+test("an idle pane whose screen shows a turn is working; a failed read throws and is logged once per reason", async () => {
+  let probe: () => Promise<Probe> = async () => ({ status: "idle", title: "인계", shellInFront: false });
+  let screen = "── • Working (10s • esc to interrupt) ──\n❯";
+  const rt = { probe: () => probe(), read: async () => screen } as unknown as SessionRuntime;
+  const logs: string[] = [];
+  const read = runtimeLeadProbe(
+    () => rt,
+    (l) => logs.push(l),
+  );
+  const ref: SessionRef = { runtime: "herdr", id: "w3:p1" };
+  expect(await read(ref)).toEqual({ status: "working", title: "인계" });
+  screen = "❯";
+  expect(await read(ref)).toEqual({ status: "idle", title: "인계" });
+  probe = async () => ({ status: "done", shellInFront: false });
+  screen = "✻ Working… (esc to interrupt)\n❯\n";
+  expect(await read(ref)).toEqual({ status: "working" });
+  probe = async () => {
+    throw new Error('Executable not found in $PATH: "herdr"');
+  };
+  await expect(read(ref)).rejects.toThrow("herdr");
+  await expect(read(ref)).rejects.toThrow("herdr");
+  expect(logs).toEqual(['BOARD_LEAD_PROBE w3:p1 failed: Executable not found in $PATH: "herdr"']);
+  const broken = runtimeLeadProbe(
+    () => {
+      throw new Error("unknown runtime");
+    },
+    (l) => logs.push(l),
+  );
+  await expect(broken(ref)).rejects.toThrow("unknown runtime");
+  expect(logs.at(-1)).toBe("BOARD_LEAD_PROBE w3:p1 failed: unknown runtime");
+});
+
+const OMO_BOTTOM = [
+  "── • Working (0s • esc to interrupt) ──",
+  "❯",
+  "────",
+  "… • 325K/1M (32.5%)",
+  "(😺 OmO Native) mem:x",
+];
+test("a turn shows only on the screen's last non-blank lines: the mark higher up is the session's own text", () => {
+  expect(turnShown([" 할 일", ...OMO_BOTTOM, "", ""].join("\n"))).toBe(true);
+  expect(turnShown(["────", "❯", "────", "… • 0/1M", "(😺 OmO Native)"].join("\n"))).toBe(false);
+  const quoted = ['grep -c "esc to interrupt"', ...Array.from({ length: 8 }, (_, i) => `줄 ${i}`)];
+  expect(turnShown([...quoted, "❯", "────"].join("\n"))).toBe(false);
 });
