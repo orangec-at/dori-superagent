@@ -4,6 +4,7 @@ import { agentsOrNone } from "./board-avatars.ts";
 import { GATEWAY_EVERY_MS, gatewayReader } from "./board-gateway.ts";
 import { reusedProbe, runtimeLeadProbe } from "./board-lead-live.ts";
 import { officeRemotes, REMOTE_EVERY_MS, remoteLeads } from "./board-office-remote.ts";
+import { teamsLog } from "./board-office-teams.ts";
 import { loadBoardConfig } from "./board-config.ts";
 import { HUB_EVERY_MS, refreshHub } from "./board-hub.ts";
 import { collectLinks } from "./board-links.ts";
@@ -112,7 +113,7 @@ export function runBoard(d: Deps, a: Args): Promise<number> {
     now: d.now,
     config,
     toLead: (text) => send(d, "lead", text, "board"),
-    office: { lead, remotes: remotes.seats, gateway: gateway.seen },
+    office: { lead, remotes: remotes.seats, gateway: gateway.seen, teamsFailed: teamsLog(log) },
   });
   console.log(
     `BOARD ${server.url.href} home=${d.store.root} writers=${config.allow.length} devices=${config.allowNodes.length} access=${config.access ? config.access.allowEmails.length : "off"} copy=${config.copyTo || "off"} discord=${discord ? "on" : "off"} slack=${slack ? "on" : "off"}`,
