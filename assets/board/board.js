@@ -82,6 +82,39 @@
     e.preventDefault();
   });
 
+  // The 쿠파스 tab: a copy button copies its card's text box exactly. Where the clipboard is refused, the box is
+  // selected (and copied the old way when the browser still allows it) so a long press copies it.
+  const shown = new WeakMap();
+  document.addEventListener("click", async (e) => {
+    const b = e.target instanceof Element ? e.target.closest("button[data-copy]") : null;
+    const text = b?.closest(".cpf")?.querySelector("textarea");
+    const tip = b?.parentElement?.querySelector(".cpok");
+    if (!b || !text || !tip) return;
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(text.value);
+      ok = true;
+    } catch {
+      text.focus();
+      text.select();
+      text.setSelectionRange(0, text.value.length);
+      try {
+        ok = document.execCommand("copy");
+      } catch {
+        ok = false;
+      }
+    }
+    tip.textContent = ok ? "복사했어요" : "선택했어요. 길게 눌러 복사해 주세요";
+    tip.hidden = false;
+    clearTimeout(shown.get(tip));
+    shown.set(
+      tip,
+      setTimeout(() => {
+        tip.hidden = true;
+      }, 1500),
+    );
+  });
+
   box?.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) box.form?.requestSubmit();
   });

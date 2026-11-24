@@ -21,7 +21,7 @@ const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 const dir = (home: string): string => join(home, "avatars");
 /** The real path (symlinks resolved), or null when it does not exist (DORI_HOME not created yet, a file just removed). */
-const realOrNull = (p: string): string | null => {
+export const realOrNull = (p: string): string | null => {
   try {
     return realpathSync(p);
   } catch {
@@ -29,7 +29,7 @@ const realOrNull = (p: string): string | null => {
   }
 };
 /** A real path is inside `realHome` (DORI_HOME's real path); `..foo.png` is a name inside. */
-const inHome = (realHome: string, real: string): boolean => {
+export const inHome = (realHome: string, real: string): boolean => {
   const rel = relative(realHome, real);
   return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 };
