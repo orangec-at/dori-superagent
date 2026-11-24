@@ -1,5 +1,4 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { join } from "node:path";
 import type { Server } from "bun";
 import { type Ask, markSent, openAsk } from "./asks.ts";
 import type { CertFetch } from "./board-access.ts";
@@ -8,6 +7,7 @@ import { avatarResponse } from "./board-avatars.ts";
 import { backlogPost } from "./board-backlog.ts";
 import { appendChat } from "./board-chat.ts";
 import { chanPost } from "./board-chan.ts";
+import { coupasPost, coupasVideo, readCoupas } from "./board-coupas.ts";
 import { readLinks } from "./board-links-file.ts";
 import { type BoardConfig, decideEnvelope, requestEnvelope } from "./board-config.ts";
 import { boardHtml, REQUEST_MAX } from "./board-html.ts";
@@ -17,6 +17,7 @@ import { readTimelines } from "./board-timeline.ts";
 import { viewOf } from "./board-list-html.ts";
 import { MANIFEST } from "./board-manifest.ts";
 import { type BoardState, boardState } from "./board-state.ts";
+import { staticResponse } from "./board-static.ts";
 import { rows } from "./board-status.ts";
 import { threadOf } from "./board-thread.ts";
 import { type ChannelSource, pageSources } from "./channel-source.ts";
@@ -43,13 +44,6 @@ export type BoardOptions = {
   office?: OfficeReaders;
 };
 
-const STATIC: Record<string, [string, string]> = {
-  "/icon-180.png": ["icon-180.png", "image/png"],
-  "/icon-192.png": ["icon-192.png", "image/png"],
-  "/icon-512.png": ["icon-512.png", "image/png"],
-  "/board.js": ["board.js", "text/javascript; charset=utf-8"],
-};
-const ASSETS = join(import.meta.dir, "..", "assets", "board");
 /** The JSON reads: answered only to a viewer board-auth.ts accepts as a writer (they carry what the page shows). */
 const READ_API: Record<string, (store: Store, now: number, o: BoardOptions) => unknown> = {
   "/api/board": boardState,
@@ -72,8 +66,8 @@ const text = (body: string, status: number): Response =>
  * Serves the phone board. Reads are open to anyone who reaches the loopback port (tailscale serve limits that to the
  * tailnet, Cloudflare Access to its allowed logins). A write (POST /decide, POST /request) is accepted only from a
  * writer board-auth.ts accepts, from that writer's own https origin, with the CSRF token bound to that writer. It
- * delivers text to the lead, posts to Discord and edits the backlog (POST /backlog): there is no merge, done or deploy
- * path here.
+ * delivers text to the lead, posts to Discord, edits the backlog (POST /backlog) and records a 쿠파스 post as posted
+ * (POST /coupas, DORI_HOME/coupas-copy/posted.json only): there is no merge, done or deploy path here.
  */
 export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
   if (!LOOPBACK_HOSTS.has(o.host))
@@ -89,7 +83,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
   };
 
   const sources = o.sources ?? [];
-  async function write(req: Request, kind: "decide" | "request" | "chan" | "backlog"): Promise<Response> {
+  async function write(req: Request, kind: "decide" | "request" | "chan" | "backlog" | "coupas"): Promise<Response> {
     const w = await auth.writer(req);
     if ("code" in w) return reject(kind, w.code, w.why, 403);
     if (req.headers.get("origin") !== w.origin) return reject(kind, "origin", "forbidden: cross-origin request", 403);
@@ -112,6 +106,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     };
     if (kind === "chan") return chanPost(sources, form, out);
     if (kind === "backlog") return backlogPost(store, o.now(), form, out);
+    if (kind === "coupas") return coupasPost(store.root, o.now(), form, out);
 
     const done = (flash: string, c = "lead"): Response =>
       new Response(null, {
@@ -205,6 +200,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
         if (url.pathname === "/request") return write(req, "request");
         if (url.pathname === "/chan" || url.pathname === "/discord") return write(req, "chan");
         if (url.pathname === "/backlog") return write(req, "backlog");
+        if (url.pathname === "/coupas") return write(req, "coupas");
         return text("not found", 404);
       }
       if (req.method !== "GET" && req.method !== "HEAD") return text("method not allowed", 405);
@@ -222,6 +218,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
           links: view.tab === "map" ? readLinks(store.root) : null,
           live: await tabLive(view.tab, store, now, o.office),
           timelines: view.tab === "timeline" ? readTimelines(store.root) : null,
+          coupas: view.tab === "coupas" ? readCoupas(store.root) : null,
           channels: pageSources(sources, !("code" in w)),
           ...(flash ? { flash } : {}),
         });
@@ -235,15 +232,12 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
           ? reject("read", w.code, w.why, 403)
           : Response.json(api(store, o.now(), o), { headers: SECURITY_HEADERS });
       }
+      if (url.pathname === "/coupas/video")
+        return coupasVideo(store.root, url.searchParams.get("id") ?? "", SECURITY_HEADERS);
       if (url.pathname.startsWith("/avatar/")) return avatarResponse(store.root, url.pathname.slice("/avatar/".length));
       if (url.pathname === "/manifest.webmanifest")
         return Response.json(MANIFEST, { headers: { "content-type": "application/manifest+json" } });
-      const asset = STATIC[url.pathname];
-      if (asset)
-        return new Response(Bun.file(join(ASSETS, asset[0])), {
-          headers: { "content-type": asset[1], "x-content-type-options": "nosniff" },
-        });
-      return text("not found", 404);
+      return staticResponse(url.pathname) ?? text("not found", 404);
     },
   });
 }
