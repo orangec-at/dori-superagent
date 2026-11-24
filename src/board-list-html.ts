@@ -44,6 +44,7 @@ export type View = {
   p: string | null;
   d: string | null;
   k?: TaskFilter | null;
+  by?: "team" | null;
 };
 const TABS = "asks live office timeline coupas agent proj chan mission pr backlog map".split(" ") as readonly Tab[];
 
@@ -59,6 +60,7 @@ export function viewOf(params: URLSearchParams): View {
     p: tab === "proj" ? params.get("p") : null,
     d: tab === "chan" ? params.get("d") : null,
     k: tab === "proj" ? (FILTERS.find(([x]) => x === k)?.[0] ?? null) : null,
+    by: tab === "office" && params.get("by") === "team" ? "team" : null,
   };
 }
 
@@ -222,7 +224,7 @@ export function listPane(
       : v.tab === "live"
         ? liveTab(s.live ?? null, s.avatars, now)
         : v.tab === "office"
-          ? officeTab(s.live ?? null, s.avatars)
+          ? officeTab(s.live ?? null, s.avatars, v.by === "team")
           : v.tab === "timeline"
             ? timelineTab(s.timelines ?? [])
             : v.tab === "coupas"

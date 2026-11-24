@@ -2,6 +2,7 @@ import { hostname } from "node:os";
 import type { GatewayLookup } from "./board-gateway.ts";
 import { type LeadSeen, leadSeen } from "./board-lead-seen.ts";
 import { type BotLive, LIVE_WORD, type LiveState, type LiveStatus, liveState } from "./board-live.ts";
+import { teamsState } from "./board-office-teams.ts";
 import type { AgentStatus, SessionRef, SessionRuntime } from "./runtime/types.ts";
 import type { Store } from "./store.ts";
 
@@ -14,8 +15,16 @@ import type { Store } from "./store.ts";
 export type LeadPane = { readonly status: AgentStatus };
 /** Reads the lead's pane: the runtime's probe on the board process, a stub in tests. */
 export type LeadProbe = (ref: SessionRef) => Promise<LeadPane>;
-/** What the board process reads for the 사무실 tab: this lead's pane, and the other computers' leads' seats. */
-export type OfficeReaders = { lead?: LeadProbe; remotes?: () => BotLive[]; gateway?: GatewayLookup };
+/**
+ * What the board process reads for the 사무실 tab: this lead's pane, the other computers' leads' seats, and where a
+ * failed read of the teams' counts goes (`teamsFailed`, null when it worked).
+ */
+export type OfficeReaders = {
+  lead?: LeadProbe;
+  remotes?: () => BotLive[];
+  gateway?: GatewayLookup;
+  teamsFailed?: (why: string | null) => void;
+};
 
 export const LEAD_NAME = "도리도라";
 export const LEAD_ROLE = "조율(lead)";
@@ -72,14 +81,16 @@ async function readPane(ref: SessionRef | undefined, probe: LeadProbe | undefine
 
 /**
  * The 사무실 tab's state: the lead's seat first, then every bot of agents.json as the 지금 tab reads them, then the other
- * computers' leads.
+ * computers' leads; and board.json's teams.
  */
 export async function officeLive(store: Store, now: number, read: OfficeReaders = {}): Promise<LiveState> {
   const ref = store.roles().lead;
   const machine = ref?.machine ?? (hostname().split(".")[0] || "기록 없음");
   const lead = leadLive(await readPane(ref, read.lead), leadSeen(store), machine);
   const live = liveState(store, now, read.gateway);
-  return { ...live, bots: [lead, ...live.bots, ...(read.remotes?.() ?? [])] };
+  const teams = teamsState(store.root, now);
+  read.teamsFailed?.(teams.failed);
+  return { ...live, bots: [lead, ...live.bots, ...(read.remotes?.() ?? [])], teams };
 }
 
 /**

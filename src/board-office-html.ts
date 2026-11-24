@@ -1,5 +1,6 @@
 import { type BotLive, LIVE_WORD, type LiveState, type LiveStatus } from "./board-live.ts";
 import { avatar, hue } from "./board-mission-html.ts";
+import { dualMembers, PAIR_DAYS, type TeamPairs, teamRooms } from "./board-office-teams.ts";
 import { esc } from "./board-thread-html.ts";
 
 /**
@@ -87,9 +88,15 @@ export const OFFICE_STYLE = `.of{display:flex;flex-direction:column;gap:12px;mar
 .tag{margin-top:3px;max-width:100%;font-size:13px;background:var(--panel);border:2px solid var(--line);padding:0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cap{max-width:100%;font-size:11.5px;color:var(--muted);text-align:center;overflow-wrap:anywhere}.o-working .cap{color:var(--blue)}.o-done .cap{color:var(--green)}.o-failed .cap{color:var(--red)}.o-unsure .cap{color:var(--needs)}
 @keyframes tp{50%{transform:translateY(-3px)}}@keyframes scr{50%{opacity:.25}}@keyframes zz{0%{transform:translate(0,4px);opacity:0}50%{opacity:1}100%{transform:translate(4px,-6px);opacity:0}}
-@media (prefers-reduced-motion:reduce){.of *,.of *::before,.of *::after{animation:none!important}}`;
+@media (prefers-reduced-motion:reduce){.of *,.of *::before,.of *::after{animation:none!important}}
+.ofby{display:flex;gap:6px;margin:0 2px 8px;font-size:13px}.ofby a{padding:2px 10px;border:2px solid var(--line);color:var(--text);text-decoration:none}.ofby a.on{background:var(--panel);border-color:var(--link);font-weight:700}
+.pairs{margin:0;padding:4px 9px;font-size:12px;color:var(--muted);border-bottom:2px solid var(--line);background:color-mix(in srgb,var(--wall) 60%,transparent);overflow-wrap:anywhere}
+.mc{max-width:100%;font-size:10.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dual{font-style:normal;margin-left:3px;padding:0 3px;border:1px solid var(--muted);font-size:10px}`;
 
-function seat(b: BotLive, imgs: Record<string, string>): string {
+/** A desk of the 팀별 view also names its machine (the room no longer does) and says 겸임 for a bot in several teams. */
+type DeskExtra = { dual: boolean };
+
+function seat(b: BotLive, imgs: Record<string, string>, extra?: DeskExtra): string {
   const id = b.row ?? `bot:${b.name}`;
   const href = b.row ? `/?c=${encodeURIComponent(b.row)}` : `/?c=bot:${encodeURIComponent(b.name)}`;
   const img = imgs[id];
@@ -100,21 +107,66 @@ function seat(b: BotLive, imgs: Record<string, string>): string {
   const tag = b.linkless ? "span" : "a";
   return `<${tag} class="seat o-${b.status}"${b.linkless ? "" : ` href="${href}"`} ${b.row ? `data-row="${esc(b.row)}"` : `data-bot="${esc(b.name)}"`} data-look="${look.pose}" title="${esc(about)}" aria-label="${esc(about)}">
 <span class="say${look.mark ? ` m-${look.mark}` : ""}">${say}</span><span class="spot">${CHAIR}<span class="who" style="--h:${hue(id)}">${face}<span class="bd"></span><span class="arm l"></span><span class="arm r"></span></span>${DESK}${look.pose === "rest" ? '<span class="zz">z</span>' : ""}</span>
-<b class="tag">${esc(b.label)}</b><span class="cap">${esc(look.caption)}</span></${tag}>`;
+<b class="tag">${esc(b.label)}</b><span class="cap">${esc(look.caption)}</span>${extra ? `<span class="mc">${esc(zoneLabel(b.machine))}${extra.dual ? '<em class="dual">겸임</em>' : ""}</span>` : ""}</${tag}>`;
 }
 
-/** The tab's body: the counts as on the 지금 tab, then a room per machine. `data-live` makes board.js reload it. */
-export function officeTab(live: LiveState | null, imgs: Record<string, string>): string {
+const room = (attr: string, sign: string, count: string, desks: string, under = ""): string =>
+  `<section class="room" ${attr}><header class="wall"><b>${esc(sign)}</b><span>${count}</span></header>${under}<div class="desks">${desks}</div></section>`;
+
+/** The line under a team's sign: its last 7 days' count and busiest pair, by Korean name; nothing when unread. */
+function pairLine(p: TeamPairs | undefined, label: (name: string) => string): string {
+  if (!p) return "";
+  const top = p.top ? `<br>${esc(label(p.top.a))}·${esc(label(p.top.b))} ${p.top.n}` : "";
+  return `<p class="pairs">최근 ${PAIR_DAYS}일 주고받은 일 ${p.total}건${top}</p>`;
+}
+
+/** The 팀별 rooms: the leads on top, a room per team, then 팀 없음; each desk names its machine. */
+function teamOffice(live: LiveState, imgs: Record<string, string>): string {
+  const t = live.teams?.teams ?? [];
+  const split = teamRooms(live.bots, t);
+  const dual = dualMembers(t);
+  const label = (name: string): string => live.bots.find((b) => b.name === name)?.label ?? name;
+  const desks = (bots: BotLive[]): string => bots.map((b) => seat(b, imgs, { dual: dual.has(b.name) })).join("");
+  const lead = split.lead.length
+    ? room('data-team="lead"', "조율", `lead ${split.lead.length}`, desks(split.lead))
+    : "";
+  const teams = split.teams.map(({ team, bots }) =>
+    room(
+      `data-team="${esc(team.id)}"${team.note ? ` title="${esc(team.note)}"` : ""}`,
+      team.name,
+      `${bots.length}명`,
+      desks(bots),
+      pairLine(live.teams?.pairs?.[team.id], label),
+    ),
+  );
+  const none = split.none.length
+    ? room('data-team="none"', "팀 없음", `봇 ${split.none.length}`, desks(split.none))
+    : "";
+  return lead + teams.join("") + none;
+}
+
+const toggle = (byTeam: boolean): string =>
+  `<nav class="ofby"><a${byTeam ? "" : ' class="on" aria-current="page"'} href="/?tab=office">머신별</a><a${byTeam ? ' class="on" aria-current="page"' : ""} href="/?tab=office&amp;by=team">팀별</a></nav>`;
+
+/**
+ * The tab's body: the counts as on the 지금 tab, then a room per machine, or per team (`byTeam`) when board.json has
+ * teams; with teams a 머신별 | 팀별 switch sits on top. `data-live` makes board.js reload it.
+ */
+export function officeTab(live: LiveState | null, imgs: Record<string, string>, byTeam = false): string {
   if (!live?.bots.length) return `<p class="note" data-live>agents.json에 봇이 없어요.</p>`;
   const counts = ORDER.map((s) => [s, live.bots.filter((b) => b.status === s).length] as const).filter(([, n]) => n);
   const head = `<p class="agsum" data-live>${counts.map(([s, n]) => `${LIVE_WORD[s]} ${n}`).join(" · ")}</p>`;
-  const rooms = officeZones(live.bots)
-    .map(
-      (z) =>
-        `<section class="room" data-machine="${esc(z.label)}"><header class="wall"><b>${esc(z.label)}</b><span>${z.bots.some((b) => b.row) ? "lead · " : ""}봇 ${z.bots.filter((b) => !b.row).length}</span></header>` +
-        `<div class="desks">${z.bots.map((b) => seat(b, imgs)).join("")}</div></section>`,
-    )
-    .join("");
+  const teams = !!live.teams?.teams.length;
+  const rooms =
+    teams && byTeam
+      ? teamOffice(live, imgs)
+      : officeZones(live.bots)
+          .map(
+            (z) =>
+              `<section class="room" data-machine="${esc(z.label)}"><header class="wall"><b>${esc(z.label)}</b><span>${z.bots.some((b) => b.row) ? "lead · " : ""}봇 ${z.bots.filter((b) => !b.row).length}</span></header>` +
+              `<div class="desks">${z.bots.map((b) => seat(b, imgs)).join("")}</div></section>`,
+          )
+          .join("");
   const foot = `<p class="note">자리를 누르면 그 봇과의 대화로 가요. '지금' 탭과 같은 기록으로 판단하고 30초마다 저절로 새로 읽어요.</p>`;
-  return `${head}<div class="of">${rooms}</div>${foot}`;
+  return `${teams ? toggle(byTeam) : ""}${head}<div class="of">${rooms}</div>${foot}`;
 }

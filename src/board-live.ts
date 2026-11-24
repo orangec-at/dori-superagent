@@ -7,6 +7,7 @@ import { tailJson } from "./board-agents.ts";
 import { agentsOrNone } from "./board-avatars.ts";
 import { botLabel, DELEGATION_TAIL_BYTES, decodeEscapes } from "./board-bots.ts";
 import type { GatewayLookup, GatewaySeen } from "./board-gateway.ts";
+import type { OfficeTeams } from "./board-office-teams.ts";
 import type { Store } from "./store.ts";
 
 /**
@@ -46,7 +47,8 @@ export type BotLive = {
   running: number;
   basis?: string;
 };
-export type LiveState = { generatedAt: number; bots: BotLive[] };
+/** `teams`: board.json's teams and their counts, on the 사무실 tab only. */
+export type LiveState = { generatedAt: number; bots: BotLive[]; teams?: OfficeTeams };
 
 /** One delegation: its start, its timeout and its end when one is written. */
 export type LiveRun = { at: number; until: number; text: string; end?: { at: number; outcome: string } };
