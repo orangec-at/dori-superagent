@@ -84,7 +84,8 @@ function taskActions(t: Task, project: string, token: string): string {
   return `<div class="tka">${form("/backlog", token, `${base}${hidden("action", "priority")}${prioritySelect(t.priority)}<button>우선순위 변경</button>`)}${form("/backlog", token, `${base}${hidden("action", "drop")}<button>드롭</button>`)}${decide}</div>`;
 }
 
-function taskCard(t: Task, project: string, token: string | null, now: number): string {
+/** One task's card; board-inline.ts sends it alone after a background /backlog edit. */
+export function taskCard(t: Task, project: string, token: string | null, now: number): string {
   const title = t.href ? `<a href="${esc(t.href)}">${esc(t.title)}</a>` : esc(t.title);
   const meta = [
     t.blocked ? `<span class="fl">막힘</span>` : "",

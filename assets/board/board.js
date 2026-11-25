@@ -125,13 +125,20 @@
     );
   });
 
-  // 확인 필요's answer buttons (POST /decide) and 쿠파스's [올렸음] (POST /coupas) go by fetch with the same body, csrf
-  // included; the board answers such a request with the card's new state, which replaces every copy of that card. On
-  // a refusal or no network the card says so and its buttons can be pressed again. Without this script the form posts.
-  const CARD = { "/decide": ["article.ask", (c) => c.id], "/coupas": ["article.cpc", (c) => c.dataset.post] };
+  // 확인 필요's answer buttons (POST /decide), 쿠파스's [올렸음] (POST /coupas) and a task's buttons on 할 일 (POST /backlog:
+  // priority, drop, decision) go by fetch with the same body, csrf included; the board answers such a request with the
+  // card's new state, which replaces every copy of that card. On a refusal or no network the card says so and its
+  // buttons can be pressed again; a held answer keeps them off. Without this script the form posts.
+  const CARD = {
+    "/decide": ["article.ask", (c) => c.id],
+    "/coupas": ["article.cpc", (c) => c.dataset.post],
+    "/backlog": ["div.tk", (c) => c.id],
+  };
   document.addEventListener("submit", async (e) => {
     const f = e.target;
-    const kind = f instanceof HTMLFormElement ? CARD[new URL(f.action).pathname] : undefined;
+    // The attribute, not f.action: a /backlog form's <input name="action"> shadows that property.
+    const to = f instanceof HTMLFormElement ? new URL(f.getAttribute("action") ?? "", location.href) : null;
+    const kind = to ? CARD[to.pathname] : undefined;
     const card = kind ? f.closest(kind[0]) : null;
     if (!kind || !card) return;
     e.preventDefault();
@@ -152,7 +159,7 @@
     if (set) set.disabled = true;
     let why = "연결이 끊겨 보내지 못했어요. 다시 눌러 주세요.";
     try {
-      const res = await fetch(f.action, {
+      const res = await fetch(to, {
         method: "POST",
         body,
         headers: { accept: "application/json" },
@@ -181,7 +188,8 @@
           }
           return;
         }
-        if (set) set.disabled = false;
+        // Held (the lead's pane may have it): the note says not to press again, so the buttons stay off.
+        if (set && !j.held) set.disabled = false;
         return say(card, j.note, j.bad);
       }
       why =

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { askClose, readAsk } from "../src/asks.ts";
+import { PaneGone } from "../src/refusal.ts";
 import { post, start, tailnet, tokenOf } from "./board-setup.ts";
 
 const JSON_ACCEPT = { accept: "application/json" };
@@ -16,7 +17,7 @@ function postsIn(home: string): void {
   );
 }
 
-type Reply = { card: string | null; gone: boolean; note: string; bad: boolean; v: string | null };
+type Reply = { card: string | null; gone: boolean; held: boolean; note: string; bad: boolean; v: string | null };
 
 /** The page's csrf token and the version it shows, as board.js reads them. */
 async function pageOf(url: string): Promise<{ csrf: string; v: string }> {
@@ -61,16 +62,25 @@ test("a page that missed another change gets no version back: it shows its new p
 });
 
 test("a background /decide the lead could not take, or that is held, keeps the card and says so", async () => {
-  for (const [toLead, note] of [
+  const heldNote = "전달이 확인되지 않았어요. 다시 누르지 말고 lead 화면을 확인해 주세요(dori inbox list lead).";
+  for (const [toLead, note, held] of [
     [
       async () => Promise.reject(new Error("no lead pane registered")),
       "도리도라에게 보내지 못했어요. 다시 보내 주세요.",
+      false,
     ],
-    [async () => "HELD", "전달이 확인되지 않았어요. 다시 누르지 말고 lead 화면을 확인해 주세요(dori inbox list lead)."],
+    [async () => "HELD", heldNote, true],
+    [async () => Promise.reject(new PaneGone("lead pane gone")), heldNote, true],
   ] as const) {
     const { url, home } = start({ toLead });
     const { csrf, v } = await pageOf(url);
-    expect(await decide(url, { csrf, v, choice: "A" })).toMatchObject({ card: null, gone: false, note, bad: true });
+    expect(await decide(url, { csrf, v, choice: "A" })).toMatchObject({
+      card: null,
+      gone: false,
+      held,
+      note,
+      bad: true,
+    });
     expect(readAsk(home, "vg-analytics")?.sent).toBeUndefined();
   }
 });

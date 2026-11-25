@@ -2,10 +2,15 @@ import { readAsk } from "./asks.ts";
 import { readCoupas } from "./board-coupas.ts";
 import { coupasCard } from "./board-coupas-html.ts";
 import { flashNote } from "./board-html.ts";
+import { boardState } from "./board-state.ts";
+import { projectTasks } from "./board-tasks.ts";
+import { taskCard } from "./board-tasks-html.ts";
 import { askCard } from "./board-thread-html.ts";
+import type { Store } from "./store.ts";
 
 /**
- * board.js sends an answer button (확인 필요 POST /decide, 쿠파스 POST /coupas) in the background with Accept:
+ * board.js sends an answer button (확인 필요 POST /decide, 쿠파스 POST /coupas, a task's buttons on 할 일 POST /backlog)
+ * in the background with Accept:
  * application/json. Such a request passed the same writer, origin and CSRF checks as a form; it gets the card's new
  * state instead of a redirect, so the page keeps its scroll and what is open. A form posted without the script (no
  * JSON in Accept) gets the redirect as before.
@@ -20,14 +25,18 @@ type Inline = { now: number; token: string; headers: Record<string, string>; see
 
 /**
  * `card`: the card's new html, null when it stays as it was (held, failed). `gone`: the ask or post is no longer open,
- * so its buttons go. `v`: the version the page shows now, null when another change came before this write.
+ * so its buttons go. `held`: the delivery may have reached the lead, so the buttons stay off (pressing again would send
+ * it twice). `v`: the version the page shows now, null when another change came before this write.
  */
-type CardReply = { card: string | null; gone: boolean; note: string; bad: boolean; v: string | null };
+type CardReply = { card: string | null; gone: boolean; held: boolean; note: string; bad: boolean; v: string | null };
 
 const reply = (card: string | null, gone: boolean, flash: string, o: Inline): Response =>
-  Response.json({ card, gone, ...flashNote(flash), v: o.seen ? o.fresh() : null } satisfies CardReply, {
-    headers: o.headers,
-  });
+  Response.json(
+    { card, gone, held: flash === "held", ...flashNote(flash), v: o.seen ? o.fresh() : null } satisfies CardReply,
+    {
+      headers: o.headers,
+    },
+  );
 
 /** The answer to a background /decide: the ask's card as marked now, unless nothing was marked (held, failed). */
 export function decideReply(home: string, id: string, flash: string, o: Inline): Response {
@@ -40,4 +49,13 @@ export function decideReply(home: string, id: string, flash: string, o: Inline):
 export function coupasReply(home: string, id: string, o: Inline): Response {
   const card = coupasCard(readCoupas(home), id, o.token);
   return reply(card, card === null, "coupas", o);
+}
+
+/** The answer to a background /backlog edit the board accepted: the task's card as the project's 할 일 shows it now. */
+export function backlogReply(store: Store, project: string, id: string, o: Inline): Response {
+  const s = boardState(store, o.now);
+  const g = s.projects.find((x) => x.name === project);
+  const t = g && projectTasks(g, s.bots, o.now).find((x) => x.id === id);
+  const card = g && t ? taskCard(t, g.name, o.token, o.now) : null;
+  return reply(card, card === null, "backlog", o);
 }
