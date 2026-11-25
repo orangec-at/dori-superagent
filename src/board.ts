@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Server } from "bun";
 import { type Ask, markSent, openAsk } from "./asks.ts";
 import type { CertFetch } from "./board-access.ts";
@@ -11,12 +11,14 @@ import { coupasPost, coupasVideo, readCoupas } from "./board-coupas.ts";
 import { readLinks } from "./board-links-file.ts";
 import { type BoardConfig, decideEnvelope, requestEnvelope } from "./board-config.ts";
 import { boardHtml, REQUEST_MAX } from "./board-html.ts";
+import { coupasReply, decideReply, wantsCard } from "./board-inline.ts";
 import { type OfficeReaders, tabLive } from "./board-lead-live.ts";
 import { liveState } from "./board-live.ts";
 import { readTimelines } from "./board-timeline.ts";
+import { boardVersions } from "./board-version.ts";
 import { viewOf } from "./board-list-html.ts";
 import { MANIFEST } from "./board-manifest.ts";
-import { type BoardState, boardState } from "./board-state.ts";
+import { boardState } from "./board-state.ts";
 import { staticResponse } from "./board-static.ts";
 import { rows } from "./board-status.ts";
 import { threadOf } from "./board-thread.ts";
@@ -26,7 +28,6 @@ import { PaneGone, Refusal } from "./refusal.ts";
 import type { Store } from "./store.ts";
 
 const BODY_MAX = 8 * 1024;
-const VERSION_REUSE_MS = 2_000;
 
 export type BoardOptions = {
   host: string;
@@ -83,6 +84,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
   };
 
   const sources = o.sources ?? [];
+  const versions = boardVersions(store, o.now, sources);
   async function write(req: Request, kind: "decide" | "request" | "chan" | "backlog" | "coupas"): Promise<Response> {
     const w = await auth.writer(req);
     if ("code" in w) return reject(kind, w.code, w.why, 403);
@@ -106,16 +108,26 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     };
     if (kind === "chan") return chanPost(sources, form, out);
     if (kind === "backlog") return backlogPost(store, o.now(), form, out);
-    if (kind === "coupas") return coupasPost(store.root, o.now(), form, out);
+    // A background answer (board.js) gets the card's new state; the checks above are the same for it.
+    const card = wantsCard(req)
+      ? { now: o.now(), token: tokenFor(w.id), headers: SECURITY_HEADERS, fresh: versions.fresh }
+      : null;
+    const inline = card && { ...card, seen: form.get("v") === versions.fresh() };
+    if (kind === "coupas") {
+      const res = coupasPost(store.root, o.now(), form, out);
+      return inline && res.status === 303 ? coupasReply(store.root, form.get("id") ?? "", inline) : res;
+    }
 
     const done = (flash: string, c = "lead"): Response =>
-      new Response(null, {
-        status: 303,
-        headers: {
-          location: kind === "request" ? `/?c=${encodeURIComponent(c)}&sent=${flash}#end` : `/?sent=${flash}`,
-          ...SECURITY_HEADERS,
-        },
-      });
+      inline && kind === "decide"
+        ? decideReply(store.root, id, flash, inline)
+        : new Response(null, {
+            status: 303,
+            headers: {
+              location: kind === "request" ? `/?c=${encodeURIComponent(c)}&sent=${flash}#end` : `/?sent=${flash}`,
+              ...SECURITY_HEADERS,
+            },
+          });
     let envelope: string;
     let said: string;
     let id = "";
@@ -175,20 +187,6 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     return done(result === "QUEUED" ? "queued" : kind);
   }
 
-  /** What the page shows, without the clock: the page polls it and reloads when it changes. */
-  const versionOf = (s: BoardState): string =>
-    createHash("sha256")
-      .update(JSON.stringify({ ...s, generatedAt: 0, chans: sources.map((x) => x.stamp()) }))
-      .digest("hex")
-      .slice(0, 16);
-  // Every open tab polls /api/version; the answer is reused for a moment so polling cannot make the board re-read its files.
-  let polled = { at: Number.NEGATIVE_INFINITY, v: "" };
-  const polledVersion = (): string => {
-    const now = o.now();
-    if (now - polled.at >= VERSION_REUSE_MS) polled = { at: now, v: versionOf(boardState(store, now)) };
-    return polled.v;
-  };
-
   return Bun.serve({
     hostname: o.host,
     port: o.port,
@@ -213,7 +211,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
         const state = boardState(store, now);
         const html = boardHtml(threadOf(store, state, view.c ?? "lead"), state, now, {
           token: "code" in w ? null : tokenFor(w.id),
-          version: versionOf(state),
+          version: versions.of(state),
           view,
           links: view.tab === "map" ? readLinks(store.root) : null,
           live: await tabLive(view.tab, store, now, o.office),
@@ -224,7 +222,8 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
         });
         return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", ...SECURITY_HEADERS } });
       }
-      if (url.pathname === "/api/version") return Response.json({ v: polledVersion() }, { headers: SECURITY_HEADERS });
+      if (url.pathname === "/api/version")
+        return Response.json({ v: versions.polled() }, { headers: SECURITY_HEADERS });
       const api = READ_API[url.pathname];
       if (api) {
         const w = await auth.writer(req);

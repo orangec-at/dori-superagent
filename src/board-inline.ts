@@ -1,0 +1,43 @@
+import { readAsk } from "./asks.ts";
+import { readCoupas } from "./board-coupas.ts";
+import { coupasCard } from "./board-coupas-html.ts";
+import { flashNote } from "./board-html.ts";
+import { askCard } from "./board-thread-html.ts";
+
+/**
+ * board.js sends an answer button (확인 필요 POST /decide, 쿠파스 POST /coupas) in the background with Accept:
+ * application/json. Such a request passed the same writer, origin and CSRF checks as a form; it gets the card's new
+ * state instead of a redirect, so the page keeps its scroll and what is open. A form posted without the script (no
+ * JSON in Accept) gets the redirect as before.
+ */
+export const wantsCard = (req: Request): boolean => (req.headers.get("accept") ?? "").includes("application/json");
+
+/**
+ * `seen`: the version the page sent was the board's version just before this write. `fresh`: the version now. Only
+ * then may the page take the version after its write; otherwise something else changed too and the page says so.
+ */
+type Inline = { now: number; token: string; headers: Record<string, string>; seen: boolean; fresh: () => string };
+
+/**
+ * `card`: the card's new html, null when it stays as it was (held, failed). `gone`: the ask or post is no longer open,
+ * so its buttons go. `v`: the version the page shows now, null when another change came before this write.
+ */
+type CardReply = { card: string | null; gone: boolean; note: string; bad: boolean; v: string | null };
+
+const reply = (card: string | null, gone: boolean, flash: string, o: Inline): Response =>
+  Response.json({ card, gone, ...flashNote(flash), v: o.seen ? o.fresh() : null } satisfies CardReply, {
+    headers: o.headers,
+  });
+
+/** The answer to a background /decide: the ask's card as marked now, unless nothing was marked (held, failed). */
+export function decideReply(home: string, id: string, flash: string, o: Inline): Response {
+  if (flash === "held" || flash === "failed") return reply(null, false, flash, o);
+  const ask = readAsk(home, id);
+  return ask?.status === "open" ? reply(askCard(ask, o.now, o.token), false, flash, o) : reply(null, true, flash, o);
+}
+
+/** The answer to a background /coupas the board accepted: the post's card with what posted.json says now. */
+export function coupasReply(home: string, id: string, o: Inline): Response {
+  const card = coupasCard(readCoupas(home), id, o.token);
+  return reply(card, card === null, "coupas", o);
+}

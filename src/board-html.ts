@@ -62,7 +62,7 @@ overflow-wrap:anywhere;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospa
 .opts em{color:var(--needs);font-style:normal;font-size:12px}fieldset{border:0;margin:0;padding:0;min-width:0}.buttons{display:flex;flex-wrap:wrap;gap:8px}
 button{font:inherit;min-height:42px;min-width:52px;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bubble);color:var(--text);cursor:pointer}
 button.primary{background:var(--needs);border-color:var(--needs);color:#1b1200;font-weight:600}fieldset:disabled button,fieldset:disabled textarea{opacity:.45}
-.sent{color:var(--green);font-weight:600;margin:8px 0 0}
+.sent{color:var(--green);font-weight:600;margin:8px 0 0}.fnote{margin:8px 0 0;font-size:13.5px;color:var(--muted)}.fnote.bad{color:var(--red)}
 .flash{margin:8px 12px;border-radius:10px;padding:9px 12px;background:color-mix(in srgb,var(--green) 18%,var(--bg))}.flash.bad{background:color-mix(in srgb,var(--red) 22%,var(--bg))}
 .composer{position:sticky;bottom:0;padding:8px 12px max(12px,env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--bg) 35%)}
 .box{max-width:800px;margin:0 auto;display:flex;align-items:flex-end;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:7px 7px 7px 16px}
@@ -84,6 +84,12 @@ const FLASH: Record<string, string> = {
   cfailed: "채널로 보내지 못했어요. 잠시 뒤 다시 보내 주세요.",
 };
 const BAD_FLASH: ReadonlySet<string> = new Set(["held", "failed", "cfailed"]);
+
+/** The notice of a write's answer, for a card board.js updates in place. */
+export const flashNote = (key: string): { note: string; bad: boolean } => ({
+  note: FLASH[key] ?? "",
+  bad: BAD_FLASH.has(key),
+});
 
 /** `links`: the collected connection map, read only for the 연결 tab. */
 export type PageOptions = {

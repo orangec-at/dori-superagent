@@ -1,12 +1,22 @@
 // The board page's only script: it keeps the conversation scrolled to the newest message and reloads the page when
-// /api/version says something changed, unless the operator is writing (then it shows a "new" pill instead).
+// /api/version says something changed, unless the operator is writing or was just scrolling or tapping (then it
+// shows a "new" pill instead). An answer button is sent in the background so only its card changes.
 (() => {
   const POLL_MS = 10_000;
   const LIVE_MS = 30_000;
+  const BUSY_MS = 30_000;
   let version = document.querySelector('meta[name="board-version"]')?.getAttribute("content") ?? "";
   const news = document.getElementById("news");
   const box = document.querySelector(".composer textarea");
-  const writing = () => box !== null && (box.value.trim() !== "" || document.activeElement === box);
+  let touched = 0;
+  // The operator's own input only: a scroll the script makes (opening a record at its end) is not someone reading.
+  for (const t of ["wheel", "touchstart", "touchmove", "pointerdown", "keydown", "input"])
+    addEventListener(t, () => (touched = Date.now()), { capture: true, passive: true });
+  const writing = () =>
+    (box !== null && box.value.trim() !== "") ||
+    document.activeElement?.matches?.("input:not([type=hidden]):not([readonly]),textarea:not([readonly]),select") ===
+      true ||
+    Date.now() - touched < BUSY_MS;
 
   // Only a record opens at its newest message; the list stays at its top, and a #anchor (an ask card) is left to the browser.
   if (document.body.classList.contains("has-c") && !location.hash) window.scrollTo(0, document.body.scrollHeight);
@@ -113,6 +123,76 @@
         tip.hidden = true;
       }, 1500),
     );
+  });
+
+  // 확인 필요's answer buttons (POST /decide) and 쿠파스's [올렸음] (POST /coupas) go by fetch with the same body, csrf
+  // included; the board answers such a request with the card's new state, which replaces every copy of that card. On
+  // a refusal or no network the card says so and its buttons can be pressed again. Without this script the form posts.
+  const CARD = { "/decide": ["article.ask", (c) => c.id], "/coupas": ["article.cpc", (c) => c.dataset.post] };
+  document.addEventListener("submit", async (e) => {
+    const f = e.target;
+    const kind = f instanceof HTMLFormElement ? CARD[new URL(f.action).pathname] : undefined;
+    const card = kind ? f.closest(kind[0]) : null;
+    if (!kind || !card) return;
+    e.preventDefault();
+    const body = new URLSearchParams(new FormData(f));
+    if (e.submitter?.name) body.append(e.submitter.name, e.submitter.value);
+    body.append("v", version);
+    const set = f.querySelector("fieldset");
+    const say = (where, text, bad) => {
+      where.querySelector(".fnote")?.remove();
+      if (!text) return;
+      const p = Object.assign(document.createElement("p"), {
+        className: bad ? "fnote bad" : "fnote",
+        textContent: text,
+      });
+      p.setAttribute("role", "status");
+      where.append(p);
+    };
+    if (set) set.disabled = true;
+    let why = "연결이 끊겨 보내지 못했어요. 다시 눌러 주세요.";
+    try {
+      const res = await fetch(f.action, {
+        method: "POST",
+        body,
+        headers: { accept: "application/json" },
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const j = await res.json();
+        // Something else changed before this answer: the page keeps its version and shows the "new" pill.
+        if (j.v) version = j.v;
+        else if (news) news.hidden = false;
+        if (j.card || j.gone) {
+          const key = kind[1](card);
+          for (const old of document.querySelectorAll(kind[0])) {
+            if (kind[1](old) !== key) continue;
+            let next = old;
+            if (j.card) {
+              const t = document.createElement("template");
+              t.innerHTML = j.card;
+              next = t.content.firstElementChild;
+              if (old.id) next.id = old.id;
+              // A read-only copy (an ask another person answers) stays without buttons.
+              if (!old.querySelector("form")) next.querySelector("form")?.remove();
+              old.replaceWith(next);
+            } else old.querySelector("form")?.remove();
+            if (old === card) say(next, j.note, j.bad);
+          }
+          return;
+        }
+        if (set) set.disabled = false;
+        return say(card, j.note, j.bad);
+      }
+      why =
+        res.status === 403
+          ? "보내지 못했어요: 허용된 계정·기기가 아니거나 화면이 오래됐어요. 새로 불러와 주세요."
+          : `보내지 못했어요 (${res.status} ${(await res.text()).trim()}). 다시 눌러 주세요.`;
+    } catch {
+      // no network: `why` says so
+    }
+    if (set) set.disabled = false;
+    say(card, why, true);
   });
 
   box?.addEventListener("keydown", (e) => {
