@@ -11,7 +11,7 @@ import { coupasPost, coupasVideo, readCoupas } from "./board-coupas.ts";
 import { readLinks } from "./board-links-file.ts";
 import { type BoardConfig, decideEnvelope, requestEnvelope } from "./board-config.ts";
 import { boardHtml, REQUEST_MAX } from "./board-html.ts";
-import { coupasReply, decideReply, wantsCard } from "./board-inline.ts";
+import { backlogReply, coupasReply, decideReply, wantsCard } from "./board-inline.ts";
 import { type OfficeReaders, tabLive } from "./board-lead-live.ts";
 import { liveState } from "./board-live.ts";
 import { readTimelines } from "./board-timeline.ts";
@@ -107,12 +107,17 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
       headers: SECURITY_HEADERS,
     };
     if (kind === "chan") return chanPost(sources, form, out);
-    if (kind === "backlog") return backlogPost(store, o.now(), form, out);
     // A background answer (board.js) gets the card's new state; the checks above are the same for it.
     const card = wantsCard(req)
       ? { now: o.now(), token: tokenFor(w.id), headers: SECURITY_HEADERS, fresh: versions.fresh }
       : null;
+    // Known gap (#78 review LOW 1): a change landing between this comparison and the write is folded into `v`.
     const inline = card && { ...card, seen: form.get("v") === versions.fresh() };
+    if (kind === "backlog") {
+      const res = backlogPost(store, o.now(), form, out);
+      const edit = res.status === 303 && form.get("action") !== "add";
+      return inline && edit ? backlogReply(store, form, inline) : res;
+    }
     if (kind === "coupas") {
       const res = coupasPost(store.root, o.now(), form, out);
       return inline && res.status === 303 ? coupasReply(store.root, form.get("id") ?? "", inline) : res;
