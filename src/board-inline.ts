@@ -51,11 +51,15 @@ export function coupasReply(home: string, id: string, o: Inline): Response {
   return reply(card, card === null, "coupas", o);
 }
 
-/** The answer to a background /backlog edit the board accepted: the task's card as the project's 할 일 shows it now. */
-export function backlogReply(store: Store, project: string, id: string, o: Inline): Response {
+/**
+ * The answer to a background /backlog edit the board accepted: the task's card as the project's 할 일 shows it now, in
+ * place; its column, order and the chip counts catch up at the next reload. A drop takes the buttons away; a card not
+ * found otherwise (another project's `p`) keeps them.
+ */
+export function backlogReply(store: Store, form: URLSearchParams, o: Inline): Response {
   const s = boardState(store, o.now);
-  const g = s.projects.find((x) => x.name === project);
-  const t = g && projectTasks(g, s.bots, o.now).find((x) => x.id === id);
+  const g = s.projects.find((x) => x.name === form.get("p"));
+  const t = g && projectTasks(g, s.bots, o.now).find((x) => x.id === form.get("id"));
   const card = g && t ? taskCard(t, g.name, o.token, o.now) : null;
-  return reply(card, card === null, "backlog", o);
+  return reply(card, card === null && form.get("action") === "drop", "backlog", o);
 }

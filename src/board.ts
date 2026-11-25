@@ -116,7 +116,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     if (kind === "backlog") {
       const res = backlogPost(store, o.now(), form, out);
       const edit = res.status === 303 && form.get("action") !== "add";
-      return inline && edit ? backlogReply(store, form.get("p") ?? "", form.get("id") ?? "", inline) : res;
+      return inline && edit ? backlogReply(store, form, inline) : res;
     }
     if (kind === "coupas") {
       const res = coupasPost(store.root, o.now(), form, out);

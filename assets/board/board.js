@@ -181,9 +181,9 @@
               next = t.content.firstElementChild;
               if (old.id) next.id = old.id;
               // A read-only copy (an ask another person answers) stays without buttons.
-              if (!old.querySelector("form")) next.querySelector("form")?.remove();
+              if (!old.querySelector("form")) for (const x of next.querySelectorAll("form, .tka")) x.remove();
               old.replaceWith(next);
-            } else old.querySelector("form")?.remove();
+            } else for (const x of old.querySelectorAll("form, .tka")) x.remove();
             if (old === card) say(next, j.note, j.bad);
           }
           return;

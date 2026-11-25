@@ -73,6 +73,12 @@ test("a background decision answer drops the question from the card; a backgroun
   expect(answered.card).not.toContain("결정 필요");
   expect(b.store.item("coupas-next")?.decision).toBeUndefined();
 
+  const elsewhere = (await (
+    await edit(b.url, { csrf, p: "other", action: "priority", priority: "3" })
+  ).json()) as Reply;
+  expect(elsewhere).toMatchObject({ card: null, gone: false, bad: false });
+  expect(b.store.item("coupas-next")?.priority).toBe(3);
+
   const dropped = (await (await edit(b.url, { csrf, action: "drop" })).json()) as Reply;
   expect(dropped).toMatchObject({ card: null, gone: true, bad: false, v: null });
   expect(b.store.item("coupas-next")?.status).toBe("dropped");
