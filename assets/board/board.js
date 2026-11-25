@@ -9,11 +9,13 @@
   const news = document.getElementById("news");
   const box = document.querySelector(".composer textarea");
   let touched = 0;
-  for (const t of ["scroll", "touchstart", "pointerdown", "keydown", "input"])
+  // The operator's own input only: a scroll the script makes (opening a record at its end) is not someone reading.
+  for (const t of ["wheel", "touchstart", "touchmove", "pointerdown", "keydown", "input"])
     addEventListener(t, () => (touched = Date.now()), { capture: true, passive: true });
   const writing = () =>
     (box !== null && box.value.trim() !== "") ||
-    document.activeElement?.matches?.("input:not([type=hidden]),textarea,select") === true ||
+    document.activeElement?.matches?.("input:not([type=hidden]):not([readonly]),textarea:not([readonly]),select") ===
+      true ||
     Date.now() - touched < BUSY_MS;
 
   // Only a record opens at its newest message; the list stays at its top, and a #anchor (an ask card) is left to the browser.
@@ -135,6 +137,7 @@
     e.preventDefault();
     const body = new URLSearchParams(new FormData(f));
     if (e.submitter?.name) body.append(e.submitter.name, e.submitter.value);
+    body.append("v", version);
     const set = f.querySelector("fieldset");
     const say = (where, text, bad) => {
       where.querySelector(".fnote")?.remove();
@@ -157,16 +160,23 @@
       });
       if (res.ok) {
         const j = await res.json();
-        version = j.v ?? version;
-        if (j.card) {
+        // Something else changed before this answer: the page keeps its version and shows the "new" pill.
+        if (j.v) version = j.v;
+        else if (news) news.hidden = false;
+        if (j.card || j.gone) {
           const key = kind[1](card);
           for (const old of document.querySelectorAll(kind[0])) {
             if (kind[1](old) !== key) continue;
-            const t = document.createElement("template");
-            t.innerHTML = j.card;
-            const next = t.content.firstElementChild;
-            if (old.id) next.id = old.id;
-            old.replaceWith(next);
+            let next = old;
+            if (j.card) {
+              const t = document.createElement("template");
+              t.innerHTML = j.card;
+              next = t.content.firstElementChild;
+              if (old.id) next.id = old.id;
+              // A read-only copy (an ask another person answers) stays without buttons.
+              if (!old.querySelector("form")) next.querySelector("form")?.remove();
+              old.replaceWith(next);
+            } else old.querySelector("form")?.remove();
             if (old === card) say(next, j.note, j.bad);
           }
           return;

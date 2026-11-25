@@ -109,17 +109,18 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     if (kind === "chan") return chanPost(sources, form, out);
     if (kind === "backlog") return backlogPost(store, o.now(), form, out);
     // A background answer (board.js) gets the card's new state; the checks above are the same for it.
-    const card = wantsCard(req) ? { now: o.now(), token: tokenFor(w.id), headers: SECURITY_HEADERS } : null;
+    const card = wantsCard(req)
+      ? { now: o.now(), token: tokenFor(w.id), headers: SECURITY_HEADERS, fresh: versions.fresh }
+      : null;
+    const inline = card && { ...card, seen: form.get("v") === versions.fresh() };
     if (kind === "coupas") {
       const res = coupasPost(store.root, o.now(), form, out);
-      return card && res.status === 303
-        ? coupasReply(store.root, form.get("id") ?? "", { ...card, v: versions.fresh() })
-        : res;
+      return inline && res.status === 303 ? coupasReply(store.root, form.get("id") ?? "", inline) : res;
     }
 
     const done = (flash: string, c = "lead"): Response =>
-      card && kind === "decide"
-        ? decideReply(store.root, id, flash, { ...card, v: versions.fresh() })
+      inline && kind === "decide"
+        ? decideReply(store.root, id, flash, inline)
         : new Response(null, {
             status: 303,
             headers: {

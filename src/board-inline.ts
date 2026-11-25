@@ -12,28 +12,32 @@ import { askCard } from "./board-thread-html.ts";
  */
 export const wantsCard = (req: Request): boolean => (req.headers.get("accept") ?? "").includes("application/json");
 
-/** `card`: the card's new html, null when it stays as it was (held, failed, gone). `v`: the page version now. */
-type CardReply = { card: string | null; note: string; bad: boolean; v: string };
+/**
+ * `seen`: the version the page sent was the board's version just before this write. `fresh`: the version now. Only
+ * then may the page take the version after its write; otherwise something else changed too and the page says so.
+ */
+type Inline = { now: number; token: string; headers: Record<string, string>; seen: boolean; fresh: () => string };
 
-const reply = (r: CardReply, headers: Record<string, string>): Response => Response.json(r, { headers });
+/**
+ * `card`: the card's new html, null when it stays as it was (held, failed). `gone`: the ask or post is no longer open,
+ * so its buttons go. `v`: the version the page shows now, null when another change came before this write.
+ */
+type CardReply = { card: string | null; gone: boolean; note: string; bad: boolean; v: string | null };
+
+const reply = (card: string | null, gone: boolean, flash: string, o: Inline): Response =>
+  Response.json({ card, gone, ...flashNote(flash), v: o.seen ? o.fresh() : null } satisfies CardReply, {
+    headers: o.headers,
+  });
 
 /** The answer to a background /decide: the ask's card as marked now, unless nothing was marked (held, failed). */
-export function decideReply(
-  home: string,
-  id: string,
-  flash: string,
-  o: { now: number; token: string; v: string; headers: Record<string, string> },
-): Response {
-  const ask = flash === "held" || flash === "failed" ? undefined : readAsk(home, id);
-  const card = ask?.status === "open" ? askCard(ask, o.now, o.token) : null;
-  return reply({ card, ...flashNote(flash), v: o.v }, o.headers);
+export function decideReply(home: string, id: string, flash: string, o: Inline): Response {
+  if (flash === "held" || flash === "failed") return reply(null, false, flash, o);
+  const ask = readAsk(home, id);
+  return ask?.status === "open" ? reply(askCard(ask, o.now, o.token), false, flash, o) : reply(null, true, flash, o);
 }
 
 /** The answer to a background /coupas the board accepted: the post's card with what posted.json says now. */
-export function coupasReply(
-  home: string,
-  id: string,
-  o: { token: string; v: string; headers: Record<string, string> },
-): Response {
-  return reply({ card: coupasCard(readCoupas(home), id, o.token), ...flashNote("coupas"), v: o.v }, o.headers);
+export function coupasReply(home: string, id: string, o: Inline): Response {
+  const card = coupasCard(readCoupas(home), id, o.token);
+  return reply(card, card === null, "coupas", o);
 }
