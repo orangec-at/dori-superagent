@@ -64,6 +64,12 @@ function card(p: CoupasPost, done: Posted | undefined, token: string | null, anc
   );
 }
 
+/** One post's card as the wide pane shows it (no anchor id), or null when posts.json no longer has it. */
+export function coupasCard(c: CoupasRead | null, id: string, token: string | null): string | null {
+  const p = c?.posts.find((x) => x.id === id);
+  return c && p ? card(p, c.posted[id], token, false) : null;
+}
+
 /** The cards grouped by day, today first, each day by time. `anchor`: the cards carry the ids a write returns to. */
 export function coupasTab(c: CoupasRead | null, now: number, token: string | null, anchor = true): string {
   if (!c?.posts.length) return EMPTY;
