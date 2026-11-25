@@ -14,6 +14,8 @@ export type Hooks = {
    * `[LEAD ROTATIONS]` summary as `leadRotation.notify` says.
    */
   readonly onLeadRotation?: ArgvTemplate;
+  /** Chat messages the lead's model provider refused with a rate limit, once each, as `{text}` (lead-ratelimit.ts). */
+  readonly onLeadRateLimited?: ArgvTemplate;
   readonly reviewCommand?: ArgvTemplate;
 };
 
@@ -23,7 +25,14 @@ export type HookVars = Partial<Record<"key" | "text" | "evidence" | "pr" | "repo
 /** `$DORI_HOME/config.json` is present but its `hooks` value is not the documented shape. */
 export class ConfigError extends Error {}
 
-const NAMES: readonly HookName[] = ["onReady", "onReport", "onLost", "onLeadRotation", "reviewCommand"];
+const NAMES: readonly HookName[] = [
+  "onReady",
+  "onReport",
+  "onLost",
+  "onLeadRotation",
+  "onLeadRateLimited",
+  "reviewCommand",
+];
 
 function template(name: string, value: unknown): ArgvTemplate {
   if (!Array.isArray(value) || value.length === 0)
