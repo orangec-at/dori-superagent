@@ -71,12 +71,13 @@ test("a client log is one line in the board's log, checked like any write, and c
   expect(s.logs.filter((l) => l.startsWith("BOARD_SHEET_CLIENT")).length).toBe(1);
   expect(s.logs.filter((l) => l.startsWith("BOARD_REJECT")).length).toBe(10);
   expect(fileOf(s.home, id).rev).toBe(1);
-  // An error on the page and the touch fix the editor applied are logged the same way.
-  for (const kind of ["error", "touch"])
+  // An error on the page, the touch fix the editor applied and its opening are logged the same way.
+  for (const kind of ["error", "touch", "open"])
     expect((await post(s.url, "/sheets", { ...log, kind, message: "m" }, tailnet())).status).toBe(204);
   expect(s.logs.filter((l) => l.startsWith("BOARD_SHEET_CLIENT")).slice(1)).toEqual([
     `BOARD_SHEET_CLIENT ${id} error 0 "m" vw=412 hidden=true`,
     `BOARD_SHEET_CLIENT ${id} touch 0 "m" vw=412 hidden=true`,
+    `BOARD_SHEET_CLIENT ${id} open 0 "m" vw=412 hidden=true`,
   ]);
 });
 
