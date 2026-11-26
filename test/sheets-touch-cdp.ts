@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SHEETS_STYLE, sheetPane } from "../src/board-sheets-html.ts";
 import { arrows } from "./sheets-touch-cdp-arrows.ts";
-import { dense, GRID } from "./sheets-touch-cdp-dense.ts";
+import { dense, GRID, MERGES, merged } from "./sheets-touch-cdp-dense.ts";
 
 const OUT = process.argv[2] ?? join(tmpdir(), "sheets-touch-cdp");
 const ASSETS = join(import.meta.dir, "..", "assets", "board", "sheets");
@@ -30,7 +30,7 @@ const snapshot = {
   id: "w",
   name: "touch",
   sheetOrder: ["s1"],
-  sheets: { s1: { id: "s1", name: "S1", rowCount: 100, columnCount: 20, cellData } },
+  sheets: { s1: { id: "s1", name: "S1", rowCount: 100, columnCount: 20, cellData, mergeData: MERGES } },
 };
 let onSave: (snapshot: unknown) => void = () => {};
 /** The snapshot of the next save, null after 5 seconds without one. */
@@ -187,7 +187,7 @@ await sleep(400);
 const tapped = await inputValue();
 await shot("1-tap-B2");
 check("tap", tapped === "B2", `input line "${tapped}" (want B2)`);
-
+await merged({ cdp, evaluate, touch, shot, check, grid, at }); // 1b, 1c. sheets-touch-cdp-dense.ts
 // 2. A double tap edits the cell in the input line.
 await touch([at(3, 2)]);
 await sleep(120);

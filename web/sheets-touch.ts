@@ -90,7 +90,11 @@ export function touchGrid(
       y: (skeleton.rowHeightAccumulation[s.sheetViewStartRow - 1] ?? 0) + s.offsetY,
     };
     const cell = skeleton.getCellWithCoordByOffset(ox, oy, zoom, zoom, scroll, { firstMatch: true });
-    return sheet.getRange(cell.actualRow, cell.actualColumn);
+    // A merged cell is selected whole, as Univer's convertCellToRange does for a click.
+    const m = cell.isMerged ? cell.mergeInfo : null;
+    return m
+      ? sheet.getRange(m.startRow, m.startColumn, m.endRow - m.startRow + 1, m.endColumn - m.startColumn + 1)
+      : sheet.getRange(cell.actualRow, cell.actualColumn);
   };
   const ours = (e: PointerEvent): boolean =>
     e.isTrusted && e.pointerType === "touch" && innerWidth < PHONE && (e.target as Element).tagName === "CANVAS";
@@ -219,7 +223,9 @@ export function touchGrid(
       return;
     }
     // Handed over as a mouse click, a tap left the selection where it was on an Android phone (PR #86's touch lines):
-    // the cell is selected here instead, with the same skeleton Univer reads.
+    // the cell is selected here instead, with the same skeleton Univer reads. What else Univer does on a click (put in
+    // its in-cell editor's text, add a reference to a formula being typed) needs that editor open, which a phone never
+    // has: it edits in the input line, and the dblclick that would open the editor is stopped below.
     const cell = cellAt(f.target, f.x, f.y);
     if (cell) book.setActiveRange(cell);
     else {
