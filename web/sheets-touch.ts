@@ -71,7 +71,8 @@ export function touchGrid(
   };
   /**
    * The cell under a point of the grid's canvas, found as Univer finds a clicked one (the skeleton at the sheet's zoom
-   * and scroll), or null on a header or a sheet with frozen rows or columns, which Univer is left to handle.
+   * and scroll), or null on a header or a sheet with frozen rows or columns, which Univer is left to handle as a mouse
+   * click (the way that did not select on PR #86's phone: those two may still not, a follow-up).
    */
   const cellAt = (canvas: EventTarget, x: number, y: number) => {
     const sheet = book.getActiveSheet();
@@ -91,7 +92,7 @@ export function touchGrid(
     };
     const cell = skeleton.getCellWithCoordByOffset(ox, oy, zoom, zoom, scroll, { firstMatch: true });
     // A merged cell is selected whole, as Univer's convertCellToRange does for a click.
-    const m = cell.isMerged ? cell.mergeInfo : null;
+    const m = cell.isMerged || cell.isMergedMainCell ? cell.mergeInfo : null;
     return m
       ? sheet.getRange(m.startRow, m.startColumn, m.endRow - m.startRow + 1, m.endColumn - m.startColumn + 1)
       : sheet.getRange(cell.actualRow, cell.actualColumn);

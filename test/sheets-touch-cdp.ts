@@ -187,7 +187,7 @@ await sleep(400);
 const tapped = await inputValue();
 await shot("1-tap-B2");
 check("tap", tapped === "B2", `input line "${tapped}" (want B2)`);
-await merged({ cdp, evaluate, touch, shot, check, grid, at }); // 1b, 1c. sheets-touch-cdp-dense.ts
+await merged({ cdp, evaluate, touch, shot, check, grid, at, saveNext }); // 1b-1d. sheets-touch-cdp-dense.ts
 // 2. A double tap edits the cell in the input line.
 await touch([at(3, 2)]);
 await sleep(120);
