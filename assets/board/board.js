@@ -95,6 +95,61 @@
   // The 쿠파스 tab: a copy button copies its card's text box exactly. Where the clipboard is refused, the box is
   // selected (and copied the old way when the browser still allows it) so a long press copies it.
   const shown = new WeakMap();
+  // A copied button turns its copy icon into a check and rolls its word up to 복사됨, then back with the status line.
+  // Rebuilt from DesignBookmark's Copy button (designbookmark.com/motion#db-copy-button) with its springs, "stiffness
+  // damping": the word 260 20, the icons 420 18. With prefers-reduced-motion each state is shown at once.
+  const still = matchMedia("(prefers-reduced-motion: reduce)");
+  const springs = new WeakMap();
+  const moving = new Set();
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const paint = (b, { r, i }) => {
+    const w = b.querySelector(".cpw");
+    const [icon, ok] = b.querySelectorAll(".cpi svg");
+    if (!w || !icon || !ok) return;
+    w.style.transform = `translateY(${(-w.firstElementChild.offsetHeight * r.x).toFixed(2)}px)`;
+    const x = clamp(i.x, -0.2, 1.2);
+    const y = clamp(i.x, 0, 1);
+    icon.style.opacity = clamp(1 - x * 1.6, 0, 1).toFixed(3);
+    icon.style.transform = `scale(${(1 - 0.5 * y).toFixed(3)}) rotate(${(-40 * y).toFixed(1)}deg)`;
+    ok.style.opacity = clamp(x * 1.6 - 0.4, 0, 1).toFixed(3);
+    ok.style.transform = `scale(${(0.4 + 0.6 * x).toFixed(3)})`;
+  };
+  let last = 0;
+  const frame = (now) => {
+    const dt = Math.min((now - last) / 1000, 1 / 30) / 4;
+    last = now;
+    for (const b of moving) {
+      const s = springs.get(b);
+      for (let k = 0; k < 4; k++)
+        for (const p of [s.r, s.i]) {
+          p.v += (-p.k * (p.x - p.t) - p.c * p.v) * dt;
+          p.x += p.v * dt;
+        }
+      if ([s.r, s.i].every((p) => Math.abs(p.x - p.t) < 1e-3 && Math.abs(p.v) < 1e-3)) {
+        for (const p of [s.r, s.i]) [p.x, p.v] = [p.t, 0];
+        moving.delete(b);
+      }
+      paint(b, s);
+    }
+    if (moving.size) requestAnimationFrame(frame);
+  };
+  const turn = (b, on) => {
+    const s = springs.get(b) ?? { r: { x: 0, v: 0, t: 0, k: 260, c: 20 }, i: { x: 0, v: 0, t: 0, k: 420, c: 18 } };
+    springs.set(b, s);
+    for (const p of [s.r, s.i]) p.t = on ? 1 : 0;
+    if (still.matches) {
+      for (const p of [s.r, s.i]) [p.x, p.v] = [p.t, 0];
+      moving.delete(b);
+      paint(b, s);
+      return;
+    }
+    if (!moving.size)
+      requestAnimationFrame((now) => {
+        last = now;
+        requestAnimationFrame(frame);
+      });
+    moving.add(b);
+  };
   document.addEventListener("click", async (e) => {
     const b = e.target instanceof Element ? e.target.closest("button[data-copy]") : null;
     const text = b?.closest(".cpf")?.querySelector("textarea");
@@ -116,11 +171,13 @@
     }
     tip.textContent = ok ? "복사했어요" : "선택했어요. 길게 눌러 복사해 주세요";
     tip.hidden = false;
+    turn(b, ok);
     clearTimeout(shown.get(tip));
     shown.set(
       tip,
       setTimeout(() => {
         tip.hidden = true;
+        turn(b, false);
       }, 1500),
     );
   });
