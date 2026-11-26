@@ -9,6 +9,7 @@ import { appendChat } from "./board-chat.ts";
 import { chanPost } from "./board-chan.ts";
 import { coupasPost, coupasVideo, readCoupas } from "./board-coupas.ts";
 import { readLinks } from "./board-links-file.ts";
+import { SHEET_BODY_MAX, sheetsPost, sheetsView } from "./board-sheets.ts";
 import { type BoardConfig, decideEnvelope, requestEnvelope } from "./board-config.ts";
 import { boardHtml, REQUEST_MAX } from "./board-html.ts";
 import { backlogReply, coupasReply, decideReply, wantsCard } from "./board-inline.ts";
@@ -28,6 +29,7 @@ import { PaneGone, Refusal } from "./refusal.ts";
 import type { Store } from "./store.ts";
 
 const BODY_MAX = 8 * 1024;
+const WRITES = ["decide", "request", "chan", "backlog", "coupas", "sheets"] as const;
 
 export type BoardOptions = {
   host: string;
@@ -53,7 +55,7 @@ const READ_API: Record<string, (store: Store, now: number, o: BoardOptions) => u
 
 const SECURITY_HEADERS = {
   "content-security-policy":
-    "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; img-src 'self'; manifest-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; manifest-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   "x-content-type-options": "nosniff",
   // no-referrer would make the browser send `Origin: null` on the board's own form posts, failing the same-origin check.
   "referrer-policy": "same-origin",
@@ -68,7 +70,8 @@ const text = (body: string, status: number): Response =>
  * tailnet, Cloudflare Access to its allowed logins). A write (POST /decide, POST /request) is accepted only from a
  * writer board-auth.ts accepts, from that writer's own https origin, with the CSRF token bound to that writer. It
  * delivers text to the lead, posts to Discord, edits the backlog (POST /backlog) and records a 쿠파스 post as posted
- * (POST /coupas, DORI_HOME/coupas-copy/posted.json only): there is no merge, done or deploy path here.
+ * (POST /coupas, DORI_HOME/coupas-copy/posted.json only) and saves a sheet (POST /sheets, DORI_HOME/sheets only): there
+ * is no merge, done or deploy path here.
  */
 export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
   if (!LOOPBACK_HOSTS.has(o.host))
@@ -85,7 +88,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
 
   const sources = o.sources ?? [];
   const versions = boardVersions(store, o.now, sources);
-  async function write(req: Request, kind: "decide" | "request" | "chan" | "backlog" | "coupas"): Promise<Response> {
+  async function write(req: Request, kind: (typeof WRITES)[number]): Promise<Response> {
     const w = await auth.writer(req);
     if ("code" in w) return reject(kind, w.code, w.why, 403);
     if (req.headers.get("origin") !== w.origin) return reject(kind, "origin", "forbidden: cross-origin request", 403);
@@ -93,9 +96,10 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
     if (site !== null && site !== "same-origin") return reject(kind, "site", "forbidden: cross-site request", 403);
     if (!(req.headers.get("content-type") ?? "").startsWith("application/x-www-form-urlencoded"))
       return reject(kind, "type", "unsupported content type", 415);
-    if (Number(req.headers.get("content-length") ?? "0") > BODY_MAX) return reject(kind, "size", "too large", 413);
+    const max = kind === "sheets" ? SHEET_BODY_MAX : BODY_MAX;
+    if (Number(req.headers.get("content-length") ?? "0") > max) return reject(kind, "size", "too large", 413);
     const raw = await req.text();
-    if (raw.length > BODY_MAX) return reject(kind, "size", "too large", 413);
+    if (raw.length > max) return reject(kind, "size", "too large", 413);
     const form = new URLSearchParams(raw);
     const given = Buffer.from(form.get("csrf") ?? "");
     const want = Buffer.from(tokenFor(w.id));
@@ -107,6 +111,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
       headers: SECURITY_HEADERS,
     };
     if (kind === "chan") return chanPost(sources, form, out);
+    if (kind === "sheets") return sheetsPost(store.root, o.now(), form, out, wantsCard(req));
     // A background answer (board.js) gets the card's new state; the checks above are the same for it.
     const card = wantsCard(req)
       ? { now: o.now(), token: tokenFor(w.id), headers: SECURITY_HEADERS, fresh: versions.fresh }
@@ -199,11 +204,8 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
       const url = new URL(req.url);
       if (req.method === "POST") {
         if (!auth.knownHost(hostnameOf(req))) return reject("write", "host", "forbidden: unknown host", 403);
-        if (url.pathname === "/decide") return write(req, "decide");
-        if (url.pathname === "/request") return write(req, "request");
-        if (url.pathname === "/chan" || url.pathname === "/discord") return write(req, "chan");
-        if (url.pathname === "/backlog") return write(req, "backlog");
-        if (url.pathname === "/coupas") return write(req, "coupas");
+        const kind = WRITES.find((k) => url.pathname === `/${k}` || (k === "chan" && url.pathname === "/discord"));
+        if (kind) return write(req, kind);
         return text("not found", 404);
       }
       if (req.method !== "GET" && req.method !== "HEAD") return text("method not allowed", 405);
@@ -222,6 +224,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
           live: await tabLive(view.tab, store, now, o.office),
           timelines: view.tab === "timeline" ? readTimelines(store.root) : null,
           coupas: view.tab === "coupas" ? readCoupas(store.root) : null,
+          sheets: view.tab === "sheets" ? sheetsView(store.root, view.s ?? null) : null,
           channels: pageSources(sources, !("code" in w)),
           ...(flash ? { flash } : {}),
         });
@@ -241,7 +244,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
       if (url.pathname.startsWith("/avatar/")) return avatarResponse(store.root, url.pathname.slice("/avatar/".length));
       if (url.pathname === "/manifest.webmanifest")
         return Response.json(MANIFEST, { headers: { "content-type": "application/manifest+json" } });
-      return staticResponse(url.pathname) ?? text("not found", 404);
+      return staticResponse(url.pathname, req) ?? text("not found", 404);
     },
   });
 }

@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/fixtures", "!**/*.md", "!docs/**/*.svg"]
+    "includes": ["**", "!**/fixtures", "!**/*.md", "!docs/**/*.svg", "!assets/board/sheets"]
   },
   "formatter": {
     "enabled": true,

@@ -7,14 +7,16 @@
     "skills/dori-mode/scripts/test/record-fetch.ts",
     "test/tmp-sandbox.ts",
     "skills/dori-mode/scripts/test/tmp-sandbox.ts",
-    "scripts/check-tmp-leak.ts"
+    "scripts/check-tmp-leak.ts",
+    "web/sheets.ts"
   ],
   "project": [
     "src/**/*.ts",
     "scripts/**/*.ts",
     "test/**/*.ts",
     "skills/dori-mode/scripts/src/**/*.ts",
-    "skills/dori-mode/scripts/test/**/*.ts"
+    "skills/dori-mode/scripts/test/**/*.ts",
+    "web/**/*.ts"
   ],
   "ignoreExportsUsedInFile": true
 }

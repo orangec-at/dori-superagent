@@ -11,18 +11,24 @@
   "scripts": {
     "check": "biome check .",
     "fmt": "biome format --write .",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p skills/dori-mode/scripts/tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p skills/dori-mode/scripts/tsconfig.json && tsc --noEmit -p web/tsconfig.json",
     "lint:loc": "bun scripts/check-loc.ts",
     "knip": "knip",
     "test": "bun test ./test/",
     "test:skill": "cd skills/dori-mode/scripts && bun test",
     "ci": "bun run check && bun run typecheck && bun run knip && bun run lint:loc && bun run test:tmp",
-    "test:tmp": "bun scripts/check-tmp-leak.ts"
+    "test:tmp": "bun scripts/check-tmp-leak.ts",
+    "build:sheets": "rm -rf assets/board/sheets && bun build web/sheets.ts --outdir assets/board/sheets --target browser --format esm --splitting --minify --entry-naming '[name].[ext]' --chunk-naming 'chunk-[hash].[ext]' --define 'process.env.NODE_ENV=\"production\"'"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",
     "@types/bun": "^1.4.4",
+    "@univerjs/preset-sheets-core": "1.6.2",
+    "@univerjs/presets": "1.6.2",
     "knip": "^6.44.2",
+    "react": "18",
+    "react-dom": "18",
+    "rxjs": "^7.8.2",
     "typescript": "^5.9"
   },
   "engines": {
