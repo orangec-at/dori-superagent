@@ -8,7 +8,9 @@
  * hidden) may still have been written, so the next save names it in `lost` and the board goes on from it instead of
  * answering 409. A failure is reported to the board (action=clientlog: kind, status, message, width, hidden; no cell
  * text), and one sent while the page was hidden is sent again once it shows. The first few errors on the page are
- * reported the same way.
+ * reported the same way, and so is each opening (`open`: the bundle's v, the width, touch and pointer support, the
+ * start of the user agent), so the log shows which page a phone runs. A report goes through the board's write checks
+ * (writer, origin, CSRF): from a read-only page it is refused, which the board logs as `BOARD_REJECT sheets 403`.
  *
  * Under 600px (a folded Fold, a phone) the ribbon and formula bar are hidden, the selected cell is shown and a
  * double-tapped one edited in the input line at the bottom (sheets-bar.ts), and one finger scrolls the grid
@@ -56,9 +58,20 @@ if (box && host && data && state) {
   };
   addEventListener("error", (e) => reportError(e.error ?? e.message));
   addEventListener("unhandledrejection", (e) => reportError(e.reason));
+  // Taken before the touch fix below changes it.
+  const touchEnd = "ontouchend" in document;
+  const script = document.querySelector<HTMLScriptElement>('script[src*="/sheets/sheets.js"]');
+  const v = script ? (new URL(script.src).searchParams.get("v") ?? "-") : "-";
+  report(
+    "open",
+    0,
+    `v=${v} ontouchend=${touchEnd} pointer=${"PointerEvent" in window} coarse=${matchMedia("(pointer: coarse)").matches} ` +
+      `touches=${navigator.maxTouchPoints} ua=${navigator.userAgent.slice(0, 60)}`,
+    document.hidden,
+  );
   // On an Android browser whose document has no ontouchend, Univer's engine listens to mouse events instead of
   // pointer events, and its input manager takes pointer events only: no tap or drag would select anything.
-  if (TABLET.test(navigator.userAgent) && !("ontouchend" in document)) {
+  if (TABLET.test(navigator.userAgent) && !touchEnd) {
     Object.defineProperty(document, "ontouchend", { value: null, configurable: true, writable: true });
     report("touch", 0, "no ontouchend on document: given one so Univer reads pointer events", document.hidden);
   }
@@ -69,7 +82,13 @@ if (box && host && data && state) {
       UniverSheetsCorePreset({
         container: host,
         ...(innerWidth < PHONE
-          ? { toolbar: false, formulaBar: false, footer: { statisticBar: false, menus: false } }
+          ? {
+              toolbar: false,
+              formulaBar: false,
+              footer: { statisticBar: false, menus: false },
+              // The input line's arrows stop at the sheet's edge instead of going on to the next row or column.
+              sheets: { allowArrowKeyWrapOnSheetBoundary: false },
+            }
           : innerWidth < WIDE
             ? { ribbonType: "collapsed" as const, footer: { statisticBar: false } }
             : {}),

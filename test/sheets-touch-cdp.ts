@@ -15,6 +15,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SHEETS_STYLE, sheetPane } from "../src/board-sheets-html.ts";
+import { arrows } from "./sheets-touch-cdp-arrows.ts";
 
 const OUT = process.argv[2] ?? join(tmpdir(), "sheets-touch-cdp");
 const ASSETS = join(import.meta.dir, "..", "assets", "board", "sheets");
@@ -22,10 +23,8 @@ const COLS = 6;
 const ROWS = 60;
 const name = (r: number, c: number): string => `${"ABCDEF"[c]}${r + 1}`;
 const cellData: Record<number, Record<number, { v: string }>> = {};
-for (let r = 0; r < ROWS; r++) {
-  cellData[r] = {};
-  for (let c = 0; c < COLS; c++) (cellData[r] as Record<number, { v: string }>)[c] = { v: name(r, c) };
-}
+for (let r = 0; r < ROWS; r++)
+  cellData[r] = Object.fromEntries(Array.from({ length: COLS }, (_, c) => [c, { v: name(r, c) }]));
 const snapshot = {
   id: "w",
   name: "touch",
@@ -33,6 +32,12 @@ const snapshot = {
   sheets: { s1: { id: "s1", name: "S1", rowCount: 100, columnCount: 20, cellData } },
 };
 let onSave: (snapshot: unknown) => void = () => {};
+/** The snapshot of the next save, null after 5 seconds without one. */
+const saveNext = (): Promise<unknown> =>
+  new Promise((ok) => {
+    onSave = ok;
+    setTimeout(() => ok(null), 5000);
+  });
 const logs: string[] = [];
 const file = { rev: 1, savedAt: new Date().toISOString(), snapshot };
 const page = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -175,6 +180,8 @@ const check = (label: string, ok: boolean, detail: string): void => {
   results.push(`${ok ? "PASS" : "FAIL"} ${label}: ${detail}`);
 };
 
+await arrows({ evaluate, touch, shot, check, cdp, saveNext }); // 0. sheets-touch-cdp-arrows.ts
+
 // 1. A tap selects the cell: the input line shows its value.
 await touch([at(1, 1)]);
 await sleep(400);
@@ -203,10 +210,7 @@ await sleep(200);
 await touch([at(1, 0), ...line(at(1, 0), at(3, 1), 8)], 700, 40);
 await sleep(400);
 await shot("3-hold-drag-A2-B4");
-const nextSave = new Promise((ok) => {
-  onSave = ok;
-  setTimeout(() => ok(null), 5000);
-});
+const nextSave = saveNext();
 await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
 await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
 const saved = (await nextSave) as { sheets?: { s1?: { cellData?: Record<number, Record<number, { v?: unknown }>> } } };

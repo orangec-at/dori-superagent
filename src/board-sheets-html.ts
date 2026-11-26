@@ -14,7 +14,7 @@ button:where(#sheet *){font:revert;min-height:revert;min-width:revert;padding:re
 .shp #shs{flex:none;margin:0;min-height:30px;padding:5px 12px calc(5px + env(safe-area-inset-bottom));border-top:1px solid var(--line);font-size:14px;text-align:center}@media (max-width:1023px){#shsave{min-height:44px;min-width:64px}}
 .shbar{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:6px 8px calc(6px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--line)}@media (min-width:600px){.shbar{display:none}}@media (max-width:599px){.shp #shs:empty,body:has(#shinput:focus) .shp #shs{display:none}}
 .shin{display:flex;align-items:center;gap:8px;padding:3px 3px 3px 14px;border:2px solid var(--line);border-radius:26px}.shin i{font:italic 700 20px serif;color:var(--muted)}.shin input{flex:1;min-width:0;min-height:42px;border:0;outline:0;background:transparent;color:var(--text);font:inherit;font-size:16px}.shin button{width:44px;min-width:44px;height:44px;padding:0;border-radius:50%;font-size:20px}
-.shsym{display:flex;gap:5px;margin-top:6px}.shsym button{flex:1;min-width:0;min-height:42px;padding:0;border-radius:10px;font-size:18px}`;
+.shsym{display:flex;gap:5px;margin-top:6px;overflow-x:auto;scrollbar-width:none}.shsym button{flex:1 0 40px;min-width:40px;min-height:42px;padding:0;border-radius:10px;font-size:18px}.shsym .sharr{flex-basis:46px;font-weight:700}`;
 
 const KST = 9 * 3_600_000;
 const kstOf = (iso: string): string => new Date(Date.parse(iso) + KST).toISOString().slice(5, 16).replace("T", " ");

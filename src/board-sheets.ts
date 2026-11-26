@@ -28,7 +28,7 @@ const ID = /^[a-z0-9-]{1,40}$/;
 const SID = /^[0-9a-f]{16}$/;
 /** The editor names at most this many of its saves whose answer it never got. */
 const LOST_MAX = 8;
-const CLIENT_KINDS = new Set(["network", "keepalive", "http", "retry", "error", "touch"]);
+const CLIENT_KINDS = new Set(["network", "keepalive", "http", "retry", "error", "touch", "open"]);
 const CLIENT_MAX = 2048;
 
 const dir = (home: string): string => join(home, "sheets");
@@ -143,8 +143,8 @@ const intIn = (v: string | null, max: number): number | null =>
   v !== null && /^\d{1,5}$/.test(v) && Number(v) <= max ? Number(v) : null;
 
 /**
- * action=clientlog: the editor reports why a save failed, an error on its page (`error`) or a touch fix it applied
- * (`touch`), one line in the board's log and nothing written. It carries no cell text, only the failure (kind, HTTP
+ * action=clientlog: the editor reports why a save failed, an error on its page (`error`), a touch fix it applied
+ * (`touch`) or its opening (`open`: bundle version, screen and touch support, the start of the user agent), one line in the board's log and nothing written. It carries no cell text, only the failure (kind, HTTP
  * status, the error's message) and the screen (width, hidden or not).
  */
 function clientLog(home: string, form: URLSearchParams, o: Out): Response {
