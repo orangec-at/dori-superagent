@@ -208,7 +208,8 @@
   });
 
   async function poll() {
-    if (document.hidden) return;
+    // An open sheet (시트 tab) saves itself and is never reloaded under the operator's edits.
+    if (document.hidden || document.querySelector("[data-sheet]")) return;
     let next = version;
     try {
       const res = await fetch("/api/version", { cache: "no-store" });

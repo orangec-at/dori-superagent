@@ -1,0 +1,2 @@
+# bun run build:sheets output (web/sheets.ts): not reviewed by hand.
+assets/board/sheets/** linguist-generated=true -diff
