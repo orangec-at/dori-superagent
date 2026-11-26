@@ -8,7 +8,8 @@
     "test/tmp-sandbox.ts",
     "skills/dori-mode/scripts/test/tmp-sandbox.ts",
     "scripts/check-tmp-leak.ts",
-    "web/sheets.ts"
+    "web/sheets.ts",
+    "test/sheets-touch-cdp.ts"
   ],
   "project": [
     "src/**/*.ts",

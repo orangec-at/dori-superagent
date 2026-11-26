@@ -14,6 +14,8 @@ type Book = ReturnType<API["createWorkbook"]>;
 
 const SYMBOLS = ["=", "(", ")", ":", "-", "/", "*", ",", "+", "$", "."];
 const NUMBER = /^-?\d+(\.\d+)?$/;
+/** How long after a double tap the input line keeps the focus it took. */
+const REFOCUS_MS = 1000;
 
 export function phoneBar(api: API, book: Book, host: HTMLElement, box: HTMLElement, changed: () => void): void {
   const bar = document.createElement("div");
@@ -54,10 +56,15 @@ export function phoneBar(api: API, book: Book, host: HTMLElement, box: HTMLEleme
   api.addEvent(api.Event.LifeCycleChanged, fill);
   touchGrid(api, book, host, {
     tap: fill,
-    // Univer moves the focus to its hidden editor right after the tap it was handed: the line takes it back after that.
+    // Univer moves the focus to its hidden editor a moment after the tap that selected the cell: the line takes it back.
     doubleTap: () => {
       fill();
-      setTimeout(() => input.focus(), 0);
+      input.focus();
+      const back = (e: FocusEvent): void => {
+        if (e.target !== input) input.focus();
+      };
+      document.addEventListener("focusin", back);
+      setTimeout(() => document.removeEventListener("focusin", back), REFOCUS_MS);
     },
   });
 

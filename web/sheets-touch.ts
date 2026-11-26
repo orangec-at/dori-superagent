@@ -15,7 +15,7 @@ const PHONE = 600;
 const SLOP = 10;
 /** Held this long without moving, the finger selects a range instead of scrolling. */
 const HOLD_MS = 500;
-/** A second tap this soon and this close to the first one is a double tap. */
+/** A second tap pressed this soon after the first one lifted, and this close to it, is a double tap. */
 const DOUBLE_MS = 350;
 const DOUBLE_SLOP = 30;
 /** After a flick the sheet glides on, slowing by this much each frame, and stops under STOP px a frame. */
@@ -34,6 +34,7 @@ export function touchGrid(api: API, book: Book, host: HTMLElement, on: { tap(): 
     lastX: number;
     lastY: number;
     at: number;
+    down: number;
     vx: number;
     vy: number;
     mode: "wait" | "scroll" | "select";
@@ -76,6 +77,7 @@ export function touchGrid(api: API, book: Book, host: HTMLElement, on: { tap(): 
         lastX: e.clientX,
         lastY: e.clientY,
         at: e.timeStamp,
+        down: Date.now(),
         vx: 0,
         vy: 0,
         mode: "wait",
@@ -151,12 +153,17 @@ export function touchGrid(api: API, book: Book, host: HTMLElement, on: { tap(): 
       glide = requestAnimationFrame(step);
       return;
     }
+    const double = f.down - lastTap.at < DOUBLE_MS && Math.hypot(f.x - lastTap.x, f.y - lastTap.y) < DOUBLE_SLOP;
+    lastTap = double ? { at: 0, x: 0, y: 0 } : { at: Date.now(), x: f.x, y: f.y };
+    // The first tap selected the cell. Handed over too, the second would be Univer's double click, which opens its
+    // in-cell editor and takes the focus after the input line took it.
+    if (double) {
+      on.doubleTap();
+      return;
+    }
     asMouse("pointerdown", f.target, f.id, f.x, f.y);
     asMouse("pointerup", f.target, f.id, f.x, f.y);
-    const double = Date.now() - lastTap.at < DOUBLE_MS && Math.hypot(f.x - lastTap.x, f.y - lastTap.y) < DOUBLE_SLOP;
-    lastTap = double ? { at: 0, x: 0, y: 0 } : { at: Date.now(), x: f.x, y: f.y };
-    if (double) on.doubleTap();
-    else on.tap();
+    on.tap();
   };
   host.addEventListener("pointerup", end, true);
   host.addEventListener("pointercancel", end, true);

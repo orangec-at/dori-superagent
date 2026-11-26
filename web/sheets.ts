@@ -7,7 +7,8 @@
  * Each save carries its own id (sid). One whose answer never came (the connection dropped, often while the page was
  * hidden) may still have been written, so the next save names it in `lost` and the board goes on from it instead of
  * answering 409. A failure is reported to the board (action=clientlog: kind, status, message, width, hidden; no cell
- * text), and one sent while the page was hidden is sent again once it shows.
+ * text), and one sent while the page was hidden is sent again once it shows. The first few errors on the page are
+ * reported the same way.
  *
  * Under 600px (a folded Fold, a phone) the ribbon and formula bar are hidden, the selected cell is shown and a
  * double-tapped one edited in the input line at the bottom (sheets-bar.ts), and one finger scrolls the grid
@@ -26,6 +27,9 @@ const SAVE_AFTER_MS = 1500;
 const KEEPALIVE_MAX = 60_000;
 const PHONE = 600;
 const WIDE = 1024;
+/** Univer's own test for a tablet's user agent (the one under which its engine may read mouse events). */
+const TABLET = /ipad|android|xoom|sch-i800|playbook|tablet|kindle/i;
+const ERRORS_MAX = 3;
 const zoomFor = (w: number): number => (w < PHONE ? 1.1 : w < WIDE ? 1.15 : 1);
 
 const box = document.querySelector<HTMLElement>("[data-sheet]");
@@ -38,6 +42,26 @@ if (box && host && data && state) {
   const id = box.dataset["sheet"] ?? "";
   const csrf = box.dataset["csrf"] ?? "";
   let rev = Number(box.dataset["rev"] ?? "0");
+  /** One line in the board's log (a failed save, an error on the page); a report that cannot be sent is dropped. */
+  const report = (kind: string, status: number, message: string, hidden: boolean): void => {
+    const form = { csrf, action: "clientlog", id, kind, status: String(status), message: message.slice(0, 200) };
+    const body = new URLSearchParams({ ...form, vw: String(innerWidth), hidden: hidden ? "1" : "0" });
+    fetch("/sheets", { method: "POST", body, cache: "no-store", keepalive: true }).catch(() => {});
+  };
+  // The first few errors on the page, by name and message only (no cell text): what a phone hit is in the board's log.
+  let errors = 0;
+  const reportError = (e: unknown): void => {
+    if (errors++ < ERRORS_MAX)
+      report("error", 0, e instanceof Error ? `${e.name}: ${e.message}` : String(e), document.hidden);
+  };
+  addEventListener("error", (e) => reportError(e.error ?? e.message));
+  addEventListener("unhandledrejection", (e) => reportError(e.reason));
+  // On an Android browser whose document has no ontouchend, Univer's engine listens to mouse events instead of
+  // pointer events, and its input manager takes pointer events only: no tap or drag would select anything.
+  if (TABLET.test(navigator.userAgent) && !("ontouchend" in document)) {
+    Object.defineProperty(document, "ontouchend", { value: null, configurable: true, writable: true });
+    report("touch", 0, "no ontouchend on document: given one so Univer reads pointer events", document.hidden);
+  }
   const { univerAPI } = createUniver({
     locale: LocaleType.KO_KR,
     locales: { [LocaleType.KO_KR]: mergeLocales(koKR) },
@@ -91,12 +115,6 @@ if (box && host && data && state) {
   let againOnShow = false;
   const sidOf = (): string =>
     [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, "0")).join("");
-  /** One line in the board's log about a failed save; a report that cannot be sent is dropped. */
-  const report = (kind: string, status: number, message: string, hidden: boolean): void => {
-    const form = { csrf, action: "clientlog", id, kind, status: String(status), message: message.slice(0, 200) };
-    const body = new URLSearchParams({ ...form, vw: String(innerWidth), hidden: hidden ? "1" : "0" });
-    fetch("/sheets", { method: "POST", body, cache: "no-store", keepalive: true }).catch(() => {});
-  };
 
   async function save(): Promise<void> {
     clearTimeout(timer);
