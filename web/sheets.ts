@@ -44,21 +44,32 @@ if (box && host && data && state) {
       UniverSheetsCorePreset({
         container: host,
         ...(innerWidth < PHONE
-          ? { toolbar: false, formulaBar: false, footer: { statisticBar: false, menus: false, zoomSlider: false } }
+          ? { toolbar: false, formulaBar: false, footer: { statisticBar: false, menus: false } }
           : innerWidth < WIDE
             ? { ribbonType: "collapsed" as const, footer: { statisticBar: false } }
             : {}),
       }),
     ],
   });
-  // Opening draws each sheet at the zoom for this screen (zoomRatio is the sheet's own view setting, so it is not a
-  // change); the facade's zoom() sets it again when the screen changes (a Fold opened).
-  const snapshot = JSON.parse(data.textContent ?? "{}") as { sheets?: Record<string, { zoomRatio?: number }> };
-  for (const s of Object.values(snapshot.sheets ?? {})) s.zoomRatio = zoomFor(innerWidth);
+  // Under 1024px opening draws each sheet at the zoom for this screen (zoomRatio is the sheet's own view setting, so it
+  // is not a change) and the facade's zoom() sets it again when the screen changes (a Fold opened). The zoom the sheet
+  // was saved with goes back into every save made at that width, so a desktop's own zoom is kept.
+  type Sheets = Record<string, { zoomRatio?: number }>;
+  const snapshot = JSON.parse(data.textContent ?? "{}") as { sheets?: Sheets };
+  const kept = new Map(Object.entries(snapshot.sheets ?? {}).map(([k, s]) => [k, s.zoomRatio]));
+  if (innerWidth < WIDE) for (const s of Object.values(snapshot.sheets ?? {})) s.zoomRatio = zoomFor(innerWidth);
   const book = univerAPI.createWorkbook(snapshot);
-  let zoomed = zoomFor(innerWidth);
+  const snap = (): string => {
+    const out = book.save() as { sheets?: Sheets };
+    if (innerWidth < WIDE)
+      for (const [k, s] of Object.entries(out.sheets ?? {}))
+        if (kept.get(k) === undefined) delete s.zoomRatio;
+        else s.zoomRatio = kept.get(k) as number;
+    return JSON.stringify(out);
+  };
+  let zoomed = innerWidth < WIDE ? zoomFor(innerWidth) : null;
   const fit = (): void => {
-    if (zoomFor(innerWidth) === zoomed) return;
+    if (innerWidth >= WIDE || zoomFor(innerWidth) === zoomed) return;
     zoomed = zoomFor(innerWidth);
     for (const s of book.getSheets()) s.zoom(zoomed);
   };
@@ -68,7 +79,7 @@ if (box && host && data && state) {
     state.classList.toggle("bad", bad);
   };
 
-  let saved = JSON.stringify(book.save());
+  let saved = snap();
   let dirty = false;
   let saving = false;
   let stopped = false;
@@ -90,7 +101,7 @@ if (box && host && data && state) {
     clearTimeout(timer);
     if (!dirty || saving || stopped) return;
     dirty = false;
-    const snapshot = JSON.stringify(book.save());
+    const snapshot = snap();
     if (snapshot === saved) return say("저장했어요");
     saving = true;
     say("저장 중…");
@@ -163,7 +174,7 @@ if (box && host && data && state) {
       clearTimeout(timer);
       timer = setTimeout(save, SAVE_AFTER_MS);
     });
-    if (innerWidth < PHONE) phoneBar(univerAPI, book, host, box, () => setTimeout(save, 0));
+    phoneBar(univerAPI, book, host, box, () => setTimeout(save, 0));
     button?.addEventListener("click", () => {
       void save();
     });

@@ -155,7 +155,8 @@ function clientLog(form: URLSearchParams, o: Out): Response {
   const hidden = form.get("hidden");
   if (!ID.test(id) || !CLIENT_KINDS.has(kind) || status === null || vw === null || (hidden !== "1" && hidden !== "0"))
     return o.reject("clientlog", "bad client log", 400);
-  const message = (form.get("message") ?? "").replace(/\p{Cc}+/gu, " ").slice(0, 200);
+  // Quoted, so no message can pass for the fields after it; line breaks of any kind become spaces.
+  const message = JSON.stringify((form.get("message") ?? "").replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ").slice(0, 200));
   o.log(`BOARD_SHEET_CLIENT ${id} ${kind} ${status} ${message} vw=${vw} hidden=${hidden === "1"}`);
   return new Response(null, { status: 204, headers: o.headers });
 }

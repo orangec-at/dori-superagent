@@ -3,7 +3,7 @@
  * line fixed at the bottom of the screen and focuses it, so the keyboard comes up at once; Enter or the check button
  * puts the text in that cell (a change like any other, saved by sheets.ts). Under it a row of symbol buttons inserts
  * its character at the caret without taking the focus away. The line follows visualViewport, so the keyboard never
- * covers it.
+ * covers it. It is always there and shown only under 600px (CSS), so a Fold folded after opening gets it too.
  */
 import type { createUniver } from "@univerjs/presets";
 
@@ -14,6 +14,7 @@ const SYMBOLS = ["=", "(", ")", ":", "-", "/", "*", ",", "+", "$", "."];
 /** A finger that moved further than this between down and up was scrolling the grid, not tapping a cell. */
 const TAP_SLOP = 10;
 const NUMBER = /^-?\d+(\.\d+)?$/;
+const PHONE = 600;
 
 export function phoneBar(api: API, book: Book, host: HTMLElement, box: HTMLElement, changed: () => void): void {
   const bar = document.createElement("div");
@@ -38,35 +39,46 @@ export function phoneBar(api: API, book: Book, host: HTMLElement, box: HTMLEleme
   addEventListener("resize", place);
   place();
 
-  const active = () => book.getActiveSheet().getActiveRange();
+  /** The active cell only: a selection of several cells still gets the text in its first one, as in Google Sheets. */
+  const active = () => {
+    const sheet = book.getActiveSheet();
+    const r = sheet.getActiveRange();
+    return r ? sheet.getRange(r.getRow(), r.getColumn()) : null;
+  };
   const fill = (): void => {
     const r = active();
     input.value = r ? r.getFormula() || String(r.getValue() ?? "") : "";
   };
   api.addEvent(api.Event.SelectionChanged, fill);
 
+  // A selection ending on the grid (Univer's own pointerup, which also moved the focus to its hidden editor) focuses
+  // the line, unless the finger moved: that was a scroll. A tap on the sheet bar, a menu or a scrollbar selects nothing.
   let down: { x: number; y: number } | null = null;
+  let tap = false;
   host.addEventListener(
     "pointerdown",
     (e) => {
       down = { x: e.clientX, y: e.clientY };
+      tap = false;
     },
     true,
   );
   host.addEventListener(
     "pointerup",
     (e) => {
-      const tap = down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < TAP_SLOP;
+      tap = down !== null && Math.hypot(e.clientX - down.x, e.clientY - down.y) < TAP_SLOP;
       down = null;
-      if (!tap) return;
-      // After Univer's own handling of the same tap, which moves the selection (and the focus to its hidden editor).
-      setTimeout(() => {
-        fill();
-        input.focus();
-      }, 0);
     },
     true,
   );
+  api.addEvent(api.Event.SelectionMoveEnd, () => {
+    setTimeout(() => {
+      if (!tap || innerWidth >= PHONE) return;
+      tap = false;
+      fill();
+      input.focus();
+    }, 0);
+  });
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();

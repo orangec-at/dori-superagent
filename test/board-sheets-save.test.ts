@@ -44,12 +44,12 @@ test("a client log is one line in the board's log, checked like any write, and c
   const s = start();
   const { id, csrf } = await made(s);
   const log = { csrf, action: "clientlog", id, kind: "keepalive", status: "0", vw: "412", hidden: "1" };
-  const message = `TypeError: Failed to fetch\n${"x".repeat(300)}`;
+  const message = `TypeError: Failed\u2028to fetch vw=1 hidden=false\n${"x".repeat(300)}`;
   const ok = await post(s.url, "/sheets", { ...log, message }, tailnet());
   expect(ok.status).toBe(204);
   const lines = s.logs.filter((l) => l.startsWith("BOARD_SHEET_CLIENT"));
   expect(lines).toEqual([
-    `BOARD_SHEET_CLIENT ${id} keepalive 0 ${`TypeError: Failed to fetch ${"x".repeat(300)}`.slice(0, 200)} vw=412 hidden=true`,
+    `BOARD_SHEET_CLIENT ${id} keepalive 0 ${JSON.stringify(`TypeError: Failed to fetch vw=1 hidden=false ${"x".repeat(300)}`.slice(0, 200))} vw=412 hidden=true`,
   ]);
   for (const [form, status] of [
     [{ ...log, kind: "snapshot" }, 400],
