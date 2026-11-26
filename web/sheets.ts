@@ -9,8 +9,9 @@
  * answering 409. A failure is reported to the board (action=clientlog: kind, status, message, width, hidden; no cell
  * text), and one sent while the page was hidden is sent again once it shows.
  *
- * Under 600px (a folded Fold, a phone) the ribbon and formula bar are hidden and a tapped cell is edited in the input
- * line at the bottom (sheets-bar.ts); up to 1024px the ribbon is collapsed and the cells drawn a little larger. Only
+ * Under 600px (a folded Fold, a phone) the ribbon and formula bar are hidden, the selected cell is shown and a
+ * double-tapped one edited in the input line at the bottom (sheets-bar.ts), and one finger scrolls the grid
+ * (sheets-touch.ts); up to 1024px the ribbon is collapsed and the cells drawn a little larger. Only
  * Univer's open source options, its facade and the sheet's zoom are used.
  */
 import "@univerjs/preset-sheets-core/lib/index.css";
