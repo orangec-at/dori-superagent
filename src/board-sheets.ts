@@ -143,8 +143,8 @@ const intIn = (v: string | null, max: number): number | null =>
   v !== null && /^\d{1,5}$/.test(v) && Number(v) <= max ? Number(v) : null;
 
 /**
- * action=clientlog: the editor reports why a save failed, an error on its page (`error`), a touch fix it applied
- * (`touch`) or its opening (`open`: bundle version, screen and touch support, the start of the user agent), one line in the board's log and nothing written. It carries no cell text, only the failure (kind, HTTP
+ * action=clientlog: the editor reports why a save failed, an error on its page (`error`), a touch fix it applied or
+ * how a finger lift on the grid went (`touch`) or its opening (`open`: bundle version, screen and touch support, the start of the user agent), one line in the board's log and nothing written. It carries no cell text, only the failure (kind, HTTP
  * status, the error's message) and the screen (width, hidden or not).
  */
 function clientLog(home: string, form: URLSearchParams, o: Out): Response {

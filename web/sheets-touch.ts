@@ -24,8 +24,19 @@ const STOP = 0.5;
 /** A move this much longer on one axis than the other scrolls on that axis only. */
 const LOCK = 2;
 const SCROLL = "sheet.command.set-scroll-relative";
+/** The first this many finger lifts on a page are each reported in one `touch` line (sheets.ts' report). */
+const TRACES_MAX = 8;
 
-export function touchGrid(api: API, book: Book, host: HTMLElement, on: { tap(): void; doubleTap(): void }): void {
+/** sheets.ts' report: one line in the board's log. */
+export type Report = (kind: string, status: number, message: string, hidden: boolean) => void;
+
+export function touchGrid(
+  api: API,
+  book: Book,
+  host: HTMLElement,
+  on: { tap(): void; doubleTap(): void },
+  report: Report,
+): void {
   let finger: {
     id: number;
     target: EventTarget;
@@ -44,6 +55,7 @@ export function touchGrid(api: API, book: Book, host: HTMLElement, on: { tap(): 
   let glide = 0;
   let lastTap = { at: 0, x: 0, y: 0 };
   let lastTouch = 0;
+  let traces = 0;
 
   const scrollBy = (dx: number, dy: number): void => {
     const zoom = book.getActiveSheet().getZoom() || 1;
@@ -123,7 +135,29 @@ export function touchGrid(api: API, book: Book, host: HTMLElement, on: { tap(): 
     },
     true,
   );
+  /** How a lift went in, before anything is decided on it: which way a tap was lost shows in the board's log. */
+  const trace = (e: PointerEvent): void => {
+    const f = finger;
+    // The grid's canvas the finger is on (the host's first canvas may be another one, not drawn).
+    const canvas = e.target instanceof HTMLCanvasElement ? e.target : host.querySelector("canvas");
+    const d = f ? Math.round(Math.hypot(e.clientX - f.x, e.clientY - f.y)) : -1;
+    const cv = canvas ? `${Math.round(canvas.getBoundingClientRect().width)}/${canvas.width}` : "-";
+    const sel = book.getActiveSheet().getActiveRange()?.getA1Notation() ?? "-";
+    report(
+      "touch",
+      0,
+      `end ${e.type} ours=${ours(e)} pt=${e.pointerType} tag=${(e.target as Element).tagName} prim=${e.isPrimary} ` +
+        `mode=${f?.mode ?? "-"} d=${d} ms=${f ? Date.now() - f.down : -1} cv=${cv} ` +
+        `dpr=${Math.round(devicePixelRatio * 1000) / 1000} vv=${visualViewport ? Math.round(visualViewport.scale * 1000) / 1000 : "-"} sel=${sel}`,
+      document.hidden,
+    );
+  };
   const end = (e: PointerEvent): void => {
+    // Only the browser's own events: the mouse events asMouse hands to Univer pass here too.
+    if (e.isTrusted && traces < TRACES_MAX) {
+      traces++;
+      trace(e);
+    }
     if (!ours(e)) return;
     e.stopPropagation();
     const f = finger;

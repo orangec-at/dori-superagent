@@ -9,7 +9,7 @@
  * and shown only under 600px (CSS), so a Fold folded after opening gets it too.
  */
 import { Direction, type createUniver } from "@univerjs/presets";
-import { touchGrid } from "./sheets-touch.ts";
+import { type Report, touchGrid } from "./sheets-touch.ts";
 
 type API = ReturnType<typeof createUniver>["univerAPI"];
 type Book = ReturnType<API["createWorkbook"]>;
@@ -25,7 +25,14 @@ const NUMBER = /^-?\d+(\.\d+)?$/;
 /** How long after a double tap the input line keeps the focus it took. */
 const REFOCUS_MS = 1000;
 
-export function phoneBar(api: API, book: Book, host: HTMLElement, box: HTMLElement, changed: () => void): void {
+export function phoneBar(
+  api: API,
+  book: Book,
+  host: HTMLElement,
+  box: HTMLElement,
+  changed: () => void,
+  report: Report,
+): void {
   const bar = document.createElement("div");
   bar.className = "shbar";
   bar.innerHTML =
@@ -86,15 +93,21 @@ export function phoneBar(api: API, book: Book, host: HTMLElement, box: HTMLEleme
   api.addEvent(api.Event.SelectionChanged, fill);
   // The cell selected when the sheet opens is not reported as a change.
   api.addEvent(api.Event.LifeCycleChanged, fill);
-  touchGrid(api, book, host, {
-    tap: fill,
-    // Univer moves the focus to its hidden editor a moment after the tap that selected the cell: the line takes it back.
-    doubleTap: () => {
-      fill();
-      input.focus();
-      holdFocus();
+  touchGrid(
+    api,
+    book,
+    host,
+    {
+      tap: fill,
+      // Univer moves the focus to its hidden editor a moment after the tap that selected the cell: the line takes it back.
+      doubleTap: () => {
+        fill();
+        input.focus();
+        holdFocus();
+      },
     },
-  });
+    report,
+  );
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();

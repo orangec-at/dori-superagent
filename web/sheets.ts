@@ -9,7 +9,8 @@
  * answering 409. A failure is reported to the board (action=clientlog: kind, status, message, width, hidden; no cell
  * text), and one sent while the page was hidden is sent again once it shows. The first few errors on the page are
  * reported the same way, and so is each opening (`open`: the bundle's v, the width, touch and pointer support, the
- * start of the user agent), so the log shows which page a phone runs. A report goes through the board's write checks
+ * start of the user agent, then its end and the browser's brands in a second line), so the log shows which page and
+ * browser a phone runs. The first few finger lifts on the grid are reported too (`touch`, sheets-touch.ts). A report goes through the board's write checks
  * (writer, origin, CSRF): from a read-only page it is refused, which the board logs as `BOARD_REJECT sheets 403`.
  *
  * Under 600px (a folded Fold, a phone) the ribbon and formula bar are hidden, the selected cell is shown and a
@@ -67,6 +68,15 @@ if (box && host && data && state) {
     0,
     `v=${v} ontouchend=${touchEnd} pointer=${"PointerEvent" in window} coarse=${matchMedia("(pointer: coarse)").matches} ` +
       `touches=${navigator.maxTouchPoints} ua=${navigator.userAgent.slice(0, 60)}`,
+    document.hidden,
+  );
+  // The start alone is cut before the browser's name and version: they are at the end, and in the brands.
+  const brands = (navigator as { userAgentData?: { brands?: { brand: string; version: string }[] } }).userAgentData
+    ?.brands;
+  report(
+    "open",
+    0,
+    `ua-end=${navigator.userAgent.slice(-60)} brands=${brands ? brands.map((b) => `${b.brand}/${b.version}`).join(",") : "-"}`,
     document.hidden,
   );
   // On an Android browser whose document has no ontouchend, Univer's engine listens to mouse events instead of
@@ -212,7 +222,7 @@ if (box && host && data && state) {
       clearTimeout(timer);
       timer = setTimeout(save, SAVE_AFTER_MS);
     });
-    phoneBar(univerAPI, book, host, box, () => setTimeout(save, 0));
+    phoneBar(univerAPI, book, host, box, () => setTimeout(save, 0), report);
     button?.addEventListener("click", () => {
       void save();
     });
