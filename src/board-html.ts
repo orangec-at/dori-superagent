@@ -154,7 +154,7 @@ export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions)
   const card = s.cards[r.id];
   return `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="viewport" content="width=device-width, initial-scale=1${sheetView ? ", maximum-scale=1, user-scalable=no" : ""}, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#12181a" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#fbfbfa" media="(prefers-color-scheme: light)">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">

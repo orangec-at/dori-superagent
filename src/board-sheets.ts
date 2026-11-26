@@ -7,7 +7,7 @@ import { join } from "node:path";
  * the editor saved, `rev` counts the saves. A save names the rev its page opened and is refused while the file holds
  * another one, so a second device or tab never overwrites a save it has not seen (there is no live co-editing).
  */
-export type SheetFile = { rev: number; savedAt: string; snapshot: Record<string, unknown> };
+export type SheetFile = { rev: number; savedAt: string; snapshot: Record<string, unknown>; sid?: string };
 export type SheetMeta = { id: string; name: string; rev: number; savedAt: string };
 /** The 시트 tab's data: the sheets newest first, and the one `?s=` opened (null: none asked, `missing`: not found). */
 export type SheetsView = { list: SheetMeta[]; open: { id: string; file: SheetFile } | null; missing: boolean };
@@ -24,15 +24,21 @@ const SNAPSHOT_MAX = 2 * 1024 * 1024;
 const NAME_MAX = 80;
 /** Ids are made here (date and random hex), so an id never holds a dot or a slash. */
 const ID = /^[a-z0-9-]{1,40}$/;
+/** A save's own id, made by the editor for each request it sends. */
+const SID = /^[0-9a-f]{16}$/;
+/** The editor names at most this many of its saves whose answer it never got. */
+const LOST_MAX = 8;
+const CLIENT_KINDS = new Set(["network", "keepalive", "http", "retry"]);
+const CLIENT_MAX = 2048;
 
 const dir = (home: string): string => join(home, "sheets");
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 function fileOf(v: unknown): SheetFile | null {
   if (!isObject(v)) return null;
-  const { rev, savedAt, snapshot } = v;
+  const { rev, savedAt, snapshot, sid } = v;
   return Number.isSafeInteger(rev) && (rev as number) >= 0 && typeof savedAt === "string" && isObject(snapshot)
-    ? { rev: rev as number, savedAt, snapshot }
+    ? { rev: rev as number, savedAt, snapshot, ...(typeof sid === "string" ? { sid } : {}) }
     : null;
 }
 
@@ -102,12 +108,18 @@ export function sheetsPost(home: string, now: number, form: URLSearchParams, o: 
     o.log(`BOARD_SHEET new ${id}`);
     return new Response(null, { status: 303, headers: { location: `/?tab=sheets&s=${id}`, ...o.headers } });
   }
+  if (action === "clientlog") return clientLog(home, form, o);
   if (action !== "save") return o.reject("action", "unknown sheets action", 400);
   const id = form.get("id") ?? "";
   const was = readSheet(home, id);
   if (!was) return o.reject("sheet", "unknown sheet", 404);
-  if (form.get("rev") !== String(was.rev))
+  // A save whose answer the editor lost may still have been written: when the file's last save is one the same page
+  // names as lost, nothing from elsewhere came in between, so this save goes on from it instead of being refused.
+  const lost = (form.get("lost") ?? "").split(",").slice(0, LOST_MAX);
+  const ours = was.sid !== undefined && lost.includes(was.sid);
+  if (form.get("rev") !== String(was.rev) && !ours)
     return o.reject("rev", "conflict: this sheet was saved elsewhere since this page opened, reload it", 409);
+  const sid = form.get("sid") ?? "";
   const text = form.get("snapshot") ?? "";
   if (text.length > SNAPSHOT_MAX) return o.reject("size", "sheet too large", 413);
   let snapshot: unknown;
@@ -118,9 +130,36 @@ export function sheetsPost(home: string, now: number, form: URLSearchParams, o: 
   }
   if (!isObject(snapshot)) return o.reject("snapshot", "the snapshot is not a workbook", 400);
   const rev = was.rev + 1;
-  writeSheet(home, id, { rev, savedAt, snapshot });
-  o.log(`BOARD_SHEET save ${id} rev=${rev} len=${text.length}`);
+  writeSheet(home, id, { rev, savedAt, snapshot, ...(SID.test(sid) ? { sid } : {}) });
+  o.log(
+    `BOARD_SHEET save ${id} rev=${rev} len=${text.length}${ours && form.get("rev") !== String(was.rev) ? " resumed" : ""}`,
+  );
   return json
     ? Response.json({ rev, savedAt }, { headers: o.headers })
     : new Response(null, { status: 303, headers: { location: `/?tab=sheets&s=${id}`, ...o.headers } });
+}
+
+const intIn = (v: string | null, max: number): number | null =>
+  v !== null && /^\d{1,5}$/.test(v) && Number(v) <= max ? Number(v) : null;
+
+/**
+ * action=clientlog: the editor reports why a save failed, one line in the board's log and nothing written. It carries
+ * no cell text, only the failure (kind, HTTP status, the error's message) and the screen (width, hidden or not).
+ */
+function clientLog(home: string, form: URLSearchParams, o: Out): Response {
+  if (form.toString().length > CLIENT_MAX) return o.reject("size", "client log too large", 413);
+  const id = form.get("id") ?? "";
+  const kind = form.get("kind") ?? "";
+  const status = intIn(form.get("status"), 999);
+  const vw = intIn(form.get("vw"), 99_999);
+  const hidden = form.get("hidden");
+  if (!ID.test(id) || !CLIENT_KINDS.has(kind) || status === null || vw === null || (hidden !== "1" && hidden !== "0"))
+    return o.reject("clientlog", "bad client log", 400);
+  if (!readSheet(home, id)) return o.reject("sheet", "unknown sheet", 404);
+  // Quoted, so no message can pass for the fields after it; line breaks and format (bidi) characters become spaces.
+  const message = JSON.stringify(
+    (form.get("message") ?? "").replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").slice(0, 200),
+  );
+  o.log(`BOARD_SHEET_CLIENT ${id} ${kind} ${status} ${message} vw=${vw} hidden=${hidden === "1"}`);
+  return new Response(null, { status: 204, headers: o.headers });
 }
