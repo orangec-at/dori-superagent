@@ -29,6 +29,8 @@ import { type Procs, realProcs } from "./self-update-restart.ts";
 export const QUIET_MS = 60 * 60_000;
 /** How long the old agent may take to exit after SIGTERM before the rotation gives up. */
 export const STOP_WAIT_MS = 30_000;
+/** How long the new agent may take to show up in front of the lead pane after its command was typed. */
+export const START_WAIT_MS = 60_000;
 const POLL_MS = 500;
 /**
  * A session's baseline is its footer's last reading within this long after it started: long enough for the tool
@@ -70,15 +72,19 @@ export const handoffRequest = (file: string, ops: string): string =>
   "그 자체로 완결되게 쓴다: 앞선 인수인계 문서를 읽으라고 가리키지 않는다. 지금도 유효한 내용은 가리키지 말고 옮겨 적고, 끝났거나 낡은 것은 뺀다. " +
   `2) 상시 운영 문서 ${ops}: 날마다 같은 내용(연락·답장 방법, 사람과 권한 규칙, 병합·반영 절차, 상시 주의)을 담는다. ` +
   "없으면 만들고, 있으면 바뀐 곳만 고치고 낡은 줄은 지운다. 이 내용은 인수인계 문서에 다시 쓰지 않는다. " +
-  "새 세션은 첫 메시지로 두 문서를 함께 받고 그것만 보고 이어서 일한다. " +
+  "새 세션은 첫 메시지로 두 문서의 경로를 받아 읽고 그것만 보고 이어서 일한다. " +
   "인수인계 문서는 3만 자를 넘기지 않는다: 길어지면 끝난 일과 경위를 빼고, 자세한 기록은 PR·파일 경로로 가리킨다. 다 쓰면 멈춰.";
 
-/** The lead command `dori up` runs, with the handoff (and the operations document, when there is one) as first message. */
+/**
+ * The lead command `dori up` runs, with a first message naming the handoff (and the operations document, when there is
+ * one) by path. The documents are not inlined: together they can pass Linux's 128 KiB limit on one argument, and the
+ * shell then refuses to start the new lead at all.
+ */
 const restartCommand = (d: Deps, file: string): string => {
   const ops = operationsPath(d.store.root);
-  const header = `[LEAD ROTATED] 이전 lead 세션의 인수인계 문서(${file})와 상시 운영 문서(${ops})다. 읽고 이어서 lead로 일해.`;
-  const opsPart = existsSync(ops) ? `; printf '\\n\\n'; cat ${shq(ops)}` : "";
-  return `${leadCommand(d)} "$(printf '%s\\n\\n' ${shq(header)}; cat ${shq(file)}${opsPart})"`;
+  const docs = existsSync(ops) ? `인수인계 문서(${file})와 상시 운영 문서(${ops})` : `인수인계 문서(${file})`;
+  const header = `[LEAD ROTATED] 이전 lead 세션의 ${docs}다. read 도구로 끝까지 읽고 이어서 lead로 일해.`;
+  return `${leadCommand(d)} ${shq(header)}`;
 };
 
 /**
@@ -112,12 +118,20 @@ const notify = (d: Deps, c: LeadRotationConfig, now: number, line: string, file:
     void runHook(d, "onLeadRotation", { key: "lead", text: line, evidence: file });
 };
 
-/** Stops the agent in front of the lead pane and starts `dori up`'s lead command there with the handoff as first message. */
-async function swap(d: Deps, lead: SessionRef, probe: Probe, file: string, procs: Procs): Promise<void> {
-  const agent = basename(d.agentCmd.split(" ")[0] ?? d.agentCmd);
-  const pids = (probe.foreground ?? [])
+/** The pids of the agent processes in front of the pane. */
+const agentPids = (probe: Probe, agent: string): number[] =>
+  (probe.foreground ?? [])
     .filter((p) => p.name === agent || basename(p.argv[0] ?? "") === agent)
     .flatMap((p) => (p.pid === undefined ? [] : [p.pid]));
+
+/**
+ * Stops the agent in front of the lead pane and starts `dori up`'s lead command there with the handoff as first message,
+ * then waits for the new agent to appear: typing the command succeeds even when the shell refuses to run it, and a
+ * rotation that only typed it would leave the lead pane with no agent and the inbox held, with no notice.
+ */
+async function swap(d: Deps, lead: SessionRef, probe: Probe, file: string, procs: Procs): Promise<void> {
+  const agent = basename(d.agentCmd.split(" ")[0] ?? d.agentCmd);
+  const pids = agentPids(probe, agent);
   if (pids.length === 0) throw new Error(`no ${agent} process in front of the lead pane ${refText(lead)}`);
   // Built before the kill: a bad config.json must fail the rotation while the old lead is still running.
   const command = restartCommand(d, file);
@@ -125,7 +139,16 @@ async function swap(d: Deps, lead: SessionRef, probe: Probe, file: string, procs
   for (let waited = 0; waited < STOP_WAIT_MS && pids.some(procs.alive); waited += POLL_MS) await procs.sleep(POLL_MS);
   if (pids.some(procs.alive))
     throw new Error(`${agent} in ${refText(lead)} did not exit ${STOP_WAIT_MS / 1000}s after SIGTERM`);
-  await d.runtimes.for(lead).start(lead, command);
+  const rt = d.runtimes.for(lead);
+  await rt.start(lead, command);
+  for (let waited = 0; ; waited += POLL_MS) {
+    if (agentPids(await rt.probe(lead), agent).length > 0) return;
+    if (waited >= START_WAIT_MS) break;
+    await procs.sleep(POLL_MS);
+  }
+  throw new Error(
+    `no ${agent} in front of the lead pane ${refText(lead)} ${START_WAIT_MS / 1000}s after the new lead command was typed; start it by hand`,
+  );
 }
 
 /** The handoff phase: swap once the document exists and the lead is idle; give up after `handoffMinutes`. */

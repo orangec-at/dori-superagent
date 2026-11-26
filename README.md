@@ -190,7 +190,7 @@ A repo with no CI at all can opt in by name: `"merge": { "allowNoChecks": ["owne
 
 ### Hooks for your own tooling
 
-`$DORI_HOME/config.json` may name argv templates under `hooks`: `onReady`, `onReport`, `onLost` and `onLeadRotation` run in the background when those events happen (with `{key}`, `{text}` and `{evidence}` filled in per argument), and `reviewCommand` replaces the built-in reviewer as long as it prints the same `VERDICT:` line. `DORI_PROMPTS_DIR` points the harness at your own copies of the prompts.
+`$DORI_HOME/config.json` may name argv templates under `hooks`: `onReady`, `onReport`, `onLost`, `onLeadRotation` and `onLeadRateLimited` run in the background when those events happen (with `{key}`, `{text}` and `{evidence}` filled in per argument; `onLeadRateLimited` gets the chat messages the lead's model provider refused with a rate limit, once each, taken from what the inbox delivered, with `{key}` = `lead` and `{evidence}` the lead's pane), and `reviewCommand` replaces the built-in reviewer as long as it prints the same `VERDICT:` line. `DORI_PROMPTS_DIR` points the harness at your own copies of the prompts.
 
 ## Dori mode in depth
 

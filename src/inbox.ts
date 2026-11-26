@@ -1,5 +1,6 @@
 import { DeliveryUncertain, failureDetail } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
+import { batchBody, recordDelivered } from "./lead-delivered.ts";
 import { PaneGone, Refusal } from "./refusal.ts";
 import { resolveTarget } from "./target.ts";
 import { refText } from "./refs.ts";
@@ -142,18 +143,15 @@ async function flushLocked(d: Deps, ref: SessionRef): Promise<"delivered" | "que
       return typed.length === queued.length ? "held" : "queued";
     }
     settleInbox(d, ref, typed);
+    recordDelivered(d, ref, typed);
     // Messages queued after the typed batch were not delivered by this Enter; they wait for the next pass.
     return typed.length === queued.length ? "delivered" : "queued";
   }
-  const body =
-    queued.length === 1
-      ? (queued[0]?.text ?? "")
-      : `${queued.length} messages arrived while you were busy:\n\n` +
-        queued.map((m, i) => `(${i + 1}) from ${m.from}:\n${m.text}`).join("\n\n");
-  const out = await rt.deliver(ref, body);
+  const out = await rt.deliver(ref, batchBody(queued));
   switch (out.kind) {
     case "delivered":
       settleInbox(d, ref, queued);
+      recordDelivered(d, ref, queued);
       return "delivered";
     case "no-agent":
       return "no-agent";

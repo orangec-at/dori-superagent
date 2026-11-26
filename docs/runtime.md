@@ -144,12 +144,13 @@ The two loops are plain processes with no inbox and no agent, so they skip steps
     "onReport": ["logger", "-t", "dori", "{key}: {text}"],
     "onLost": ["logger", "-t", "dori", "LOST {key}: {text}"],
     "onLeadRotation": ["logger", "-t", "dori", "{text}"],
+    "onLeadRateLimited": ["my-fallback", "{text}", "{evidence}"],
     "reviewCommand": ["my-reviewer", "--pr", "{pr}", "--sha", "{sha}"]
   }
 }
 ```
 
-`onReady` runs on `dori ready`, `onReport` on `dori report`, and `onLost` when the duty loop finds a lane whose session vanished. `onLeadRotation` gets the lead rotation lines (`{key}` is `lead`, `{evidence}` the handoff file or rotations.log): every `[LEAD ROTATE FAILED]` and `[LEAD ROTATE TIMEOUT]` at once, and successful rotations as `leadRotation.notify` says (see the README's Configuration). `{key}`, `{text}` and `{evidence}` are replaced inside each element. Hooks run in the background, and a failing hook is one stderr line; it never fails the command. `reviewCommand` replaces the built-in reviewer in `dori review`, gets `{pr}`, `{repo}`, `{number}`, `{sha}` and `{text}` (the rendered review prompt), and must print a `VERDICT: CLEAR` or `VERDICT: BLOCK` line. `DORI_PROMPTS_DIR` points Dori at another directory of prompt files in place of the repo's `prompts/`.
+`onReady` runs on `dori ready`, `onReport` on `dori report`, and `onLost` when the duty loop finds a lane whose session vanished. `onLeadRotation` gets the lead rotation lines (`{key}` is `lead`, `{evidence}` the handoff file or rotations.log): every `[LEAD ROTATE FAILED]` and `[LEAD ROTATE TIMEOUT]` at once, and successful rotations as `leadRotation.notify` says (see the README's Configuration). `onLeadRateLimited` gets the chat messages the lead's model provider refused with a rate limit, each once (`{key}` is `lead`, `{text}` the `[Discord chat=…]` / `[Slack chat=…]` messages one per paragraph, `{evidence}` the lead's pane): the duty pass judges each batch the inbox delivered to the lead once its turn is over, and a batch counts as refused when the provider's error line (`The model provider could not complete the request after N retries (rate limited). …`, the whole line) shows on the lead's screen below it. The messages' chats and text come from the inbox's record of the delivery (`$DORI_HOME/lead/delivered.jsonl`), never from the screen. `{key}`, `{text}` and `{evidence}` are replaced inside each element. Hooks run in the background, and a failing hook is one stderr line; it never fails the command. `reviewCommand` replaces the built-in reviewer in `dori review`, gets `{pr}`, `{repo}`, `{number}`, `{sha}` and `{text}` (the rendered review prompt), and must print a `VERDICT: CLEAR` or `VERDICT: BLOCK` line. `DORI_PROMPTS_DIR` points Dori at another directory of prompt files in place of the repo's `prompts/`.
 
 ## Limits
 

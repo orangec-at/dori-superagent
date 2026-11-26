@@ -5,6 +5,7 @@ import { DeliveryUncertain, failureDetail } from "./delivery.ts";
 import type { Deps } from "./harness.ts";
 import { runHook } from "./hooks.ts";
 import { flushInbox, isHeld, sendOrThrow, tellLead } from "./inbox.ts";
+import { leadRateLimitTick } from "./lead-ratelimit.ts";
 import { leadRotationTick } from "./lead-rotate.ts";
 import { Refusal } from "./refusal.ts";
 import { refText } from "./refs.ts";
@@ -40,6 +41,11 @@ export async function dutyTick(d: Deps): Promise<DutyEvent[]> {
     events.push(...(await leadRotationTick(d)));
   } catch (e) {
     events.push({ pane: "lead", action: "lead-rotate-failed", detail: failureDetail(e) });
+  }
+  try {
+    events.push(...(await leadRateLimitTick(d)));
+  } catch (e) {
+    events.push({ pane: "lead", action: "lead-rate-limit-failed", detail: failureDetail(e) });
   }
   // Due follow-up timers before the flush below, so a [TIMER] queued for a busy lead goes out in this same pass.
   try {

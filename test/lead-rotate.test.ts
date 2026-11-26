@@ -113,7 +113,8 @@ describe("lead rotation (#8)", () => {
     expect(killed).toEqual([101]);
     expect(lead.ran).toHaveLength(1);
     expect(lead.ran[0]).toStartWith("ENABLE_CLAUDEAI_MCP_SERVERS=false omo --append-system-prompt ");
-    expect(lead.ran[0]).toContain(`cat '${file}'`);
+    expect(lead.ran[0]).toContain(`인수인계 문서(${file})`);
+    expect(lead.ran[0]).not.toContain("$(");
     expect(readRotation(d.store.root)).toBeUndefined();
     expect(d.store.roles().lead).toEqual(href("w1:p1"));
     expect(d.store.queued(href("w1:p1")).map((m) => m.text)).toEqual(["a lane reported meanwhile"]);
@@ -147,7 +148,7 @@ describe("lead rotation (#8)", () => {
     expect(lead.received.at(-1)).toContain(ops);
     writeFileSync(handoffFile(lead.received.at(-1)!), "# handoff\n");
     await leadRotationTick(d, procs);
-    expect(lead.ran[0]).not.toContain(`cat '${ops}'`);
+    expect(lead.ran[0]).not.toContain(ops);
 
     lead.screen = footer("20K");
     await leadRotationTick(d, procs);
@@ -158,7 +159,8 @@ describe("lead rotation (#8)", () => {
     const file = handoffFile(lead.received.at(-1)!);
     writeFileSync(file, "# handoff\n");
     expect(await leadRotationTick(d, procs)).toMatchObject([{ action: "lead-rotated" }]);
-    expect(lead.ran[1]).toContain(`cat '${file}'; printf '\\n\\n'; cat '${ops}'`);
+    expect(lead.ran[1]).toContain(`인수인계 문서(${file})와 상시 운영 문서(${ops})`);
+    expect(lead.ran[1]).not.toContain("$(");
   });
 
   test("a bad leadModel fails the rotation before the old lead is stopped", async () => {
@@ -169,6 +171,27 @@ describe("lead rotation (#8)", () => {
     expect(await leadRotationTick(d, procs)).toMatchObject([{ action: "lead-rotate-failed" }]);
     expect(killed).toEqual([]);
     expect(lead.ran).toEqual([]);
+  });
+
+  test("a new lead that never shows up fails the rotation with a notice instead of a silent empty pane", async () => {
+    const { d, lead, killed, notified, procs: base } = rig();
+    const procs = {
+      ...base,
+      kill: (pid: number) => {
+        killed.push(pid);
+        lead.status = "shell"; // the old agent exits; the shell then refuses the typed command
+      },
+    };
+    lead.screen = footer("350K");
+    await leadRotationTick(d, procs);
+    writeFileSync(handoffFile(lead.received.at(-1)!), "# handoff\n");
+    const [failed] = await leadRotationTick(d, procs);
+    expect(failed).toMatchObject({ pane: "w1:p1", action: "lead-rotate-failed" });
+    expect(failed?.detail).toContain("no omo in front of the lead pane w1:p1");
+    expect(killed).toEqual([101]);
+    expect(readFileSync(rotationLog(d.store.root), "utf8")).not.toContain("[LEAD ROTATED]");
+    await hooksSettled();
+    expect(notified).toEqual([expect.stringContaining("[LEAD ROTATE FAILED] w1:p1")]);
   });
 
   test("no handoff in time: the rotation is given up, the lead keeps its session and gets its queue", async () => {
