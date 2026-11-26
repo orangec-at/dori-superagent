@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SHEETS_STYLE, sheetPane } from "../src/board-sheets-html.ts";
 import { arrows } from "./sheets-touch-cdp-arrows.ts";
+import { dense, GRID, MERGES, merged } from "./sheets-touch-cdp-dense.ts";
 
 const OUT = process.argv[2] ?? join(tmpdir(), "sheets-touch-cdp");
 const ASSETS = join(import.meta.dir, "..", "assets", "board", "sheets");
@@ -29,7 +30,7 @@ const snapshot = {
   id: "w",
   name: "touch",
   sheetOrder: ["s1"],
-  sheets: { s1: { id: "s1", name: "S1", rowCount: 100, columnCount: 20, cellData } },
+  sheets: { s1: { id: "s1", name: "S1", rowCount: 100, columnCount: 20, cellData, mergeData: MERGES } },
 };
 let onSave: (snapshot: unknown) => void = () => {};
 /** The snapshot of the next save, null after 5 seconds without one. */
@@ -138,9 +139,7 @@ if (!ready) throw new Error("the sheet never reached Univer's Steady stage");
 await sleep(500);
 
 /** Univer's grid at zoom 1.1 for this width: the row header, the column header, a column and a row. */
-const grid = await evaluate<{ x: number; y: number }>(
-  `(() => { const [r] = [...document.querySelectorAll("#sheet canvas")].map((c) => c.getBoundingClientRect()).sort((a, b) => b.width * b.height - a.width * a.height); return { x: r.left, y: r.top }; })()`,
-);
+const grid = await evaluate<{ x: number; y: number }>(GRID);
 const Z = 1.1;
 const at = (r: number, c: number): { x: number; y: number } => ({
   x: Math.round(grid.x + 46 * Z + (c + 0.5) * 88 * Z),
@@ -188,7 +187,7 @@ await sleep(400);
 const tapped = await inputValue();
 await shot("1-tap-B2");
 check("tap", tapped === "B2", `input line "${tapped}" (want B2)`);
-
+await merged({ cdp, evaluate, touch, shot, check, grid, at, saveNext }); // 1b-1d. sheets-touch-cdp-dense.ts
 // 2. A double tap edits the cell in the input line.
 await touch([at(3, 2)]);
 await sleep(120);
@@ -237,6 +236,7 @@ check(
   scrolled.startsWith("C") && row > 8,
   `tap after scrolling selects "${scrolled}" (want a C row below 8)`,
 );
+await dense({ cdp, evaluate, touch, shot, check, grid, at, row }); // 5. sheets-touch-cdp-dense.ts
 
 for (const r of results) console.log(r);
 for (const e of exceptions) console.log(`EXCEPTION ${e.split("\n")[0]}`);

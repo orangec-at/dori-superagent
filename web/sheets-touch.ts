@@ -3,7 +3,7 @@
  * flick), a tap selects the cell, a second tap on it starts editing it, and holding still selects a range by dragging.
  * Univer's desktop UI (kept so a Fold opened after loading gets it at once) reads a touch as a mouse, so a drag would
  * select a range: the page takes the finger's events before Univer sees them, scrolls with Univer's own
- * set-scroll-relative command and hands a tap or a held drag back to Univer as mouse events.
+ * set-scroll-relative command, selects a tapped cell itself and hands a held drag back to Univer as mouse events.
  */
 import type { createUniver } from "@univerjs/presets";
 
@@ -68,6 +68,34 @@ export function touchGrid(
     target.dispatchEvent(
       new PointerEvent(type, { ...init, buttons: down ? 1 : 0, pointerId: id, pointerType: "mouse", isPrimary: true }),
     );
+  };
+  /**
+   * The cell under a point of the grid's canvas, found as Univer finds a clicked one (the skeleton at the sheet's zoom
+   * and scroll), or null on a header or a sheet with frozen rows or columns, which Univer is left to handle as a mouse
+   * click (the way that did not select on PR #86's phone: those two may still not, a follow-up).
+   */
+  const cellAt = (canvas: EventTarget, x: number, y: number) => {
+    const sheet = book.getActiveSheet();
+    const skeleton = sheet.getSkeleton();
+    const freeze = sheet.getFreeze();
+    if (!skeleton || freeze.xSplit > 0 || freeze.ySplit > 0) return null;
+    const zoom = sheet.getZoom() || 1;
+    const rect = (canvas as Element).getBoundingClientRect();
+    const ox = x - rect.left;
+    const oy = y - rect.top;
+    if (ox / zoom < skeleton.rowHeaderWidthAndMarginLeft || oy / zoom < skeleton.columnHeaderHeightAndMarginTop)
+      return null;
+    const s = sheet.getScrollState();
+    const scroll = {
+      x: (skeleton.columnWidthAccumulation[s.sheetViewStartColumn - 1] ?? 0) + s.offsetX,
+      y: (skeleton.rowHeightAccumulation[s.sheetViewStartRow - 1] ?? 0) + s.offsetY,
+    };
+    const cell = skeleton.getCellWithCoordByOffset(ox, oy, zoom, zoom, scroll, { firstMatch: true });
+    // A merged cell is selected whole, as Univer's convertCellToRange does for a click.
+    const m = cell.isMerged || cell.isMergedMainCell ? cell.mergeInfo : null;
+    return m
+      ? sheet.getRange(m.startRow, m.startColumn, m.endRow - m.startRow + 1, m.endColumn - m.startColumn + 1)
+      : sheet.getRange(cell.actualRow, cell.actualColumn);
   };
   const ours = (e: PointerEvent): boolean =>
     e.isTrusted && e.pointerType === "touch" && innerWidth < PHONE && (e.target as Element).tagName === "CANVAS";
@@ -195,8 +223,16 @@ export function touchGrid(
       on.doubleTap();
       return;
     }
-    asMouse("pointerdown", f.target, f.id, f.x, f.y);
-    asMouse("pointerup", f.target, f.id, f.x, f.y);
+    // Handed over as a mouse click, a tap left the selection where it was on an Android phone (PR #86's touch lines):
+    // the cell is selected here instead, with the same skeleton Univer reads. What else Univer does on a click (put in
+    // its in-cell editor's text, add a reference to a formula being typed) needs that editor open, which a phone never
+    // has: it edits in the input line, and the dblclick that would open the editor is stopped below.
+    const cell = cellAt(f.target, f.x, f.y);
+    if (cell) book.setActiveRange(cell);
+    else {
+      asMouse("pointerdown", f.target, f.id, f.x, f.y);
+      asMouse("pointerup", f.target, f.id, f.x, f.y);
+    }
     on.tap();
   };
   host.addEventListener("pointerup", end, true);
