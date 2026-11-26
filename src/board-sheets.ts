@@ -108,7 +108,7 @@ export function sheetsPost(home: string, now: number, form: URLSearchParams, o: 
     o.log(`BOARD_SHEET new ${id}`);
     return new Response(null, { status: 303, headers: { location: `/?tab=sheets&s=${id}`, ...o.headers } });
   }
-  if (action === "clientlog") return clientLog(form, o);
+  if (action === "clientlog") return clientLog(home, form, o);
   if (action !== "save") return o.reject("action", "unknown sheets action", 400);
   const id = form.get("id") ?? "";
   const was = readSheet(home, id);
@@ -146,7 +146,7 @@ const intIn = (v: string | null, max: number): number | null =>
  * action=clientlog: the editor reports why a save failed, one line in the board's log and nothing written. It carries
  * no cell text, only the failure (kind, HTTP status, the error's message) and the screen (width, hidden or not).
  */
-function clientLog(form: URLSearchParams, o: Out): Response {
+function clientLog(home: string, form: URLSearchParams, o: Out): Response {
   if (form.toString().length > CLIENT_MAX) return o.reject("size", "client log too large", 413);
   const id = form.get("id") ?? "";
   const kind = form.get("kind") ?? "";
@@ -155,8 +155,11 @@ function clientLog(form: URLSearchParams, o: Out): Response {
   const hidden = form.get("hidden");
   if (!ID.test(id) || !CLIENT_KINDS.has(kind) || status === null || vw === null || (hidden !== "1" && hidden !== "0"))
     return o.reject("clientlog", "bad client log", 400);
-  // Quoted, so no message can pass for the fields after it; line breaks of any kind become spaces.
-  const message = JSON.stringify((form.get("message") ?? "").replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ").slice(0, 200));
+  if (!readSheet(home, id)) return o.reject("sheet", "unknown sheet", 404);
+  // Quoted, so no message can pass for the fields after it; line breaks and format (bidi) characters become spaces.
+  const message = JSON.stringify(
+    (form.get("message") ?? "").replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").slice(0, 200),
+  );
   o.log(`BOARD_SHEET_CLIENT ${id} ${kind} ${status} ${message} vw=${vw} hidden=${hidden === "1"}`);
   return new Response(null, { status: 204, headers: o.headers });
 }

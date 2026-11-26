@@ -44,7 +44,7 @@ test("a client log is one line in the board's log, checked like any write, and c
   const s = start();
   const { id, csrf } = await made(s);
   const log = { csrf, action: "clientlog", id, kind: "keepalive", status: "0", vw: "412", hidden: "1" };
-  const message = `TypeError: Failed\u2028to fetch vw=1 hidden=false\n${"x".repeat(300)}`;
+  const message = `TypeError: Failed\u2028to\u202efetch vw=1 hidden=false\n${"x".repeat(300)}`;
   const ok = await post(s.url, "/sheets", { ...log, message }, tailnet());
   expect(ok.status).toBe(204);
   const lines = s.logs.filter((l) => l.startsWith("BOARD_SHEET_CLIENT"));
@@ -57,6 +57,7 @@ test("a client log is one line in the board's log, checked like any write, and c
     [{ ...log, vw: "wide" }, 400],
     [{ ...log, hidden: "yes" }, 400],
     [{ ...log, id: "../board" }, 400],
+    [{ ...log, id: "2026-01-01-00000000" }, 404],
     [{ ...log, message: "x".repeat(3000) }, 413],
   ] as const)
     expect((await post(s.url, "/sheets", form, tailnet())).status).toBe(status);
@@ -68,7 +69,7 @@ test("a client log is one line in the board's log, checked like any write, and c
     expect((await post(s.url, "/sheets", log, h)).status).toBe(403);
   expect((await post(s.url, "/sheets", { ...log, csrf: "0".repeat(64) }, tailnet())).status).toBe(403);
   expect(s.logs.filter((l) => l.startsWith("BOARD_SHEET_CLIENT")).length).toBe(1);
-  expect(s.logs.filter((l) => l.startsWith("BOARD_REJECT")).length).toBe(9);
+  expect(s.logs.filter((l) => l.startsWith("BOARD_REJECT")).length).toBe(10);
   expect(fileOf(s.home, id).rev).toBe(1);
 });
 

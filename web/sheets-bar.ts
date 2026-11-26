@@ -15,6 +15,8 @@ const SYMBOLS = ["=", "(", ")", ":", "-", "/", "*", ",", "+", "$", "."];
 const TAP_SLOP = 10;
 const NUMBER = /^-?\d+(\.\d+)?$/;
 const PHONE = 600;
+/** A tap that selected nothing (the sheet bar, a menu, a scrollbar) stops counting this long after the finger lifts. */
+const TAP_FORGET_MS = 100;
 
 export function phoneBar(api: API, book: Book, host: HTMLElement, box: HTMLElement, changed: () => void): void {
   const bar = document.createElement("div");
@@ -68,6 +70,10 @@ export function phoneBar(api: API, book: Book, host: HTMLElement, box: HTMLEleme
     (e) => {
       tap = down !== null && Math.hypot(e.clientX - down.x, e.clientY - down.y) < TAP_SLOP;
       down = null;
+      // Univer ends the selection on the same pointerup, before or after this; its focus step below runs first.
+      setTimeout(() => {
+        tap = false;
+      }, TAP_FORGET_MS);
     },
     true,
   );

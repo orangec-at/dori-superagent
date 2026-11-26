@@ -16,13 +16,13 @@
 import "@univerjs/preset-sheets-core/lib/index.css";
 import { UniverSheetsCorePreset } from "@univerjs/preset-sheets-core";
 import koKR from "@univerjs/preset-sheets-core/locales/ko-KR";
-import { CommandType, createUniver, LocaleType, mergeLocales } from "@univerjs/presets";
+import { CommandType, createUniver, LifecycleStages, LocaleType, mergeLocales } from "@univerjs/presets";
 import { phoneBar } from "./sheets-bar.ts";
+import { lostAfter, withZooms, zoomsOf } from "./sheets-state.ts";
 
 const SAVE_AFTER_MS = 1500;
 /** A keepalive fetch (the page being hidden or left) may carry at most 64 KiB. */
 const KEEPALIVE_MAX = 60_000;
-const LOST_MAX = 8;
 const PHONE = 600;
 const WIDE = 1024;
 const zoomFor = (w: number): number => (w < PHONE ? 1.1 : w < WIDE ? 1.15 : 1);
@@ -51,29 +51,29 @@ if (box && host && data && state) {
       }),
     ],
   });
-  // Under 1024px opening draws each sheet at the zoom for this screen (zoomRatio is the sheet's own view setting, so it
-  // is not a change) and the facade's zoom() sets it again when the screen changes (a Fold opened). The zoom the sheet
-  // was saved with goes back into every save made at that width, so a desktop's own zoom is kept.
-  type Sheets = Record<string, { zoomRatio?: number }>;
-  const snapshot = JSON.parse(data.textContent ?? "{}") as { sheets?: Sheets };
-  const kept = new Map(Object.entries(snapshot.sheets ?? {}).map(([k, s]) => [k, s.zoomRatio]));
-  if (innerWidth < WIDE) for (const s of Object.values(snapshot.sheets ?? {})) s.zoomRatio = zoomFor(innerWidth);
+  // Under 1024px each sheet is drawn at the zoom for this screen: set in the snapshot when opening (zoomRatio is the
+  // sheet's own view setting, so it is not a change), with the facade's zoom() when the width changes (a Fold opened),
+  // and back to the saved zoom at 1024px or more. While a screen zoom is applied, every save puts the saved one back.
+  const snapshot = JSON.parse(data.textContent ?? "{}") as Parameters<typeof zoomsOf>[0];
+  const kept = zoomsOf(snapshot);
+  let applied: number | null = innerWidth < WIDE ? zoomFor(innerWidth) : null;
+  if (applied !== null) for (const s of Object.values(snapshot.sheets ?? {})) s.zoomRatio = applied;
   const book = univerAPI.createWorkbook(snapshot);
   const snap = (): string => {
-    const out = book.save() as { sheets?: Sheets };
-    if (innerWidth < WIDE)
-      for (const [k, s] of Object.entries(out.sheets ?? {}))
-        if (kept.get(k) === undefined) delete s.zoomRatio;
-        else s.zoomRatio = kept.get(k) as number;
-    return JSON.stringify(out);
+    const out = book.save() as unknown as Parameters<typeof withZooms>[0];
+    return JSON.stringify(applied === null ? out : withZooms(out, kept));
   };
-  let zoomed = innerWidth < WIDE ? zoomFor(innerWidth) : null;
   const fit = (): void => {
-    if (innerWidth >= WIDE || zoomFor(innerWidth) === zoomed) return;
-    zoomed = zoomFor(innerWidth);
-    for (const s of book.getSheets()) s.zoom(zoomed);
+    const want = innerWidth < WIDE ? zoomFor(innerWidth) : null;
+    if (want === applied) return;
+    applied = want;
+    for (const s of book.getSheets()) s.zoom(want ?? kept.get(s.getSheetId()) ?? 1);
   };
   addEventListener("resize", fit);
+  // Univer reports a selection (which the phone's input line follows) only from this stage on: the page says so.
+  univerAPI.addEvent(univerAPI.Event.LifeCycleChanged, ({ stage }) => {
+    if (stage === LifecycleStages.Steady) host.dataset["ready"] = "";
+  });
   const say = (text: string, bad = false): void => {
     state.textContent = text;
     state.classList.toggle("bad", bad);
@@ -119,7 +119,7 @@ if (box && host && data && state) {
     const keepalive = hidden && body.toString().length < KEEPALIVE_MAX;
     const failed = (kind: string, status: number, message: string): void => {
       dirty = true;
-      lost = [...lost, sid].slice(-LOST_MAX);
+      lost = lostAfter(lost, sid);
       if (hidden) againOnShow = true;
       report(kind, status, message, hidden);
     };
