@@ -8,6 +8,10 @@ export const COUPAS_STYLE = `.cpc{background:var(--panel);border:1px solid var(-
 .cpf{margin:10px 0 0}.cpf>small{color:var(--muted);font-size:12.5px}
 .cpt{display:block;width:100%;margin:4px 0 6px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;resize:vertical;field-sizing:content;min-height:44px}
 .cpc button,.cpbtn{min-height:44px;flex:1}.cpbtn{display:inline-flex;align-items:center;justify-content:center;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bubble);color:var(--text)}
+.cpc button[data-copy]{display:inline-flex;align-items:center;justify-content:center;gap:6px;overflow:hidden}
+.cpi{position:relative;width:18px;height:18px;flex:none}.cpi svg{position:absolute;inset:0;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.cpi .ok{color:var(--green);stroke-width:2.4;opacity:0;transform:scale(.4)}.cpr{display:block;height:20px;overflow:hidden}.cpw{display:flex;flex-direction:column}
+.cpw b{display:block;height:20px;line-height:20px;font-weight:inherit;white-space:nowrap}.cpw b+b{color:var(--green);font-weight:600}
 .cpok{color:var(--green);font-weight:600;align-self:center;font-size:13.5px}.cpv{display:flex;margin:10px 0 0}.cpai{margin:4px 0 0}
 .cpu{width:100%;min-height:44px;margin:10px 0 8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
 .cps{margin:10px 0 0;color:var(--green);font-weight:600;font-size:13.5px;overflow-wrap:anywhere}.cpd{width:100%;max-width:760px;margin:0 auto;padding:16px}
@@ -33,13 +37,20 @@ export function dayOrder(dates: string[], today: string): string[] {
   ];
 }
 
+/** The copy icon and the check that takes its place once copied (board.js moves them). */
+const COPY_ICON =
+  `<span class="cpi" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="3"/>` +
+  `<path d="M15.5 8.5V7a2.5 2.5 0 0 0-2.5-2.5H7A2.5 2.5 0 0 0 4.5 7v6A2.5 2.5 0 0 0 7 15.5h1.5"/></svg>` +
+  `<svg class="ok" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>`;
+
 /**
  * One text to copy. The parser drops a newline right after <textarea>, so one is always written there: the box's
  * value is then the text exactly, leading and trailing blanks and newlines included.
  */
 const field = (label: string, text: string): string =>
   `<div class="cpf"><small>${label}</small><textarea class="cpt" readonly rows="${Math.min(30, text.split("\n").length)}" aria-label="${label}">\n${esc(text)}</textarea>` +
-  `<div class="buttons"><button type="button" data-copy>${label} 복사</button><span class="cpok" role="status" hidden></span></div></div>`;
+  `<div class="buttons"><button type="button" data-copy aria-label="${label} 복사">${COPY_ICON}` +
+  `<span class="cpr" aria-hidden="true"><span class="cpw"><b>${label} 복사</b><b>복사됨</b></span></span></button><span class="cpok" role="status" hidden></span></div></div>`;
 
 function status(p: CoupasPost, done: Posted | undefined, token: string | null): string {
   const url = (value: string) =>
