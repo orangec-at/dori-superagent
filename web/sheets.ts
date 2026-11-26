@@ -9,13 +9,15 @@
  * answering 409. A failure is reported to the board (action=clientlog: kind, status, message, width, hidden; no cell
  * text), and one sent while the page was hidden is sent again once it shows.
  *
- * Under 600px (a folded Fold, a phone) the ribbon is hidden and the cells are drawn larger; up to 1024px the ribbon is
- * collapsed. Only Univer's open source options and the sheet's zoom (an operation, not saved as a change) are used.
+ * Under 600px (a folded Fold, a phone) the ribbon and formula bar are hidden and a tapped cell is edited in the input
+ * line at the bottom (sheets-bar.ts); up to 1024px the ribbon is collapsed and the cells drawn a little larger. Only
+ * Univer's open source options, its facade and the sheet's zoom are used.
  */
 import "@univerjs/preset-sheets-core/lib/index.css";
 import { UniverSheetsCorePreset } from "@univerjs/preset-sheets-core";
 import koKR from "@univerjs/preset-sheets-core/locales/ko-KR";
 import { CommandType, createUniver, LocaleType, mergeLocales } from "@univerjs/presets";
+import { phoneBar } from "./sheets-bar.ts";
 
 const SAVE_AFTER_MS = 1500;
 /** A keepalive fetch (the page being hidden or left) may carry at most 64 KiB. */
@@ -23,7 +25,7 @@ const KEEPALIVE_MAX = 60_000;
 const LOST_MAX = 8;
 const PHONE = 600;
 const WIDE = 1024;
-const zoomFor = (w: number): number => (w < PHONE ? 1.3 : w < WIDE ? 1.15 : 1);
+const zoomFor = (w: number): number => (w < PHONE ? 1.1 : w < WIDE ? 1.15 : 1);
 
 const box = document.querySelector<HTMLElement>("[data-sheet]");
 const host = document.getElementById("sheet");
@@ -42,7 +44,7 @@ if (box && host && data && state) {
       UniverSheetsCorePreset({
         container: host,
         ...(innerWidth < PHONE
-          ? { toolbar: false, footer: { statisticBar: false, menus: false, zoomSlider: false } }
+          ? { toolbar: false, formulaBar: false, footer: { statisticBar: false, menus: false, zoomSlider: false } }
           : innerWidth < WIDE
             ? { ribbonType: "collapsed" as const, footer: { statisticBar: false } }
             : {}),
@@ -161,6 +163,7 @@ if (box && host && data && state) {
       clearTimeout(timer);
       timer = setTimeout(save, SAVE_AFTER_MS);
     });
+    if (innerWidth < PHONE) phoneBar(univerAPI, book, host, box, () => setTimeout(save, 0));
     button?.addEventListener("click", () => {
       void save();
     });
