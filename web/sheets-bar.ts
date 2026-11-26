@@ -1,22 +1,19 @@
 /**
- * The input line a phone gets under 600px, as in the Google Sheets app: tapping a cell puts its value (or formula) in a
- * line fixed at the bottom of the screen and focuses it, so the keyboard comes up at once; Enter or the check button
- * puts the text in that cell (a change like any other, saved by sheets.ts). Under it a row of symbol buttons inserts
- * its character at the caret without taking the focus away. The line follows visualViewport, so the keyboard never
- * covers it. It is always there and shown only under 600px (CSS), so a Fold folded after opening gets it too.
+ * The input line a phone gets under 600px, as in the Google Sheets app: the selected cell's value (or formula) is
+ * always in a line fixed at the bottom of the screen, and a double tap on a cell (sheets-touch.ts) focuses it, so the
+ * keyboard comes up; Enter or the check button puts the text in that cell (a change like any other, saved by
+ * sheets.ts). Under it a row of symbol buttons inserts its character at the caret without taking the focus away. The
+ * line follows visualViewport, so the keyboard never covers it, and the sheet ends right above it. It is always there
+ * and shown only under 600px (CSS), so a Fold folded after opening gets it too.
  */
 import type { createUniver } from "@univerjs/presets";
+import { touchGrid } from "./sheets-touch.ts";
 
 type API = ReturnType<typeof createUniver>["univerAPI"];
 type Book = ReturnType<API["createWorkbook"]>;
 
 const SYMBOLS = ["=", "(", ")", ":", "-", "/", "*", ",", "+", "$", "."];
-/** A finger that moved further than this between down and up was scrolling the grid, not tapping a cell. */
-const TAP_SLOP = 10;
 const NUMBER = /^-?\d+(\.\d+)?$/;
-const PHONE = 600;
-/** A tap that selected nothing (the sheet bar, a menu, a scrollbar) stops counting this long after the finger lifts. */
-const TAP_FORGET_MS = 100;
 
 export function phoneBar(api: API, book: Book, host: HTMLElement, box: HTMLElement, changed: () => void): void {
   const bar = document.createElement("div");
@@ -33,8 +30,9 @@ export function phoneBar(api: API, book: Book, host: HTMLElement, box: HTMLEleme
 
   const place = (): void => {
     const v = visualViewport;
-    bar.style.bottom = `${v ? Math.max(0, innerHeight - v.height - v.offsetTop) : 0}px`;
-    box.style.paddingBottom = `${bar.offsetHeight}px`;
+    const keyboard = v ? Math.max(0, innerHeight - v.height - v.offsetTop) : 0;
+    bar.style.bottom = `${keyboard}px`;
+    box.style.paddingBottom = `${bar.offsetHeight + keyboard}px`;
   };
   visualViewport?.addEventListener("resize", place);
   visualViewport?.addEventListener("scroll", place);
@@ -52,38 +50,15 @@ export function phoneBar(api: API, book: Book, host: HTMLElement, box: HTMLEleme
     input.value = r ? r.getFormula() || String(r.getValue() ?? "") : "";
   };
   api.addEvent(api.Event.SelectionChanged, fill);
-
-  // A selection ending on the grid (Univer's own pointerup, which also moved the focus to its hidden editor) focuses
-  // the line, unless the finger moved: that was a scroll. A tap on the sheet bar, a menu or a scrollbar selects nothing.
-  let down: { x: number; y: number } | null = null;
-  let tap = false;
-  host.addEventListener(
-    "pointerdown",
-    (e) => {
-      down = { x: e.clientX, y: e.clientY };
-      tap = false;
-    },
-    true,
-  );
-  host.addEventListener(
-    "pointerup",
-    (e) => {
-      tap = down !== null && Math.hypot(e.clientX - down.x, e.clientY - down.y) < TAP_SLOP;
-      down = null;
-      // Univer ends the selection on the same pointerup, before or after this; its focus step below runs first.
-      setTimeout(() => {
-        tap = false;
-      }, TAP_FORGET_MS);
-    },
-    true,
-  );
-  api.addEvent(api.Event.SelectionMoveEnd, () => {
-    setTimeout(() => {
-      if (!tap || innerWidth >= PHONE) return;
-      tap = false;
+  // The cell selected when the sheet opens is not reported as a change.
+  api.addEvent(api.Event.LifeCycleChanged, fill);
+  touchGrid(api, book, host, {
+    tap: fill,
+    // Univer moves the focus to its hidden editor right after the tap it was handed: the line takes it back after that.
+    doubleTap: () => {
       fill();
-      input.focus();
-    }, 0);
+      setTimeout(() => input.focus(), 0);
+    },
   });
 
   form.addEventListener("submit", (e) => {

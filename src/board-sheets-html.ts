@@ -5,13 +5,14 @@ import { ago, esc, form } from "./board-thread-html.ts";
 /**
  * The open sheet fills the pane below its header (Univer needs a box with a height) and the page does not scroll under
  * it. The board's own button look is taken back inside the sheet, at a weight Univer's classes still win over. The
- * saving state is the column's last line, so it stays at the bottom of the screen at any width (a phone, a Fold).
+ * saving state is the column's last line, so it stays at the bottom of the screen at any width (a phone, a Fold); under
+ * 600px it takes no room while empty or while the input line is being typed in, so the sheet reaches the input line.
  */
 export const SHEETS_STYLE = `.shn{display:flex;gap:8px;margin:4px 6px 10px}.shn input{flex:1;min-width:0;min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
 .shp{display:flex;flex-direction:column;height:100dvh}.shp .rec-h{position:static}.shp #sheet{flex:1;min-height:0}body:has(.shp){overflow:hidden}
 button:where(#sheet *){font:revert;min-height:revert;min-width:revert;padding:revert;border-radius:revert;border:revert;background:revert;color:revert;cursor:revert}#shs.bad{color:var(--red)}
 .shp #shs{flex:none;margin:0;min-height:30px;padding:5px 12px calc(5px + env(safe-area-inset-bottom));border-top:1px solid var(--line);font-size:14px;text-align:center}@media (max-width:1023px){#shsave{min-height:44px;min-width:64px}}
-.shbar{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:6px 8px calc(6px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--line)}@media (min-width:600px){.shbar{display:none}}
+.shbar{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:6px 8px calc(6px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--line)}@media (min-width:600px){.shbar{display:none}}@media (max-width:599px){.shp #shs:empty,body:has(#shinput:focus) .shp #shs{display:none}}
 .shin{display:flex;align-items:center;gap:8px;padding:3px 3px 3px 14px;border:2px solid var(--line);border-radius:26px}.shin i{font:italic 700 20px serif;color:var(--muted)}.shin input{flex:1;min-width:0;min-height:42px;border:0;outline:0;background:transparent;color:var(--text);font:inherit;font-size:16px}.shin button{width:44px;min-width:44px;height:44px;padding:0;border-radius:50%;font-size:20px}
 .shsym{display:flex;gap:5px;margin-top:6px}.shsym button{flex:1;min-width:0;min-height:42px;padding:0;border-radius:10px;font-size:18px}`;
 
