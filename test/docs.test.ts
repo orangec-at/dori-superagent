@@ -135,3 +135,16 @@ test("the board's 문서 tab lists the documents, filters by project and opens o
   expect(await page("?tab=docs&d=../../board")).toContain("찾을 수 없는 문서예요.");
   expect((await fetch(`${s.url}/?tab=docs`, { headers: { host: "evil.example" } })).status).toBe(403);
 });
+
+test("an open document starts at its title: board.js scrolls an open record to its end, but not a .doc page", async () => {
+  const s = start();
+  const js = await (await fetch(`${s.url}/board.js`, { headers: tailnet() })).text();
+  const toEnd = /if \(([^;]*)\)\s*window\.scrollTo\(0, document\.body\.scrollHeight\);/.exec(js);
+  expect(toEnd?.[1]).toContain('document.body.classList.contains("has-c")');
+  expect(toEnd?.[1]).toContain('!document.querySelector(".doc")');
+  const id = addDoc(s.home, "# 긴 문서\n", { title: "긴 문서", name: "long.md" }, NOW);
+  const open = await (await fetch(`${s.url}/?tab=docs&d=${id}`, { headers: tailnet() })).text();
+  expect(open).toContain('<body class="has-c">');
+  expect(open).toContain('<div class="doc">');
+  expect(await (await fetch(`${s.url}/?c=lead`, { headers: tailnet() })).text()).not.toContain('class="doc"');
+});
