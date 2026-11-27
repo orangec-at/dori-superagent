@@ -64,9 +64,15 @@ test("add writes front matter and body, names the id from today in KST and the f
   });
   expect(addDoc(h, "# 둘째 판\n", { title: "주간 보고", name: "x.md", id }, NOW + 60_000)).toBe(id);
   expect(readDoc(h, id)?.body).toBe("# 둘째 판\n");
-  const kept = readdirSync(join(h, "docs", ".history", id));
-  expect(kept).toEqual(["2026-11-13T01-01-00-000Z.md"]);
+  // Each old version is named by its own date; two of the same date do not overwrite each other.
+  addDoc(h, "# 셋째 판\n", { title: "주간 보고", name: "x.md", id }, NOW + 60_000);
+  addDoc(h, "# 넷째 판\n", { title: "주간 보고", name: "x.md", id }, NOW + 60_000);
+  const kept = readdirSync(join(h, "docs", ".history", id)).sort();
+  expect(kept).toEqual(["2026-11-13T01-00-00-000Z.md", "2026-11-13T01-01-00-000Z-2.md", "2026-11-13T01-01-00-000Z.md"]);
   expect(readFileSync(join(h, "docs", ".history", id, kept[0]!), "utf8")).toContain("# 첫 판");
+  expect(readFileSync(join(h, "docs", ".history", id, kept[2]!), "utf8")).toContain("# 둘째 판");
+  expect(readFileSync(join(h, "docs", ".history", id, kept[1]!), "utf8")).toContain("# 셋째 판");
+  expect(readdirSync(join(h, "docs")).filter((n) => n.endsWith(".tmp"))).toEqual([]);
   expect(addDoc(h, "x", { title: "t", name: "보고서.md" }, NOW)).toMatch(/^2026-11-13-doc-[0-9a-f]{6}$/);
   expect(() => addDoc(h, "x", { title: "  ", name: "a.md" }, NOW)).toThrow("--title must not be empty");
 });
@@ -120,7 +126,12 @@ test("the board's 문서 tab lists the documents, filters by project and opens o
   expect(open).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   expect(open).not.toContain("<script>alert(1)");
   expect(open).toContain('<div class="tbl"><table>');
-  expect(await page("?tab=docs&d=2026-01-01-nope")).toContain("찾을 수 없는 문서예요.");
+  // A dead link opened on a phone shows the notice (the pane, not the list) with the way back.
+  const gone = await page("?tab=docs&d=2026-01-01-nope");
+  expect(gone).toContain('<body class="has-c">');
+  expect(gone).toContain(
+    '<header class="rec-h"><a class="back" href="/?tab=docs" aria-label="목록으로">← 목록</a></header><p class="note">찾을 수 없는 문서예요.</p>',
+  );
   expect(await page("?tab=docs&d=../../board")).toContain("찾을 수 없는 문서예요.");
   expect((await fetch(`${s.url}/?tab=docs`, { headers: { host: "evil.example" } })).status).toBe(403);
 });

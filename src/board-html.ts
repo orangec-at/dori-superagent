@@ -132,7 +132,12 @@ export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions)
   const sheetView = o.view.tab === "sheets" && !mission && !o.view.c;
   const docView = o.view.tab === "docs" && !mission && !o.view.c;
   const open = Boolean(
-    o.view.c || mission || picked || proj || (sheetView && o.sheets?.open) || (docView && o.docs?.open),
+    o.view.c ||
+      mission ||
+      picked ||
+      proj ||
+      (sheetView && o.sheets?.open) ||
+      (docView && (o.docs?.open || o.docs?.missing)),
   );
   const linksView = o.view.tab === "map" && !open;
   const timeView = o.view.tab === "timeline" && !open;

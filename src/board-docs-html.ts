@@ -52,7 +52,10 @@ export function docsTab(v: DocsView | null): string {
 
 /** The open document: a sticky header (← 목록, title, date · project), the h2 table of contents folded, the body. */
 export function docPane(v: DocsView | null): string {
-  if (!v?.open) return `<p class="note">${v?.missing ? "찾을 수 없는 문서예요." : "문서를 고르면 여기서 읽어요."}</p>`;
+  const back = `<a class="back" href="${esc(hrefOf(v?.p ?? null))}" aria-label="목록으로">← 목록</a>`;
+  if (v?.missing)
+    return `<div class="doc"><header class="rec-h">${back}</header><p class="note">찾을 수 없는 문서예요.</p></div>`;
+  if (!v?.open) return `<p class="note">문서를 고르면 여기서 읽어요.</p>`;
   const d = v.open;
   const { html, toc } = renderMd(d.body);
   const meta = [`${kstOf(d.date, 16)} KST`, d.project ?? ""].filter(Boolean).map(esc).join(" · ");
@@ -60,7 +63,7 @@ export function docPane(v: DocsView | null): string {
     ? `<details class="toc"><summary>목차 ${toc.length}</summary><ol>${toc.map((t) => `<li><a href="#${t.id}">${esc(t.text)}</a></li>`).join("")}</ol></details>`
     : "";
   return (
-    `<div class="doc"><header class="rec-h"><a class="back" href="${esc(hrefOf(v.p))}" aria-label="목록으로">← 목록</a>` +
+    `<div class="doc"><header class="rec-h">${back}` +
     `<div class="title"><b>${esc(d.title)}</b><span class="meta">${meta}</span></div></header>` +
     `<article class="md">${contents}${d.summary ? `<p class="dsum">${esc(d.summary)}</p>` : ""}${html}</article></div>`
   );

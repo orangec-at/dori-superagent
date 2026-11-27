@@ -111,6 +111,16 @@ function idFor(name: string, now: number): string {
   return `${new Date(now + KST).toISOString().slice(0, 10)}-${slug || `doc-${randomBytes(3).toString("hex")}`}`;
 }
 
+/** docs/.history/<id>/<the old version's date>.md, with -2, -3... when that name is taken. */
+function historyPath(home: string, id: string, date: string, at: string): string {
+  const history = join(dir(home), ".history", id);
+  mkdirSync(history, { recursive: true });
+  const stamp = /^[\w-]+$/.test(date.replace(/[:.]/g, "-")) ? date.replace(/[:.]/g, "-") : at.replace(/[:.]/g, "-");
+  let path = join(history, `${stamp}.md`);
+  for (let n = 2; existsSync(path); n++) path = join(history, `${stamp}-${n}.md`);
+  return path;
+}
+
 export type DocAdd = { title: string; name: string; project?: string; summary?: string; id?: string };
 
 /** Writes the document (the source's own front matter dropped) and answers its id; an older version goes to .history. */
@@ -132,12 +142,9 @@ export function addDoc(home: string, source: string, o: DocAdd, now: number): st
   const body = parseDoc(source).body;
   mkdirSync(dir(home), { recursive: true });
   const path = join(dir(home), `${id}.md`);
-  if (existsSync(path)) {
-    const history = join(dir(home), ".history", id);
-    mkdirSync(history, { recursive: true });
-    renameSync(path, join(history, `${at.replace(/[:.]/g, "-")}.md`));
-  }
+  // The new version is written in full before the old one moves, so the link never answers "not found" in between.
   writeFileSync(`${path}.tmp`, `---\n${head.join("\n")}\n---\n${body}`);
+  if (existsSync(path)) renameSync(path, historyPath(home, id, readDoc(home, id)?.date ?? "", at));
   renameSync(`${path}.tmp`, path);
   return id;
 }
