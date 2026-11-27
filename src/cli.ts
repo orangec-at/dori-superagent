@@ -17,7 +17,7 @@ import { inboxList, releaseHeld, sendToShell } from "./inbox-held.ts";
 import { Refusal } from "./refusal.ts";
 import { runMigrate } from "./migrate.ts";
 import { serveDashboard } from "./serve.ts";
-import { runAsk, runBoard, runLinks } from "./cli-board.ts";
+import { runBoardCommand, runLinks } from "./cli-board.ts";
 import { refuseForStanding, runLead } from "./cli-lead.ts";
 import { ReplyError, reply } from "./reply.ts";
 import { refText } from "./refs.ts";
@@ -27,7 +27,7 @@ import { ConfigError as RuntimeConfigError, RuntimeChoiceError } from "./runtime
 import { parseRef } from "./runtime/types.ts";
 import type { Role } from "./store-types.ts";
 const COMMANDS = new Set(
-  "up role start adopt report ready send inbox duty review merge done status loop backlog budget migrate serve reply agents delegate self-update lead ask board timer".split(
+  "up role start adopt report ready send inbox duty review merge done status loop backlog budget migrate serve reply agents delegate self-update lead ask board doc timer".split(
     " ",
   ),
 );
@@ -176,9 +176,9 @@ export async function main(argv: readonly string[], d: Deps = defaultDeps()): Pr
       return new Promise<number>(() => {});
     }
     case "ask":
-      return runAsk(d, a, x);
     case "board":
-      return runBoard(d, a);
+    case "doc":
+      return runBoardCommand(d, a, cmd, x);
     case "reply": {
       const address = need(x, "reply address");
       const files = a.flags.get("file") ?? [];
