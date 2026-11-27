@@ -81,6 +81,11 @@ export const USAGE = `dori - a proactive multi-session harness on herdr or hc + 
   dori ask <id> --question Q --option A=T [--option B=T ...] [--recommend A] [--link URL]
      [--for jaeil|bokyung] [--project P]      put a decision on the board (--for: who answers, default jaeil; bokyung's are
                                               read only on the board); ask close <id> takes it off, ask list shows them
+  dori doc add <file.md> --title T [--project P] [--summary S] [--id YYYY-MM-DD-name]
+                                              put a markdown document on the board's 문서 tab (DORI_HOME/docs/<id>.md; the
+                                              same id again keeps the old one in docs/.history/<id>/) and print
+                                              DOC <id> <link> (board.json "publicUrl" in front, else the path alone);
+                                              doc list shows them, newest first
   dori reply <address> <text> [--file F ...]  answer a front end: slack:<channel>:<thread_ts> (files too),
                                               discord:<channel>, hermes:<machine>/<profile> (its Bot Chat);
                                               REPLIED, or REPLY_FAILED <address>: <reason> and exit 1

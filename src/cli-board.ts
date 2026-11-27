@@ -10,14 +10,59 @@ import { HUB_EVERY_MS, refreshHub } from "./board-hub.ts";
 import { collectLinks } from "./board-links.ts";
 import { saveLinks } from "./board-links-file.ts";
 import type { ChannelSource } from "./channel-source.ts";
-import { type Args, need, one } from "./cli-args.ts";
+import { type Args, need, one, USAGE } from "./cli-args.ts";
 import { discordCall, loadDiscordEnv } from "./discord-api.ts";
 import { discordSync, TICK_MS } from "./discord-sync.ts";
 import type { Deps } from "./harness.ts";
+import { addDoc, docUrl, listDocs } from "./docs.ts";
 import { send } from "./inbox.ts";
 import { Refusal } from "./refusal.ts";
 import { slackCall, slackReply, slackReplyPath } from "./slack-api.ts";
 import { slackSync } from "./slack-sync.ts";
+import { readFileSync } from "node:fs";
+import { basename } from "node:path";
+
+/** `dori ask`, `dori board` and `dori doc`: the commands that feed the phone board. */
+export const runBoardCommand = (d: Deps, a: Args, cmd: "ask" | "board" | "doc", x: string | undefined) =>
+  cmd === "ask" ? runAsk(d, a, x) : cmd === "board" ? runBoard(d, a) : runDoc(d, a, x);
+
+/**
+ * `dori doc add <file.md> --title T [--project P] [--summary S] [--id ID]` puts a document on the board's 문서 tab and
+ * prints `DOC <id> <link>`; `dori doc list` prints one line per document, newest first.
+ */
+export function runDoc(d: Deps, a: Args, x: string | undefined): number {
+  const home = d.store.root;
+  if (x === "list") {
+    const all = listDocs(home);
+    if (all.length === 0) console.log("NO_DOCS");
+    for (const m of all)
+      console.log(`${m.id} ${m.date}${m.project ? ` project=${m.project.replace(/\s+/g, "_")}` : ""} ${m.title}`);
+    return 0;
+  }
+  if (x !== "add") throw new Refusal(`unknown doc command ${x ?? ""}\n\n${USAGE}`);
+  const file = need(a.pos[2], "markdown file");
+  let source: string;
+  try {
+    source = readFileSync(file, "utf8");
+  } catch {
+    throw new Refusal(`cannot read ${file}`);
+  }
+  const [project, summary, id] = [one(a, "project"), one(a, "summary"), one(a, "id")];
+  const doc = addDoc(
+    home,
+    source,
+    {
+      title: need(one(a, "title"), "--title"),
+      name: basename(file),
+      ...(project !== undefined ? { project } : {}),
+      ...(summary !== undefined ? { summary } : {}),
+      ...(id !== undefined ? { id } : {}),
+    },
+    d.now(),
+  );
+  console.log(`DOC ${doc} ${docUrl(home, doc)}`);
+  return 0;
+}
 
 /**
  * `dori ask <id> --question Q --option A=.. [--recommend A] [--link URL] [--for jaeil|bokyung] [--project P]`,

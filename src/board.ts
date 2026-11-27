@@ -7,9 +7,10 @@ import { avatarResponse } from "./board-avatars.ts";
 import { backlogPost } from "./board-backlog.ts";
 import { appendChat } from "./board-chat.ts";
 import { chanPost } from "./board-chan.ts";
-import { coupasPost, coupasVideo, readCoupas } from "./board-coupas.ts";
+import { coupasPost, coupasVideo } from "./board-coupas.ts";
 import { readLinks } from "./board-links-file.ts";
-import { SHEET_BODY_MAX, sheetsPost, sheetsView } from "./board-sheets.ts";
+import { SHEET_BODY_MAX, sheetsPost } from "./board-sheets.ts";
+import { tabReads } from "./board-tab-reads.ts";
 import { type BoardConfig, decideEnvelope, requestEnvelope } from "./board-config.ts";
 import { boardHtml, REQUEST_MAX } from "./board-html.ts";
 import { backlogReply, coupasReply, decideReply, wantsCard } from "./board-inline.ts";
@@ -223,8 +224,7 @@ export function serveBoard(store: Store, o: BoardOptions): Server<undefined> {
           links: view.tab === "map" ? readLinks(store.root) : null,
           live: await tabLive(view.tab, store, now, o.office),
           timelines: view.tab === "timeline" ? readTimelines(store.root) : null,
-          coupas: view.tab === "coupas" ? readCoupas(store.root) : null,
-          sheets: view.tab === "sheets" ? sheetsView(store.root, view.s ?? null) : null,
+          ...tabReads(store.root, view),
           channels: pageSources(sources, !("code" in w)),
           ...(flash ? { flash } : {}),
         });

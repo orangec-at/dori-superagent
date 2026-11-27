@@ -26,6 +26,7 @@ export type Tab =
   | "timeline"
   | "coupas"
   | "sheets"
+  | "docs"
   | "agent"
   | "proj"
   | "chan"
@@ -37,7 +38,7 @@ export type Filter = "all" | "mine" | "working";
 /**
  * What the page shows: the list tab, its filter, and the selected row or mission (null: the list alone on a phone);
  * on the 프로젝트 tab, the selected project `p` and the project's task filter `k`; on the 채널 tab, the selected channel key `d`;
- * on the 시트 tab, the open sheet `s`.
+ * on the 시트 tab, the open sheet `s`; on the 문서 tab, the project filter `p` and the open document `d`.
  */
 export type View = {
   tab: Tab;
@@ -50,7 +51,7 @@ export type View = {
   by?: "team" | null;
   s?: string | null;
 };
-const TABS = "asks live office timeline coupas sheets agent proj chan mission pr backlog map".split(
+const TABS = "asks live office timeline coupas sheets docs agent proj chan mission pr backlog map".split(
   " ",
 ) as readonly Tab[];
 
@@ -63,8 +64,8 @@ export function viewOf(params: URLSearchParams): View {
     f: f === "mine" || f === "working" ? f : "all",
     c: params.get("c"),
     m: params.get("m"),
-    p: tab === "proj" ? params.get("p") : null,
-    d: tab === "chan" ? params.get("d") : null,
+    p: tab === "proj" || tab === "docs" ? params.get("p") : null,
+    d: tab === "chan" || tab === "docs" ? params.get("d") : null,
     k: tab === "proj" ? (FILTERS.find(([x]) => x === k)?.[0] ?? null) : null,
     by: tab === "office" && params.get("by") === "team" ? "team" : null,
     s: tab === "sheets" ? params.get("s") : null,
@@ -78,8 +79,8 @@ export function hrefOf(v: View, over: Partial<View> = {}): string {
   if (n.f !== "all") q.set("f", n.f);
   if (n.c) q.set("c", n.c);
   if (n.m) q.set("m", n.m);
-  if (n.tab === "proj" && n.p) q.set("p", n.p);
-  if (n.tab === "chan" && n.d) q.set("d", n.d);
+  if ((n.tab === "proj" || n.tab === "docs") && n.p) q.set("p", n.p);
+  if ((n.tab === "chan" || n.tab === "docs") && n.d) q.set("d", n.d);
   if (n.tab === "sheets" && n.s) q.set("s", n.s);
   if (n.tab === "proj" && n.k && n.k !== "all") q.set("k", n.k);
   const s = q.toString();
@@ -198,6 +199,7 @@ export function listPane(
     chan?: string;
     coupas?: string;
     sheets?: string;
+    docs?: string;
   },
   v: View,
   now: number,
@@ -207,8 +209,10 @@ export function listPane(
   const { projects } = s;
   const prCount = rows.reduce((n, r) => n + (r.kind === "lane" ? r.prs.length : 0), 0);
   const backlogCount = projects.reduce((n, g) => n + g.backlog.length, 0);
+  // The 문서 tab's p and d (its project filter, its open document) mean nothing on another tab, nor theirs on it.
+  const clear = (t: Tab): Partial<View> => (t === "docs" || v.tab === "docs" ? { p: null, d: null } : {});
   const tab = (t: Tab, label: string, n: number): string =>
-    `<a class="tab${v.tab === t ? " on" : ""}" href="${esc(hrefOf(v, { tab: t, f: "all" }))}">${label}${n ? ` ${n}` : ""}</a>`;
+    `<a class="tab${v.tab === t ? " on" : ""}" href="${esc(hrefOf(v, { tab: t, f: "all", ...clear(t) }))}">${label}${n ? ` ${n}` : ""}</a>`;
   const body =
     v.tab === "asks"
       ? asksTab(s.checks, now, token)
@@ -218,8 +222,8 @@ export function listPane(
           ? officeTab(s.live ?? null, s.avatars, v.by === "team")
           : v.tab === "timeline"
             ? timelineTab(s.timelines ?? [])
-            : v.tab === "coupas" || v.tab === "sheets"
-              ? ((v.tab === "coupas" ? s.coupas : s.sheets) ?? "")
+            : v.tab === "coupas" || v.tab === "sheets" || v.tab === "docs"
+              ? (s[v.tab] ?? "")
               : v.tab === "agent"
                 ? agentsTab(s.agents, s.avatars, now)
                 : v.tab === "proj"
@@ -237,5 +241,5 @@ export function listPane(
                             : workTab(rows, v, now, selected, s.cards, s.avatars);
   const active = s.missions.filter((m) => m.status !== "완료").length;
   const busy = s.agents.filter((a) => a.state === "working").length;
-  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("asks", "확인 필요", s.checks.length)}${tab("live", "지금", 0)}${tab("office", "사무실", 0)}${tab("timeline", "드로우하타 일정", 0)}${tab("agent", "에이전트", busy)}${tab("proj", "프로젝트", 0)}${tab("chan", "채널", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}${tab("map", "연결", 0)}${tab("coupas", "쿠파스", 0)}${tab("sheets", "시트", 0)}</nav>${body}`;
+  return `<nav class="tabs">${tab("work", "작업", 0)}${tab("asks", "확인 필요", s.checks.length)}${tab("live", "지금", 0)}${tab("office", "사무실", 0)}${tab("timeline", "드로우하타 일정", 0)}${tab("agent", "에이전트", busy)}${tab("proj", "프로젝트", 0)}${tab("chan", "채널", 0)}${tab("mission", "미션", active)}${tab("pr", "PR", prCount)}${tab("backlog", "백로그", backlogCount)}${tab("map", "연결", 0)}${tab("coupas", "쿠파스", 0)}${tab("sheets", "시트", 0)}${tab("docs", "문서", 0)}</nav>${body}`;
 }

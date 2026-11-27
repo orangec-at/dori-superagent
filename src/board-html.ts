@@ -7,6 +7,8 @@ import { LINKS_STYLE, linksPane } from "./board-links-html.ts";
 import type { LiveState } from "./board-live.ts";
 import { LIVE_STYLE } from "./board-live-html.ts";
 import { OFFICE_STYLE } from "./board-office-html.ts";
+import { DOCS_STYLE, docPane, docsTab } from "./board-docs-html.ts";
+import type { DocsView } from "./docs.ts";
 import type { SheetsView } from "./board-sheets.ts";
 import { SHEETS_STYLE, sheetHead, sheetPane, sheetsTab } from "./board-sheets-html.ts";
 import type { Timeline } from "./board-timeline.ts";
@@ -108,6 +110,8 @@ export type PageOptions = {
   coupas?: CoupasRead | null;
   /** The sheets and the open one, read only for the 시트 tab. */
   sheets?: SheetsView | null;
+  /** The documents and the open one, read only for the 문서 tab. */
+  docs?: DocsView | null;
   /** The messenger copies; "locked" when the viewer may not write (a DM or channel is shown only to a writer). */
   channels?: Sources;
 };
@@ -126,11 +130,14 @@ export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions)
   const picked = chanView ? openChannel(vs, o.view.d) : null;
   const proj = projView ? s.projects.find((g) => g.name === o.view.p) : undefined;
   const sheetView = o.view.tab === "sheets" && !mission && !o.view.c;
-  const open = Boolean(o.view.c || mission || picked || proj || (sheetView && o.sheets?.open));
+  const docView = o.view.tab === "docs" && !mission && !o.view.c;
+  const open = Boolean(
+    o.view.c || mission || picked || proj || (sheetView && o.sheets?.open) || (docView && o.docs?.open),
+  );
   const linksView = o.view.tab === "map" && !open;
   const timeView = o.view.tab === "timeline" && !open;
   const coupasView = o.view.tab === "coupas" && !open;
-  const bare = linksView || timeView || coupasView || projView || chanView || sheetView;
+  const bare = linksView || timeView || coupasView || projView || chanView || sheetView || docView;
   // A message from a mission is about its row the operator acts on, else its first bot or lane: the lead sees which.
   const about = mission
     ? (mission.needs ?? mission.actors.find((a) => /^(bot|lane|standing):/.test(a.id))?.id ?? "lead")
@@ -160,25 +167,27 @@ export function boardHtml(t: Thread, s: BoardState, now: number, o: PageOptions)
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="도리 보드"><meta name="board-version" content="${esc(o.version)}">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/icon-180.png">
-<link rel="icon" href="/icon-192.png"><title>도리 보드</title><style>${STYLE}${MISSION_STYLE}${DETAIL_STYLE}${LINKS_STYLE}${PROJECTS_STYLE}${AGENTS_STYLE}${LIVE_STYLE}${OFFICE_STYLE}${TIMELINE_STYLE}${COUPAS_STYLE}${SHEETS_STYLE}</style>
+<link rel="icon" href="/icon-192.png"><title>도리 보드</title><style>${STYLE}${MISSION_STYLE}${DETAIL_STYLE}${LINKS_STYLE}${PROJECTS_STYLE}${AGENTS_STYLE}${LIVE_STYLE}${OFFICE_STYLE}${TIMELINE_STYLE}${COUPAS_STYLE}${SHEETS_STYLE}${DOCS_STYLE}</style>
 <script src="/board.js" defer></script>${sheetView ? sheetHead(o.sheets) : ""}</head><body${open ? ' class="has-c"' : ""}>
-<div class="app${linksView ? " lk" : projView || chanView || sheetView ? " pj" : ""}">${bare ? "" : `<input class="dt" id="dt" type="checkbox" aria-label="${mission ? "참여" : "미션"} 패널"><label class="dtb" for="dt">${mission ? "참여" : "미션"}</label>`}
+<div class="app${linksView ? " lk" : projView || chanView || sheetView || docView ? " pj" : ""}">${bare ? "" : `<input class="dt" id="dt" type="checkbox" aria-label="${mission ? "참여" : "미션"} 패널"><label class="dtb" for="dt">${mission ? "참여" : "미션"}</label>`}
 <aside class="list" aria-label="작업 목록"><header class="lh"><b>도리 보드</b><a class="meta" href="${esc(hrefOf(o.view))}">${kst} KST</a></header>
-${open ? "" : flash}${readOnly}${listPane(t.rows, { ...s, links: o.links ?? null, live: o.live ?? null, timelines: o.timelines ?? null, ...(o.view.tab === "proj" ? { proj: projectsList(s, o.view, now) } : {}), ...(o.view.tab === "chan" ? { chan: channelsList(vs, s, o.view, now) } : {}), ...(o.view.tab === "coupas" ? { coupas: coupasTab(o.coupas ?? null, now, o.token) } : {}), ...(sheetView ? { sheets: sheetsTab(o.sheets ?? null, now, o.token) } : {}) }, o.view, now, mission || bare ? null : (o.view.c ?? "lead"), o.token)}</aside>
+${open ? "" : flash}${readOnly}${listPane(t.rows, { ...s, links: o.links ?? null, live: o.live ?? null, timelines: o.timelines ?? null, ...(o.view.tab === "proj" ? { proj: projectsList(s, o.view, now) } : {}), ...(o.view.tab === "chan" ? { chan: channelsList(vs, s, o.view, now) } : {}), ...(o.view.tab === "coupas" ? { coupas: coupasTab(o.coupas ?? null, now, o.token) } : {}), ...(sheetView ? { sheets: sheetsTab(o.sheets ?? null, now, o.token) } : {}), ...(docView ? { docs: docsTab(o.docs ?? null) } : {}) }, o.view, now, mission || bare ? null : (o.view.c ?? "lead"), o.token)}</aside>
 <main class="pane">${
     linksView
       ? linksPane(o.links ?? null, s.avatars)
       : sheetView
         ? sheetPane(o.sheets ?? null, o.token)
-        : timeView
-          ? timelinePane(o.timelines ?? [])
-          : coupasView
-            ? coupasPane(o.coupas ?? null, now, o.token)
-            : chanView
-              ? `${open ? flash : ""}${picked ? channelPane(picked[0], picked[1], s, o.token, now, back) : `<p class="note">채널을 고르면 메시지가 보여요.</p>`}`
-              : projView
-                ? `${open ? flash : ""}${(proj ?? s.projects[0]) ? projectPane((proj ?? s.projects[0])!, s, d, o.view, now, back, o.token) : `<p class="note">진행 중인 프로젝트가 없어요.</p>`}`
-                : `${open ? flash : ""}${mission ? missionPane(mission, now, back) : record(t, now, o.token, back, card ? missionCard(card, "inline") : "", rowFace(r, s.avatars))}
+        : docView
+          ? docPane(o.docs ?? null)
+          : timeView
+            ? timelinePane(o.timelines ?? [])
+            : coupasView
+              ? coupasPane(o.coupas ?? null, now, o.token)
+              : chanView
+                ? `${open ? flash : ""}${picked ? channelPane(picked[0], picked[1], s, o.token, now, back) : `<p class="note">채널을 고르면 메시지가 보여요.</p>`}`
+                : projView
+                  ? `${open ? flash : ""}${(proj ?? s.projects[0]) ? projectPane((proj ?? s.projects[0])!, s, d, o.view, now, back, o.token) : `<p class="note">진행 중인 프로젝트가 없어요.</p>`}`
+                  : `${open ? flash : ""}${mission ? missionPane(mission, now, back) : record(t, now, o.token, back, card ? missionCard(card, "inline") : "", rowFace(r, s.avatars))}
 ${composer}`
   }</main>${bare ? "" : `${mission ? missionDetail(mission) : detailPane(r, card, s.routines, s.missions, now, s.avatars)}<label class="dts" for="dt" aria-hidden="true"></label>`}</div><a id="news" href="${esc(hrefOf(o.view))}" hidden>새 소식이 있어요 · 눌러서 보기</a>
 </body></html>
