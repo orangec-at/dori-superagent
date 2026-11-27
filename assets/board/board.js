@@ -18,8 +18,10 @@
       true ||
     Date.now() - touched < BUSY_MS;
 
-  // Only a record opens at its newest message; the list stays at its top, and a #anchor (an ask card) is left to the browser.
-  if (document.body.classList.contains("has-c") && !location.hash) window.scrollTo(0, document.body.scrollHeight);
+  // Only a record opens at its newest message; the list stays at its top, a document (문서 tab) opens at its title, and a
+  // #anchor (an ask card) is left to the browser.
+  if (document.body.classList.contains("has-c") && !location.hash && !document.querySelector(".doc"))
+    window.scrollTo(0, document.body.scrollHeight);
 
   // A request the board could not send comes back as ?c=<its conversation>&sent=failed: its text is put back in that
   // conversation's composer to send again. Any other answer to a write drops the kept text.
