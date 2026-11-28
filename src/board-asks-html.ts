@@ -9,11 +9,26 @@ const when = (a: Ask, now: number): string => {
 };
 
 /**
- * The 확인 필요 tab: every open ask grouped by who answers it, then by project (see byProject), newest first. jaeil's cards keep the board's answer buttons (POST
- * /decide, as in the lead's record); bokyung's are read only, answered on Slack and closed by the lead.
+ * The 확인 필요 tab: a row of project sub tabs (전체, then each project in byProject order, 기타 last, each with its open
+ * asks; `proj` picks one, an unknown name shows 전체), then the picked asks grouped by who answers them, then by project
+ * (see byProject), newest first. jaeil's cards keep the board's answer buttons (POST /decide, as in the lead's record);
+ * bokyung's are read only, answered on Slack and closed by the lead.
  */
-export function asksTab(checks: Ask[], now: number, token: string | null): string {
-  const groups = byPerson(checks).map(({ who, label, asks }) => {
+export function asksTab(
+  checks: Ask[],
+  now: number,
+  token: string | null,
+  proj: string | null,
+  hrefFor: (proj: string | null) => string,
+): string {
+  const projects = byProject(checks);
+  const picked = projects.find((g) => g.project === proj) ?? null;
+  const sub = (p: string | null, label: string, n: number): string =>
+    `<a class="tab${(picked?.project ?? null) === p ? " on" : ""}" href="${esc(hrefFor(p))}">${esc(label)} ${n}</a>`;
+  const subTabs = checks.length
+    ? `<nav class="tabs ptabs" aria-label="프로젝트">${sub(null, "전체", checks.length)}${projects.map((g) => sub(g.project, g.project, g.asks.length)).join("")}</nav>`
+    : "";
+  const groups = byPerson(picked?.asks ?? checks).map(({ who, label, asks }) => {
     const note =
       who === "jaeil"
         ? ""
@@ -29,5 +44,5 @@ export function asksTab(checks: Ask[], now: number, token: string | null): strin
       : `<p class="note">지금은 ${label} 확인이 필요한 항목이 없어요.</p>`;
     return `<section class="asks" id="for-${who}"><h3 class="sec"><span class="needs">${label} <span>${asks.length}</span></span></h3>${note}${cards}</section>`;
   });
-  return groups.join("");
+  return subTabs + groups.join("");
 }

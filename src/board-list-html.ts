@@ -50,6 +50,8 @@ export type View = {
   k?: TaskFilter | null;
   by?: "team" | null;
   s?: string | null;
+  /** On the 확인 필요 tab, the project sub tab (null: 전체). */
+  proj?: string | null;
 };
 const TABS = "asks live office timeline coupas sheets docs agent proj chan mission pr backlog map".split(
   " ",
@@ -69,6 +71,7 @@ export function viewOf(params: URLSearchParams): View {
     k: tab === "proj" ? (FILTERS.find(([x]) => x === k)?.[0] ?? null) : null,
     by: tab === "office" && params.get("by") === "team" ? "team" : null,
     s: tab === "sheets" ? params.get("s") : null,
+    proj: tab === "asks" ? params.get("proj") : null,
   };
 }
 
@@ -82,6 +85,7 @@ export function hrefOf(v: View, over: Partial<View> = {}): string {
   if ((n.tab === "proj" || n.tab === "docs") && n.p) q.set("p", n.p);
   if ((n.tab === "chan" || n.tab === "docs") && n.d) q.set("d", n.d);
   if (n.tab === "sheets" && n.s) q.set("s", n.s);
+  if (n.tab === "asks" && n.proj) q.set("proj", n.proj);
   if (n.tab === "proj" && n.k && n.k !== "all") q.set("k", n.k);
   const s = q.toString();
   return s ? `/?${s}` : "/";
@@ -212,10 +216,10 @@ export function listPane(
   // The 문서 tab's p and d (its project filter, its open document) mean nothing on another tab, nor theirs on it.
   const clear = (t: Tab): Partial<View> => (t === "docs" || v.tab === "docs" ? { p: null, d: null } : {});
   const tab = (t: Tab, label: string, n: number): string =>
-    `<a class="tab${v.tab === t ? " on" : ""}" href="${esc(hrefOf(v, { tab: t, f: "all", ...clear(t) }))}">${label}${n ? ` ${n}` : ""}</a>`;
+    `<a class="tab${v.tab === t ? " on" : ""}" href="${esc(hrefOf(v, { tab: t, f: "all", proj: null, ...clear(t) }))}">${label}${n ? ` ${n}` : ""}</a>`;
   const body =
     v.tab === "asks"
-      ? asksTab(s.checks, now, token)
+      ? asksTab(s.checks, now, token, v.proj ?? null, (proj) => hrefOf(v, { proj }))
       : v.tab === "live"
         ? liveTab(s.live ?? null, s.avatars, now)
         : v.tab === "office"

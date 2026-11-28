@@ -157,6 +157,40 @@ test("확인 필요 groups each person's asks by project, the one with the newes
   ]);
 });
 
+test("확인 필요 has project sub tabs with open counts; ?proj= shows only that project, an unknown one shows 전체", async () => {
+  const { url, home } = start();
+  const add = (id: string, project: string | undefined, before: number, who: "jaeil" | "bokyung" = "bokyung") =>
+    askAdd(home, id, { question: id, options, for: who, ...(project ? { project } : {}), now: NOW - before });
+  add("dh-old", "drawhatha", 50_000);
+  add("cp-new", "coupas", 1_000);
+  add("dh-new", "drawhatha", 500);
+  add("jl-cp", "coupas", 0, "jaeil");
+  const sub = (html: string) =>
+    [
+      ...(listOf(html).split('aria-label="프로젝트">')[1]?.split("</nav>")[0] ?? "").matchAll(
+        /<a class="tab( on)?" href="([^"]+)">([^<]+)<\/a>/g,
+      ),
+    ].map((m) => `${m[1] ? "*" : ""}${m[3]} ${(m[2] ?? "").replaceAll("&amp;", "&")}`);
+  const ids = (html: string) => [...listOf(html).matchAll(/id="ask-([\w-]+)"/g)].map((m) => m[1]);
+  const all = await page(url, "?tab=asks");
+  expect(sub(all)).toEqual([
+    "*전체 5 /?tab=asks",
+    "coupas 2 /?tab=asks&proj=coupas",
+    "drawhatha 2 /?tab=asks&proj=drawhatha",
+    "기타 1 /?tab=asks&proj=%EA%B8%B0%ED%83%80",
+  ]);
+  const cp = await page(url, "?tab=asks&proj=coupas");
+  expect(sub(cp)[1]).toBe("*coupas 2 /?tab=asks&proj=coupas");
+  expect(ids(cp)).toEqual(["jl-cp", "cp-new"]);
+  expect(cp).toContain(`href="/?tab=asks">확인 필요 5</a>`);
+  expect(listOf(cp).match(/action="\/decide"/g)).toHaveLength(1);
+  expect(ids(await page(url, "?tab=asks&proj=%EA%B8%B0%ED%83%80"))).toEqual(["vg-analytics"]);
+  const none = await page(url, "?tab=asks&proj=nope");
+  expect(sub(none)[0]).toBe("*전체 5 /?tab=asks");
+  expect(ids(none)).toEqual(ids(all));
+  expect(await page(url)).toContain("내 차례 2</a>");
+});
+
 test("the 확인 필요 tab escapes the question, options, project and link it shows", async () => {
   const { url, home } = start();
   askAdd(home, "bk-xss", {
