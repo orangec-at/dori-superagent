@@ -75,8 +75,17 @@ const DELIVERY: Record<string, [string, string]> = {
 const link = (url: string): string =>
   /^https?:\/\//.test(url) ? `<a href="${esc(url)}" rel="noopener" target="_blank">${esc(url)}</a>` : esc(url);
 
-/** A decision card; `answer` false (an ask another person answers on Slack) leaves out the buttons. */
-export function askCard(a: Ask, now: number, token: string | null, answer = true): string {
+/**
+ * A decision card; `answer` false (an ask another person answers on Slack) leaves out the buttons. `when` is the time
+ * the kicker shows (none when empty).
+ */
+export function askCard(
+  a: Ask,
+  now: number,
+  token: string | null,
+  answer = true,
+  when = ago(now, a.createdAt),
+): string {
   const options = a.options
     .map(
       (o) =>
@@ -97,7 +106,7 @@ export function askCard(a: Ask, now: number, token: string | null, answer = true
         `<input type="hidden" name="id" value="${esc(a.id)}"><div class="buttons">${buttons}</div>`,
       )
     : "";
-  return `<article class="ask" id="ask-${esc(a.id)}"><p class="kicker">${project}결정 · ${esc(a.id)} · ${ago(now, a.createdAt)}</p>
+  return `<article class="ask" id="ask-${esc(a.id)}"><p class="kicker">${project}결정 · ${esc(a.id)}${when ? ` · ${when}` : ""}</p>
 <p class="q">${esc(a.question)}</p><ol class="opts">${options}</ol>${more}
 ${reply}${sent}</article>`;
 }

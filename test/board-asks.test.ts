@@ -91,6 +91,36 @@ test("bokyung's asks stay out of 재일 님 차례, 내 차례 and the lead's re
   expect(readAsk(home, "bk-copy")?.sent).toBeUndefined();
 });
 
+test("확인 필요 shows each person's asks newest first with the KST time; one with no readable time goes last", async () => {
+  const { url, home } = start();
+  const raw = (id: string, createdAt: unknown, who = "bokyung") =>
+    writeFileSync(
+      join(home, "asks", `${id}.json`),
+      JSON.stringify({ id, question: id, options, status: "open", for: who, createdAt }),
+    );
+  raw("bk-iso", "2026-11-13T02:30:00Z");
+  raw("bk-ms", NOW);
+  raw("bk-sec", (NOW - 3_600_000) / 1000);
+  raw("bk-digits", String(NOW - 7_200_000));
+  raw("bk-none", undefined);
+  raw("bk-junk", "어제쥔");
+  raw("jl-new", NOW, "jaeil");
+  expect(byPerson(asks(home)).map((g) => g.asks.map((a) => a.id))).toEqual([
+    ["jl-new", "vg-analytics"],
+    ["bk-iso", "bk-ms", "bk-sec", "bk-digits", "bk-junk", "bk-none"],
+  ]);
+  const [jaeil, bokyung] = listOf(await page(url, "?tab=asks")).split('id="for-bokyung"');
+  const ids = (html = "") => [...html.matchAll(/id="ask-([\w-]+)"/g)].map((m) => m[1]);
+  expect(ids(jaeil)).toEqual(["jl-new", "vg-analytics"]);
+  expect(ids(bokyung)).toEqual(["bk-iso", "bk-ms", "bk-sec", "bk-digits", "bk-junk", "bk-none"]);
+  expect(jaeil).toContain("결정 · vg-analytics · 11/13 09:59 · 1분 전</p>");
+  expect(bokyung).toContain("결정 · bk-iso · 11/13 11:30 · ");
+  expect(bokyung).toContain("결정 · bk-sec · 11/13 09:00 · 1시간 전</p>");
+  expect(bokyung).toContain("결정 · bk-digits · 11/13 08:00 · 2시간 전</p>");
+  expect(bokyung).toContain("결정 · bk-none</p>");
+  expect(bokyung).toContain("결정 · bk-junk</p>");
+});
+
 test("the 확인 필요 tab escapes the question, options, project and link it shows", async () => {
   const { url, home } = start();
   askAdd(home, "bk-xss", {
