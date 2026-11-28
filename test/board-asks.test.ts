@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { askAdd, askFor, asks, parseFor, parseOptions, readAsk } from "../src/asks.ts";
-import { byPerson } from "../src/board-asks.ts";
+import { byPerson, byProject } from "../src/board-asks.ts";
 import { main } from "../src/cli.ts";
 import { NOW, post, start, tailnet, tokenOf } from "./board-setup.ts";
 import { setup } from "./harness-setup.ts";
@@ -89,6 +89,72 @@ test("bokyung's asks stay out of 재일 님 차례, 내 차례 and the lead's re
   expect(res.status).toBe(409);
   expect(sent).toEqual([]);
   expect(readAsk(home, "bk-copy")?.sent).toBeUndefined();
+});
+
+test("확인 필요 shows each person's asks newest first with the KST time; one with no readable time goes last", async () => {
+  const { url, home } = start();
+  const raw = (id: string, createdAt: unknown, who = "bokyung") =>
+    writeFileSync(
+      join(home, "asks", `${id}.json`),
+      JSON.stringify({ id, question: id, options, status: "open", for: who, createdAt }),
+    );
+  raw("bk-iso", "2026-11-13T02:30:00Z");
+  raw("bk-ms", NOW);
+  raw("bk-sec", (NOW - 3_600_000) / 1000);
+  raw("bk-digits", String(NOW - 7_200_000));
+  raw("bk-none", undefined);
+  raw("bk-junk", "어제쥔");
+  raw("jl-new", NOW, "jaeil");
+  expect(byPerson(asks(home)).map((g) => g.asks.map((a) => a.id))).toEqual([
+    ["jl-new", "vg-analytics"],
+    ["bk-iso", "bk-ms", "bk-sec", "bk-digits", "bk-junk", "bk-none"],
+  ]);
+  const [jaeil, bokyung] = listOf(await page(url, "?tab=asks")).split('id="for-bokyung"');
+  const ids = (html = "") => [...html.matchAll(/id="ask-([\w-]+)"/g)].map((m) => m[1]);
+  expect(ids(jaeil)).toEqual(["jl-new", "vg-analytics"]);
+  expect(ids(bokyung)).toEqual(["bk-iso", "bk-ms", "bk-sec", "bk-digits", "bk-junk", "bk-none"]);
+  expect(jaeil).toContain("결정 · vg-analytics · 11/13 09:59 · 1분 전</p>");
+  expect(bokyung).toContain("결정 · bk-iso · 11/13 11:30 · ");
+  expect(bokyung).toContain("결정 · bk-sec · 11/13 09:00 · 1시간 전</p>");
+  expect(bokyung).toContain("결정 · bk-digits · 11/13 08:00 · 2시간 전</p>");
+  expect(bokyung).toContain("결정 · bk-none</p>");
+  expect(bokyung).toContain("결정 · bk-junk</p>");
+});
+
+test("확인 필요 groups each person's asks by project, the one with the newest ask first and 기타 last", async () => {
+  const { url, home } = start();
+  const add = (id: string, project: string | undefined, before: number, who: "jaeil" | "bokyung" = "bokyung") =>
+    askAdd(home, id, { question: id, options, for: who, ...(project ? { project } : {}), now: NOW - before });
+  add("dh-old", "drawhatha", 50_000);
+  add("cp-new", "coupas", 1_000);
+  add("none-new", undefined, 0);
+  add("dh-new", "drawhatha", 500);
+  add("vg-mid", "vibeguard", 2_000);
+  add("jl-cp", "coupas", 0, "jaeil");
+  expect(byPerson(asks(home)).map((g) => byProject(g.asks).map((p) => [p.project, p.asks.map((a) => a.id)]))).toEqual([
+    [
+      ["coupas", ["jl-cp"]],
+      ["기타", ["vg-analytics"]],
+    ],
+    [
+      ["drawhatha", ["dh-new", "dh-old"]],
+      ["coupas", ["cp-new"]],
+      ["vibeguard", ["vg-mid"]],
+      ["기타", ["none-new"]],
+    ],
+  ]);
+  const [, bokyung] = listOf(await page(url, "?tab=asks")).split('id="for-bokyung"');
+  const heads = [...(bokyung ?? "").matchAll(/<h4 class="proj-sec">([^<]+) <span>(\d+)<\/span>/g)].map(
+    (m) => `${m[1]} ${m[2]}`,
+  );
+  expect(heads).toEqual(["drawhatha 2", "coupas 1", "vibeguard 1", "기타 1"]);
+  expect([...(bokyung ?? "").matchAll(/id="ask-([\w-]+)"/g)].map((m) => m[1])).toEqual([
+    "dh-new",
+    "dh-old",
+    "cp-new",
+    "vg-mid",
+    "none-new",
+  ]);
 });
 
 test("the 확인 필요 tab escapes the question, options, project and link it shows", async () => {
