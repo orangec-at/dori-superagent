@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readCoupas } from "../src/board-coupas.ts";
-import { dayOrder } from "../src/board-coupas-html.ts";
+import { dayOrder, linkIn } from "../src/board-coupas-html.ts";
 import { HOST, LOGIN, PHONE, post, start, tailnet, tokenOf } from "./board-setup.ts";
 
 const FIXTURE = readFileSync(join(import.meta.dir, "fixtures", "coupas-posts.json"), "utf8");
@@ -67,6 +67,57 @@ test("the tab shows the cards today first, the text escaped, and every copy box 
   expect(html).toContain('href="/coupas/video?id=2026-11-13-1900-drain-strainer" download>영상 받기</a>');
   expect(html).toContain("AI 정보 라벨을 켜 주세요.");
   expect(html).toContain('<div class="cpd">');
+});
+
+/** The upload table's lines in page order: each line's post id and classes. */
+const rows = (html: string): string[][] =>
+  [...html.matchAll(/<div class="cpbr([^"]*)" data-post="([^"]+)">/g)].map((m) => [m[2]!, m[1]!.trim()]);
+/** What each copy box of one upload-table line holds, as the browser reads it. */
+const lineBoxes = (html: string, id: string): string[] => {
+  const from = html.indexOf(`data-post="${id}"><span class="cpbt">`);
+  const line = html.slice(from, html.indexOf('<div class="cpbr', from + 1));
+  return [...line.matchAll(/<textarea[^>]*>([\s\S]*?)<\/textarea>/g)].map((m) => unesc(m[1]!).replace(/^\n/, ""));
+};
+
+test("the upload table sits above the cards, a line per post by date and time, with its link, texts, video and check", async () => {
+  const s = start();
+  postsIn(s.home);
+  const html = await page(s.url);
+  const list = html.slice(0, html.indexOf('<main class="pane">'));
+  expect(list.indexOf('<section class="cpb"')).toBeLessThan(list.indexOf('<section class="cpx"'));
+  expect(rows(list)).toEqual([
+    ["2026-11-12-1900-sponge", "late"],
+    ["2026-11-13-1230-cable-tidy", "today"],
+    ["2026-11-13-1900-drain-strainer", "today"],
+    ["2026-11-14-2130-lunch-box", ""],
+  ]);
+  expect(list).toContain('<span class="cpl">밀림</span>');
+  expect(list).toContain("업로드 표 <span>밀림 1</span>");
+  const f = JSON.parse(FIXTURE) as Fixture;
+  // Link, body, first reply; a post without a product or reply has only its body to copy.
+  expect(lineBoxes(list, "2026-11-13-1900-drain-strainer")).toEqual([
+    "https://link.coupang.com/a/example1",
+    f.posts[0]!.body,
+    f.posts[0]!.reply,
+  ]);
+  expect(lineBoxes(list, "2026-11-13-1230-cable-tidy")).toEqual([f.posts[1]!.body]);
+  expect(lineBoxes(list, "2026-11-14-2130-lunch-box")[0]).toBe("https://link.coupang.com/a/example2");
+  expect(list).toContain('<a class="cpbtn" href="/coupas/video?id=2026-11-13-1900-drain-strainer" download>영상</a>');
+  expect(list).toContain('value="posted" aria-label="선 정리 클립 올렸음">올림</button>');
+  expect(linkIn("보기(https://link.coupang.com/a/x1), 끝")).toBe("https://link.coupang.com/a/x1");
+  expect(linkIn("https://www.coupang.com/vp/1")).toBe("");
+
+  // The check is the card's POST /coupas: posted shows ✓ and when, undo takes it back; an all-up past day folds.
+  const csrf = await tokenOf(s.url);
+  await post(s.url, "/coupas", { csrf, id: "2026-11-12-1900-sponge", action: "posted" }, tailnet());
+  const after = await page(s.url);
+  const fold = after.slice(after.indexOf('<details class="cpbd">'), after.indexOf("</details>"));
+  expect(fold).toContain("지난 글 1개 · 다 올렸음");
+  expect(rows(fold)).toEqual([["2026-11-12-1900-sponge", "done"]]);
+  expect(fold).toContain('value="undo" aria-label="수세미 업로드 체크 풀기">✓ <small>11-13 10:00</small>');
+  expect(after).not.toContain("밀림");
+  await post(s.url, "/coupas", { csrf, id: "2026-11-12-1900-sponge", action: "undo" }, tailnet());
+  expect(await page(s.url)).not.toContain('<details class="cpbd">');
 });
 
 test("no posts.json, or one that is not a post list: the tab says there is nothing to post yet", async () => {

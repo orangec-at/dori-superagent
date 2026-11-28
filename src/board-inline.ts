@@ -1,6 +1,6 @@
 import { readAsk } from "./asks.ts";
 import { readCoupas } from "./board-coupas.ts";
-import { coupasCard } from "./board-coupas-html.ts";
+import { coupasCard, coupasRow } from "./board-coupas-html.ts";
 import { flashNote } from "./board-html.ts";
 import { boardState } from "./board-state.ts";
 import { projectTasks } from "./board-tasks.ts";
@@ -26,13 +26,29 @@ type Inline = { now: number; token: string; headers: Record<string, string>; see
 /**
  * `card`: the card's new html, null when it stays as it was (held, failed). `gone`: the ask or post is no longer open,
  * so its buttons go. `held`: the delivery may have reached the lead, so the buttons stay off (pressing again would send
- * it twice). `v`: the version the page shows now, null when another change came before this write.
+ * it twice). `v`: the version the page shows now, null when another change came before this write. `row`: 쿠파스 only,
+ * the post's upload-table line.
  */
-type CardReply = { card: string | null; gone: boolean; held: boolean; note: string; bad: boolean; v: string | null };
+type CardReply = {
+  card: string | null;
+  row?: string;
+  gone: boolean;
+  held: boolean;
+  note: string;
+  bad: boolean;
+  v: string | null;
+};
 
-const reply = (card: string | null, gone: boolean, flash: string, o: Inline): Response =>
+const reply = (card: string | null, gone: boolean, flash: string, o: Inline, row?: string | null): Response =>
   Response.json(
-    { card, gone, held: flash === "held", ...flashNote(flash), v: o.seen ? o.fresh() : null } satisfies CardReply,
+    {
+      card,
+      ...(row ? { row } : {}),
+      gone,
+      held: flash === "held",
+      ...flashNote(flash),
+      v: o.seen ? o.fresh() : null,
+    } satisfies CardReply,
     {
       headers: o.headers,
     },
@@ -47,8 +63,9 @@ export function decideReply(home: string, id: string, flash: string, o: Inline):
 
 /** The answer to a background /coupas the board accepted: the post's card with what posted.json says now. */
 export function coupasReply(home: string, id: string, o: Inline): Response {
-  const card = coupasCard(readCoupas(home), id, o.token);
-  return reply(card, card === null, "coupas", o);
+  const c = readCoupas(home);
+  const card = coupasCard(c, id, o.token);
+  return reply(card, card === null, "coupas", o, coupasRow(c, id, o.token, o.now));
 }
 
 /**
