@@ -17,7 +17,15 @@ function postsIn(home: string): void {
   );
 }
 
-type Reply = { card: string | null; gone: boolean; held: boolean; note: string; bad: boolean; v: string | null };
+type Reply = {
+  card: string | null;
+  row?: string;
+  gone: boolean;
+  held: boolean;
+  note: string;
+  bad: boolean;
+  v: string | null;
+};
 
 /** The page's csrf token and the version it shows, as board.js reads them. */
 async function pageOf(url: string): Promise<{ csrf: string; v: string }> {
@@ -153,6 +161,8 @@ test("a background [올렸음] gets the post's card marked posted; a form still 
   expect(j.gone).toBe(false);
   expect(j.card).toStartWith(`<article class="cpc" data-post="${POST_ID}">`);
   expect(j.card).toContain('<p class="cps">올렸음 · ');
+  expect(j.row).toStartWith(`<div class="cpbr today done" data-post="${POST_ID}">`);
+  expect(j.row).toContain('value="undo" aria-label=');
   expect(j.note).toBe("기록했어요.");
   expect(Object.keys(JSON.parse(readFileSync(join(home, "coupas-copy", "posted.json"), "utf8")))).toEqual([POST_ID]);
 

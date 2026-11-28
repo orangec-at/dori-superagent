@@ -190,7 +190,7 @@
   // buttons can be pressed again; a held answer keeps them off. Without this script the form posts.
   const CARD = {
     "/decide": ["article.ask", (c) => c.id],
-    "/coupas": ["article.cpc", (c) => c.dataset.post],
+    "/coupas": ["article.cpc, div.cpbr", (c) => c.dataset.post],
     "/backlog": ["div.tk", (c) => c.id],
   };
   document.addEventListener("submit", async (e) => {
@@ -236,7 +236,8 @@
             let next = old;
             if (j.card) {
               const t = document.createElement("template");
-              t.innerHTML = j.card;
+              // A 쿠파스 upload-table line takes its own new line, the cards the card.
+              t.innerHTML = j.row && old.matches("div.cpbr") ? j.row : j.card;
               next = t.content.firstElementChild;
               if (old.id) next.id = old.id;
               // A read-only copy (an ask another person answers) stays without buttons.

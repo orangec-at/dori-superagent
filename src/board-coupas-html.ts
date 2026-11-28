@@ -15,7 +15,18 @@ export const COUPAS_STYLE = `.cpc{background:var(--panel);border:1px solid var(-
 .cpok{color:var(--green);font-weight:600;align-self:center;font-size:13.5px}.cpv{display:flex;margin:10px 0 0}.cpai{margin:4px 0 0}
 .cpu{width:100%;min-height:44px;margin:10px 0 8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
 .cps{margin:10px 0 0;color:var(--green);font-weight:600;font-size:13.5px;overflow-wrap:anywhere}.cpd{width:100%;max-width:760px;margin:0 auto;padding:16px}
-@media (min-width:768px){.list .cpc>:not(.rt):not(.cpm){display:none}.list .cpc{padding:8px 12px;margin:6px 4px}}`;
+.cpb{margin:8px 4px 18px}.cpb>.sec{margin:6px 6px 6px}.cpbd>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:8px 6px;min-height:44px;display:flex;align-items:center}
+.cpbr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px;margin:0 0 6px}
+.cpbr.today{border:2px solid var(--blue);background:color-mix(in srgb,var(--blue) 8%,var(--panel))}.cpbr.late{border-color:var(--needs)}.cpbr.done .cpbt b{color:var(--muted)}
+.cpbt{min-width:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;font-size:14px}.cpbt time{color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}.cpbt b{overflow-wrap:anywhere}
+.cpl{font-size:12px;font-weight:600;padding:1px 6px;border-radius:999px;background:color-mix(in srgb,var(--needs) 18%,transparent);color:var(--needs)}
+.cpbf fieldset{border:0;margin:0;padding:0}.cpck{min-height:44px;min-width:64px;padding:6px 10px;border-radius:10px;border:1px solid var(--line);background:var(--bubble);color:var(--text);font:inherit;font-size:13.5px}
+.cpck.on{color:var(--green);font-weight:600;border-color:color-mix(in srgb,var(--green) 50%,transparent)}.cpck small{font-weight:400;font-size:11.5px}
+.cpbc{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.cpbc .cpf{margin:0;position:relative;min-width:0}.cpbc .cpbtn{min-height:44px;padding:6px;font-size:13.5px}
+.cpbc .cpt{position:absolute;inset:0;width:100%;height:100%;min-height:0;margin:0;padding:0;border:0;opacity:0;pointer-events:none;resize:none}
+.cpbc button[data-copy]{position:relative;width:100%;min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:6px 4px;overflow:hidden;font-size:13.5px}
+.cpbc .cpok{position:absolute;top:100%;left:0;z-index:1;font-size:11.5px;white-space:nowrap;background:var(--panel);border-radius:6px;padding:1px 4px}.cpbr .fnote{grid-column:1/-1;margin:0}
+@media (min-width:768px){.list .cpc>:not(.rt):not(.cpm){display:none}.list .cpc{padding:8px 12px;margin:6px 4px}.list .cpb{display:none}}`;
 
 const EMPTY = `<p class="note">아직 올릴 글이 없어요.</p>`;
 const DAY = 86_400_000;
@@ -52,6 +63,62 @@ const field = (label: string, text: string): string =>
   `<div class="buttons"><button type="button" data-copy aria-label="${label} 복사">${COPY_ICON}` +
   `<span class="cpr" aria-hidden="true"><span class="cpw"><b>${label} 복사</b><b>복사됨</b></span></span></button><span class="cpok" role="status" hidden></span></div></div>`;
 
+/** The first Coupang link in a post's first reply, or "" for a post without a product. */
+export const linkIn = (reply: string): string => reply.match(/https:\/\/link\.coupang\.com\/[^\s<>"'(),]+/)?.[0] ?? "";
+
+/** A copy button of the upload table: the same box, button and board.js code as a card's field, the box kept out of sight. */
+const copyCell = (label: string, short: string, text: string): string =>
+  `<div class="cpf"><textarea class="cpt" readonly tabindex="-1" aria-hidden="true">\n${esc(text)}</textarea>` +
+  `<span class="cpq"><button type="button" data-copy aria-label="${label} 복사">${COPY_ICON}` +
+  `<span class="cpr" aria-hidden="true"><span class="cpw"><b>${short}</b><b>복사됨</b></span></span></button><span class="cpok" role="status" hidden></span></span></div>`;
+const NO_CELL = `<span></span>`;
+
+/**
+ * One post's line in the upload table: when, title, the copy buttons, its video and the upload check, which is the
+ * card's POST /coupas (`posted`, then `undo`) as it is. `today` marks it; a past post not yet up is 밀림.
+ */
+function row(p: CoupasPost, done: Posted | undefined, token: string | null, today: string): string {
+  const late = !done && p.date < today;
+  const link = linkIn(p.reply);
+  const check = done
+    ? `<button class="cpck on" name="action" value="undo" aria-label="${esc(p.title)} 업로드 체크 풀기">✓ <small>${esc(kstOf(done.postedAt))}</small></button>`
+    : `<button class="cpck" name="action" value="posted" aria-label="${esc(p.title)} 올렸음">올림</button>`;
+  return (
+    `<div class="cpbr${p.date === today ? " today" : ""}${late ? " late" : ""}${done ? " done" : ""}" data-post="${esc(p.id)}">` +
+    `<span class="cpbt"><time>${esc(p.date.slice(5))} ${esc(p.time)}</time>${late ? `<span class="cpl">밀림</span>` : ""}<b>${esc(p.title)}</b></span>` +
+    form("/coupas", token, `<input type="hidden" name="id" value="${esc(p.id)}">${check}`, "cpbf") +
+    `<div class="cpbc">${link ? copyCell("링크", "링크", link) : NO_CELL}${copyCell("글", "글", p.body)}` +
+    `${p.reply ? copyCell("첫 답글", "답글", p.reply) : NO_CELL}` +
+    `${p.video ? `<a class="cpbtn" href="${esc(`/coupas/video?id=${encodeURIComponent(p.id)}`)}" download>영상</a>` : NO_CELL}</div></div>`
+  );
+}
+
+const todayOf = (now: number): string => new Date(now + KST).toISOString().slice(0, 10);
+
+/** One post's upload-table line as posted.json says now, or null when posts.json no longer has it. */
+export function coupasRow(c: CoupasRead | null, id: string, token: string | null, now: number): string | null {
+  const p = c?.posts.find((x) => x.id === id);
+  return c && p ? row(p, c.posted[id], token, todayOf(now)) : null;
+}
+
+/** The upload table: a line per post by date and time; past days that are all up fold away at its top. */
+function uploadTable(c: CoupasRead, token: string | null, today: string): string {
+  const at = (p: CoupasPost): string => `${p.date} ${p.time}`;
+  const posts = [...c.posts].sort((a, b) => (at(a) < at(b) ? -1 : at(a) > at(b) ? 1 : 0));
+  const allUp = (d: string): boolean => d < today && posts.every((p) => p.date !== d || c.posted[p.id]);
+  const folded = posts.filter((p) => allUp(p.date));
+  const open = posts.filter((p) => !allUp(p.date));
+  const late = open.filter((p) => p.date < today && !c.posted[p.id]).length;
+  const line = (p: CoupasPost): string => row(p, c.posted[p.id], token, today);
+  return (
+    `<section class="cpb" aria-label="업로드 표"><h3 class="sec"><span${late ? ` class="needs"` : ""}>업로드 표${late ? ` <span>밀림 ${late}</span>` : ""}</span></h3>` +
+    (folded.length
+      ? `<details class="cpbd"><summary>지난 글 ${folded.length}개 · 다 올렸음</summary>${folded.map(line).join("")}</details>`
+      : "") +
+    `${open.map(line).join("")}</section>`
+  );
+}
+
 function status(p: CoupasPost, done: Posted | undefined, token: string | null): string {
   const url = (value: string) =>
     `<input class="cpu" name="url" type="url" maxlength="500" value="${esc(value)}" placeholder="글 주소 (선택)" aria-label="글 주소">`;
@@ -84,7 +151,7 @@ export function coupasCard(c: CoupasRead | null, id: string, token: string | nul
 /** The cards grouped by day, today first, each day by time. `anchor`: the cards carry the ids a write returns to. */
 export function coupasTab(c: CoupasRead | null, now: number, token: string | null, anchor = true): string {
   if (!c?.posts.length) return EMPTY;
-  const today = new Date(now + KST).toISOString().slice(0, 10);
+  const today = todayOf(now);
   const days = dayOrder(
     c.posts.map((p) => p.date),
     today,
@@ -104,7 +171,12 @@ export function coupasTab(c: CoupasRead | null, now: number, token: string | nul
     );
   });
   const head = `<p class="note">${c.updatedAt ? `${esc(kstOf(c.updatedAt))} 기준 · ` : ""}복사해서 Threads 앱에 직접 올려요.</p>`;
-  return head + (c.dropped ? `<p class="note">형식이 맞지 않는 글 ${c.dropped}개는 뺐어요.</p>` : "") + days.join("");
+  return (
+    head +
+    (c.dropped ? `<p class="note">형식이 맞지 않는 글 ${c.dropped}개는 뺐어요.</p>` : "") +
+    uploadTable(c, token, today) +
+    days.join("")
+  );
 }
 
 /** The wide pane on a desktop: the same cards, wider. */
