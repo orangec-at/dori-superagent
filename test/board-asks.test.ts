@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { askAdd, askFor, asks, parseFor, parseOptions, readAsk } from "../src/asks.ts";
-import { byPerson } from "../src/board-asks.ts";
+import { byPerson, byProject } from "../src/board-asks.ts";
 import { main } from "../src/cli.ts";
 import { NOW, post, start, tailnet, tokenOf } from "./board-setup.ts";
 import { setup } from "./harness-setup.ts";
@@ -119,6 +119,42 @@ test("확인 필요 shows each person's asks newest first with the KST time; one
   expect(bokyung).toContain("결정 · bk-digits · 11/13 08:00 · 2시간 전</p>");
   expect(bokyung).toContain("결정 · bk-none</p>");
   expect(bokyung).toContain("결정 · bk-junk</p>");
+});
+
+test("확인 필요 groups each person's asks by project, the one with the newest ask first and 기타 last", async () => {
+  const { url, home } = start();
+  const add = (id: string, project: string | undefined, before: number, who: "jaeil" | "bokyung" = "bokyung") =>
+    askAdd(home, id, { question: id, options, for: who, ...(project ? { project } : {}), now: NOW - before });
+  add("dh-old", "drawhatha", 50_000);
+  add("cp-new", "coupas", 1_000);
+  add("none-new", undefined, 0);
+  add("dh-new", "drawhatha", 500);
+  add("vg-mid", "vibeguard", 2_000);
+  add("jl-cp", "coupas", 0, "jaeil");
+  expect(byPerson(asks(home)).map((g) => byProject(g.asks).map((p) => [p.project, p.asks.map((a) => a.id)]))).toEqual([
+    [
+      ["coupas", ["jl-cp"]],
+      ["기타", ["vg-analytics"]],
+    ],
+    [
+      ["drawhatha", ["dh-new", "dh-old"]],
+      ["coupas", ["cp-new"]],
+      ["vibeguard", ["vg-mid"]],
+      ["기타", ["none-new"]],
+    ],
+  ]);
+  const [, bokyung] = listOf(await page(url, "?tab=asks")).split('id="for-bokyung"');
+  const heads = [...(bokyung ?? "").matchAll(/<h4 class="proj-sec">([^<]+) <span>(\d+)<\/span>/g)].map(
+    (m) => `${m[1]} ${m[2]}`,
+  );
+  expect(heads).toEqual(["drawhatha 2", "coupas 1", "vibeguard 1", "기타 1"]);
+  expect([...(bokyung ?? "").matchAll(/id="ask-([\w-]+)"/g)].map((m) => m[1])).toEqual([
+    "dh-new",
+    "dh-old",
+    "cp-new",
+    "vg-mid",
+    "none-new",
+  ]);
 });
 
 test("the 확인 필요 tab escapes the question, options, project and link it shows", async () => {

@@ -47,6 +47,30 @@ export const kstStamp = (t: number): string =>
 const newestFirst = (a: Ask, b: Ask): number =>
   (askTime(b) ?? -Infinity) - (askTime(a) ?? -Infinity) || a.id.localeCompare(b.id);
 
+/** The group of the asks with no project, after every named one. */
+export const NO_PROJECT = "기타";
+
+/**
+ * Asks (already newest first) by their `project`, newest first inside each; the project whose newest ask came last goes
+ * first (ties by name), and the asks with no project go last in 기타.
+ */
+export function byProject(list: Ask[]): { project: string; asks: Ask[] }[] {
+  const groups = new Map<string, Ask[]>();
+  for (const a of list) {
+    const p = a.project?.trim() || NO_PROJECT;
+    groups.set(p, [...(groups.get(p) ?? []), a]);
+  }
+  const newest = (asks: Ask[]): number => Math.max(...asks.map((a) => askTime(a) ?? -Infinity));
+  return [...groups]
+    .map(([project, asks]) => ({ project, asks }))
+    .sort(
+      (a, b) =>
+        Number(a.project === NO_PROJECT) - Number(b.project === NO_PROJECT) ||
+        newest(b.asks) - newest(a.asks) ||
+        a.project.localeCompare(b.project),
+    );
+}
+
 /** The open asks by who answers them, in ASK_FOR order, newest first; a person with none keeps an empty group. */
 export const byPerson = (checks: Ask[]): { who: AskFor; label: string; asks: Ask[] }[] =>
   ASK_FOR.map((who) => ({

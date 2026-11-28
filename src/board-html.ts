@@ -62,7 +62,7 @@ h3.needs{margin:0;font-size:15px;color:var(--needs)}.msg{display:flex;flex-direc
 overflow-wrap:anywhere;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}.more summary{color:var(--link);cursor:pointer}
 .prs summary{cursor:pointer;font-weight:600}.prs ul{margin:6px 0 0;padding-left:18px}.note{color:var(--muted);font-size:13px;margin:6px 10px}
 .ask{background:color-mix(in srgb,var(--needs) 9%,var(--panel));border:1px solid color-mix(in srgb,var(--needs) 45%,transparent);border-radius:14px;padding:12px 14px}
-.asks .ask{overflow-wrap:anywhere}.kicker{margin:0 0 4px;color:var(--needs);font-size:13px}.q{font-weight:600;margin:0 0 6px}.opts{margin:0 0 10px;padding-left:20px}
+.asks .ask{overflow-wrap:anywhere}.proj-sec{margin:12px 2px 6px;font-size:13px;font-weight:600;color:var(--muted);overflow-wrap:anywhere}.proj-sec span{font-weight:400}.kicker{margin:0 0 4px;color:var(--needs);font-size:13px}.q{font-weight:600;margin:0 0 6px}.opts{margin:0 0 10px;padding-left:20px}
 .opts em{color:var(--needs);font-style:normal;font-size:12px}fieldset{border:0;margin:0;padding:0;min-width:0}.buttons{display:flex;flex-wrap:wrap;gap:8px}
 button{font:inherit;min-height:42px;min-width:52px;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bubble);color:var(--text);cursor:pointer}
 button.primary{background:var(--needs);border-color:var(--needs);color:#1b1200;font-weight:600}fieldset:disabled button,fieldset:disabled textarea{opacity:.45}
